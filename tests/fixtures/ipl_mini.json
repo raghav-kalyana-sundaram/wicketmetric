@@ -1,0 +1,94 @@
+{
+  "meta": { "data_version": "1.2.0", "created": "2026-01-01", "revision": 1 },
+  "info": {
+    "balls_per_over": 6,
+    "city": "Mumbai",
+    "dates": ["2024-04-01"],
+    "event": { "name": "Indian Premier League" },
+    "gender": "male",
+    "match_type": "T20",
+    "outcome": { "winner": "Mumbai Indians", "by": { "runs": 12 } },
+    "overs": 20,
+    "players": {
+      "Mumbai Indians": ["V Kohli", "RG Sharma", "JJ Bumrah", "SA Yadav", "Ishan Kishan", "TH David", "HH Pandya", "KA Pollard", "KH Pandya", "SL Malinga", "MJ McClenaghan"],
+      "Chennai Super Kings": ["MS Dhoni", "RD Gaikwad", "AM Rahane", "S Dube", "RA Jadeja", "MM Ali", "DL Chahar", "TU Deshpande", "M Pathirana", "M Theekshana", "DP Conway"]
+    },
+    "registry": {
+      "people": {
+        "V Kohli": "ba607b88",
+        "RG Sharma": "aaaa1111",
+        "JJ Bumrah": "bbbb2222",
+        "SA Yadav": "cccc3333",
+        "Ishan Kishan": "dddd4444",
+        "TH David": "eeee5555",
+        "HH Pandya": "ffff6666",
+        "KA Pollard": "gggg7777",
+        "KH Pandya": "hhhh8888",
+        "SL Malinga": "iiii9999",
+        "MJ McClenaghan": "jjjj0000",
+        "MS Dhoni": "kkkk1111",
+        "RD Gaikwad": "llll2222",
+        "AM Rahane": "mmmm3333",
+        "S Dube": "nnnn4444",
+        "RA Jadeja": "oooo5555",
+        "MM Ali": "pppp6666",
+        "DL Chahar": "qqqq7777",
+        "TU Deshpande": "rrrr8888",
+        "M Pathirana": "ssss9999",
+        "M Theekshana": "tttt0000",
+        "DP Conway": "uuuu1111"
+      }
+    },
+    "season": "2024",
+    "team_type": "club",
+    "teams": ["Mumbai Indians", "Chennai Super Kings"],
+    "toss": { "decision": "field", "winner": "Chennai Super Kings" },
+    "venue": "Wankhede Stadium"
+  },
+  "innings": [
+    {
+      "team": "Mumbai Indians",
+      "overs": [
+        {
+          "over": 0,
+          "deliveries": [
+            { "batter": "RG Sharma", "bowler": "DL Chahar", "non_striker": "V Kohli", "runs": { "batter": 1, "extras": 0, "total": 1 } },
+            { "batter": "V Kohli", "bowler": "DL Chahar", "non_striker": "RG Sharma", "runs": { "batter": 4, "extras": 0, "total": 4 } },
+            { "batter": "V Kohli", "bowler": "DL Chahar", "non_striker": "RG Sharma", "runs": { "batter": 6, "extras": 0, "total": 6 } },
+            { "batter": "V Kohli", "bowler": "DL Chahar", "non_striker": "RG Sharma", "runs": { "batter": 1, "extras": 0, "total": 1 } },
+            { "batter": "RG Sharma", "bowler": "DL Chahar", "non_striker": "V Kohli", "runs": { "batter": 0, "extras": 0, "total": 0 } },
+            { "batter": "RG Sharma", "bowler": "DL Chahar", "non_striker": "V Kohli", "runs": { "batter": 2, "extras": 0, "total": 2 } }
+          ]
+        },
+        {
+          "over": 1,
+          "deliveries": [
+            { "batter": "V Kohli", "bowler": "TU Deshpande", "non_striker": "RG Sharma", "runs": { "batter": 4, "extras": 0, "total": 4 } },
+            { "batter": "V Kohli", "bowler": "TU Deshpande", "non_striker": "RG Sharma", "runs": { "batter": 4, "extras": 0, "total": 4 } },
+            { "batter": "V Kohli", "bowler": "TU Deshpande", "non_striker": "RG Sharma", "runs": { "batter": 6, "extras": 0, "total": 6 } },
+            { "batter": "V Kohli", "bowler": "TU Deshpande", "non_striker": "RG Sharma", "runs": { "batter": 1, "extras": 0, "total": 1 } },
+            { "batter": "RG Sharma", "bowler": "TU Deshpande", "non_striker": "V Kohli", "runs": { "batter": 0, "extras": 0, "total": 0 }, "wickets": [{ "player_out": "RG Sharma", "kind": "bowled" }] },
+            { "batter": "SA Yadav", "bowler": "TU Deshpande", "non_striker": "V Kohli", "runs": { "batter": 1, "extras": 0, "total": 1 } }
+          ]
+        }
+      ]
+    },
+    {
+      "team": "Chennai Super Kings",
+      "target": { "overs": 20, "runs": 31 },
+      "overs": [
+        {
+          "over": 0,
+          "deliveries": [
+            { "batter": "RD Gaikwad", "bowler": "JJ Bumrah", "non_striker": "DP Conway", "runs": { "batter": 0, "extras": 0, "total": 0 } },
+            { "batter": "RD Gaikwad", "bowler": "JJ Bumrah", "non_striker": "DP Conway", "runs": { "batter": 1, "extras": 0, "total": 1 } },
+            { "batter": "DP Conway", "bowler": "JJ Bumrah", "non_striker": "RD Gaikwad", "runs": { "batter": 0, "extras": 0, "total": 0 }, "wickets": [{ "player_out": "DP Conway", "kind": "bowled" }] },
+            { "batter": "AM Rahane", "bowler": "JJ Bumrah", "non_striker": "RD Gaikwad", "runs": { "batter": 0, "extras": 0, "total": 0 } },
+            { "batter": "AM Rahane", "bowler": "JJ Bumrah", "non_striker": "RD Gaikwad", "runs": { "batter": 4, "extras": 0, "total": 4 } },
+            { "batter": "AM Rahane", "bowler": "JJ Bumrah", "non_striker": "RD Gaikwad", "runs": { "batter": 0, "extras": 1, "total": 1 }, "extras": { "wides": 1 } }
+          ]
+        }
+      ]
+    }
+  ]
+}
