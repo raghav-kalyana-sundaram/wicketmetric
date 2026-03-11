@@ -33,7 +33,7 @@ ENV DATA_ROOT=/app
 # ── 5. Respect Railway's dynamic PORT ────────────────────────────
 # Railway injects $PORT at runtime. Default to 8000 for local builds.
 ENV HOST=0.0.0.0
-ENV PORT=8000
+
 
 EXPOSE ${PORT}
 
