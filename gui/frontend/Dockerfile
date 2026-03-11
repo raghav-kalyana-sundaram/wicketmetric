@@ -22,13 +22,17 @@ FROM node:18-alpine AS runtime
 WORKDIR /app
 
 # Install a lightweight static file server
-RUN npm install -g serve@14
+# Pin to v13 for stable, simple CLI flag support (-s, -p)
+RUN npm install -g serve@13
 
 # Copy built assets from the build stage
 COPY --from=build /app/dist ./dist
 
-EXPOSE 3000
+# Railway injects $PORT dynamically; default to 3000 for local use
+ENV PORT=3000
+EXPOSE ${PORT}
 
-# Serve the built frontend on port 3000
+# Serve the built frontend
 # -s flag enables single-page application mode (rewrites to index.html)
-CMD ["serve", "-s", "dist", "-l", "3000"]
+# -p flag sets the port (works reliably in serve@13)
+CMD serve -s dist -p ${PORT}

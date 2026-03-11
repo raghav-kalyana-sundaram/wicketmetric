@@ -139,23 +139,26 @@ Click **"New Project"** → **"Deploy from GitHub Repo"** → select your `crick
 
 ### Step 3: Configure the Backend service
 
-Railway auto-detects the repo but you need to tell it where the backend lives:
+The backend needs access to the `output_t20i/` and `output_ipl/` data directories
+at the project root, so it **must** be built from the repo root using the
+`Dockerfile.backend` file (not from `gui/backend/`).
 
 1. Click on the service → **Settings**
-2. Set **Root Directory** to `gui/backend`
-3. Set **Build Command**: `pip install -r requirements.txt`
-4. Set **Start Command**: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-5. Add these **Environment Variables**:
+2. Set **Root Directory** to `/` (repo root — leave blank or set to `/`)
+3. Set **Dockerfile Path** to `Dockerfile.backend`
+4. **No Build Command or Start Command needed** — the Dockerfile handles both.
+5. Add these **Environment Variables** (optional — the Dockerfile sets sensible defaults):
 
-| Variable | Value |
-|---|---|
-| `PORT` | `8000` |
-| `HOST` | `0.0.0.0` |
+| Variable | Value | Notes |
+|---|---|---|
+| `PORT` | *(leave unset)* | Railway injects this automatically |
+| `DATA_ROOT` | `/app` | Already set in Dockerfile; only override if needed |
 
-> **Do NOT set `OUTPUT_DIR`.** The backend auto-discovers `output_t20i/` and
-> `output_ipl/` relative to the project root. Railway clones the full repo,
-> so the directories will be at `../../output_t20i/` and `../../output_ipl/`
-> relative to `gui/backend/`, which is exactly where the backend expects them.
+> **Why the repo root?** The backend Dockerfile copies `output_t20i/` and
+> `output_ipl/` into the image. These directories live at the project root,
+> so the Docker build context must include them. Setting the root directory
+> to `gui/backend/` would exclude the data and cause the app to start with
+> no data loaded (the "Application failed to respond" error).
 
 6. Under **Networking**, click **"Generate Domain"** to get a public URL (e.g. `cricket-metrics-backend-production.up.railway.app`).
 
@@ -163,9 +166,10 @@ Railway auto-detects the repo but you need to tell it where the backend lives:
 
 1. In the same project, click **"New"** → **"GitHub Repo"** → select the same repo again.
 2. Set **Root Directory** to `gui/frontend`
-3. Set **Build Command**: `npm ci && npm run build`
-4. Set **Start Command**: `npx serve -s dist -l $PORT`
-5. Add these **Environment Variables**:
+3. Railway will auto-detect the `Dockerfile`. Alternatively, for a non-Docker deploy:
+   - Set **Build Command**: `npm ci && npm run build`
+   - Set **Start Command**: `npx serve@13 -s dist -p $PORT`
+4. Add these **Environment Variables**:
 
 | Variable | Value |
 |---|---|
