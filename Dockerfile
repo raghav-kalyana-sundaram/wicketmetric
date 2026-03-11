@@ -35,7 +35,7 @@ ENV DATA_ROOT=/app
 ENV HOST=0.0.0.0
 
 
-EXPOSE ${PORT}
+EXPOSE 8080
 
 # Use shell form so $PORT is expanded at runtime
-CMD uvicorn app:app --host 0.0.0.0 --port ${PORT}
+CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
