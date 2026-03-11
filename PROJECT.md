@@ -343,14 +343,18 @@ TrueSkill-inspired hierarchical Bayesian rating (see [Section 7](#7-rating-syste
 
 **Overall Score:** Weighted mean of dimension scores with superstar bonus (capped at single best dimension, +10% weight per dimension ≥ 90).
 
-**Batting Archetypes** (11 types, first-match-wins, up to 3 assigned):
+**Batting Archetypes** (13 types, first-match-wins, up to 3 assigned):
+
+Archetypes are now **position-aware** — `_conditions_match()` supports `position_min` / `position_max` conditions that read the batter's `modal_position` (most frequent batting position, 1–11). This prevents top-order batters with elite ACC+POW from being labelled "Explosive Finisher" when they should be "Explosive Opener".
 
 | Archetype | Key Condition(s) |
 |-----------|-----------------|
-| Explosive Finisher | ACC ≥ 85, POW ≥ 85 |
+| Explosive Opener | ACC ≥ 85, POW ≥ 85, position ≤ 3 |
+| Explosive Finisher | ACC ≥ 85, POW ≥ 85, position ≥ 4 |
 | Power Hitter | POW ≥ 85, CTRL ≤ 50 |
 | Pinch Hitter | ACC ≥ 85, CTRL ≤ 45 |
-| Aggressive Opener | ACC ≥ 80, POW ≥ 65 |
+| Aggressive Opener | ACC ≥ 80, POW ≥ 65, position ≤ 3 |
+| Power Middle-Order | ACC ≥ 80, POW ≥ 65, position ≥ 4 |
 | Classic Anchor | CTRL ≥ 80, ACC ≤ 55 |
 | Power Anchor | POW ≥ 75, CTRL ≥ 70 |
 | All-Round Elite | ACC ≥ 72, POW ≥ 68, CTRL ≥ 68 |
@@ -1021,11 +1025,11 @@ Major features implemented:
 
 ## 20. Roadmap (v3.0)
 
-The following changes are planned for v3.0. **None have been implemented yet.**
+The following changes are planned for v3.0.
 
-### Archetype Classification Fix
-**Problem:** Openers (Abhishek Sharma, Chris Gayle, etc.) are being labelled as "Explosive Finisher" because the archetype system only checks score thresholds (ACC ≥ 85, POW ≥ 85), not batting position. A finisher should be someone who finishes the **team** innings (bats in the death overs at positions 5–7), not just someone who scores fast.
-**Fix:** Incorporate batting position and death-overs contribution percentage into archetype assignment. Players who primarily bat in positions 1–3 with most runs in powerplay/middle should get opener/top-order archetypes regardless of their ACC/POW scores.
+### ~~Archetype Classification Fix~~ ✅ Done
+**Problem:** Openers (Abhishek Sharma, Chris Gayle, etc.) were being labelled as "Explosive Finisher" because the archetype system only checked score thresholds (ACC ≥ 85, POW ≥ 85), not batting position.
+**Fix:** Added `position_min` / `position_max` conditions to `_conditions_match()` in `presentation.py`. "Explosive Finisher" now requires `position ≥ 4`. New "Explosive Opener" archetype (ACC ≥ 85, POW ≥ 85, position ≤ 3) for top-order power hitters. "Aggressive Opener" gated to position ≤ 3; new "Power Middle-Order" for position ≥ 4. Updated `team.py` `_BATTING_ARCHETYPES` set and `ArchetypeBadge.tsx` icons/colours for new archetypes.
 
 ### Rating Rebalance — Reduce Finisher Overvaluation
 **Problem:** Players like Dhoni are rated comparably to Kohli despite significantly fewer total runs, because the explosive finisher archetype gets disproportionate acceleration/power scores from death-overs performance. The system undervalues volume and sustained production.

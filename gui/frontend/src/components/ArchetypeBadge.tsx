@@ -27,31 +27,33 @@
 
 const ARCHETYPE_ICONS: Record<string, string> = {
   // Batting archetypes
-  'Anchor': '🎯',
-  'Chase Master': '🏃',
-  'Explosive Finisher': '⚡',
-  'Power Hitter': '💥',
-  'Accumulator': '📊',
-  'All-Phase': '🎨',
-  'Aggressive Opener': '🚀',
-  'Top-Order Anchor': '🎯',
-  'Middle-Order Finisher': '⚡',
-  'Floater': '🔄',
+  Anchor: "🎯",
+  "Chase Master": "🏃",
+  "Explosive Finisher": "⚡",
+  "Explosive Opener": "💫",
+  "Power Hitter": "💥",
+  "Power Middle-Order": "🔱",
+  Accumulator: "📊",
+  "All-Phase": "🎨",
+  "Aggressive Opener": "🚀",
+  "Top-Order Anchor": "🎯",
+  "Middle-Order Finisher": "⚡",
+  Floater: "🔄",
 
   // Bowling archetypes
-  'Wicket-Taker': '🎳',
-  'Economy Specialist': '🛡️',
-  'Death Specialist': '💀',
-  'Powerplay Specialist': '🔥',
-  'Spin Wizard': '🌀',
-  'New Ball Specialist': '🆕',
-  'Containing Bowler': '🧱',
-  'Strike Bowler': '⚔️',
-  'All-Round Bowler': '🎯',
+  "Wicket-Taker": "🎳",
+  "Economy Specialist": "🛡️",
+  "Death Specialist": "💀",
+  "Powerplay Specialist": "🔥",
+  "Spin Wizard": "🌀",
+  "New Ball Specialist": "🆕",
+  "Containing Bowler": "🧱",
+  "Strike Bowler": "⚔️",
+  "All-Round Bowler": "🎯",
 
   // Generic / fallback
-  'All-Rounder': '🏏',
-  'Unknown': '❓',
+  "All-Rounder": "🏏",
+  Unknown: "❓",
 };
 
 /**
@@ -74,39 +76,112 @@ function archetypeIcon(archetype: string): string {
 
   // Partial match — check if any known key is a substring
   for (const [key, icon] of Object.entries(ARCHETYPE_ICONS)) {
-    if (lower.includes(key.toLowerCase()) || key.toLowerCase().includes(lower)) {
+    if (
+      lower.includes(key.toLowerCase()) ||
+      key.toLowerCase().includes(lower)
+    ) {
       return icon;
     }
   }
 
-  return '🏏'; // Default cricket bat icon
+  return "🏏"; // Default cricket bat icon
 }
 
 // ── Archetype → colour mapping ───────────────────────────────────
 // Subtle background tints to differentiate archetype categories
 
-const ARCHETYPE_COLOURS: Record<string, { bg: string; text: string; darkBg: string; darkText: string }> = {
+const ARCHETYPE_COLOURS: Record<
+  string,
+  { bg: string; text: string; darkBg: string; darkText: string }
+> = {
   // Batting — warm tones
-  'Anchor': { bg: 'bg-blue-100', text: 'text-blue-800', darkBg: 'bg-blue-500/15', darkText: 'text-blue-300' },
-  'Chase Master': { bg: 'bg-emerald-100', text: 'text-emerald-800', darkBg: 'bg-emerald-500/15', darkText: 'text-emerald-300' },
-  'Explosive Finisher': { bg: 'bg-amber-100', text: 'text-amber-800', darkBg: 'bg-amber-500/15', darkText: 'text-amber-300' },
-  'Power Hitter': { bg: 'bg-red-100', text: 'text-red-800', darkBg: 'bg-red-500/15', darkText: 'text-red-300' },
-  'Accumulator': { bg: 'bg-slate-100', text: 'text-slate-800', darkBg: 'bg-slate-500/15', darkText: 'text-slate-300' },
-  'All-Phase': { bg: 'bg-purple-100', text: 'text-purple-800', darkBg: 'bg-purple-500/15', darkText: 'text-purple-300' },
-  'Aggressive Opener': { bg: 'bg-orange-100', text: 'text-orange-800', darkBg: 'bg-orange-500/15', darkText: 'text-orange-300' },
+  Anchor: {
+    bg: "bg-blue-100",
+    text: "text-blue-800",
+    darkBg: "bg-blue-500/15",
+    darkText: "text-blue-300",
+  },
+  "Chase Master": {
+    bg: "bg-emerald-100",
+    text: "text-emerald-800",
+    darkBg: "bg-emerald-500/15",
+    darkText: "text-emerald-300",
+  },
+  "Explosive Finisher": {
+    bg: "bg-amber-100",
+    text: "text-amber-800",
+    darkBg: "bg-amber-500/15",
+    darkText: "text-amber-300",
+  },
+  "Explosive Opener": {
+    bg: "bg-yellow-100",
+    text: "text-yellow-800",
+    darkBg: "bg-yellow-500/15",
+    darkText: "text-yellow-300",
+  },
+  "Power Hitter": {
+    bg: "bg-red-100",
+    text: "text-red-800",
+    darkBg: "bg-red-500/15",
+    darkText: "text-red-300",
+  },
+  "Power Middle-Order": {
+    bg: "bg-fuchsia-100",
+    text: "text-fuchsia-800",
+    darkBg: "bg-fuchsia-500/15",
+    darkText: "text-fuchsia-300",
+  },
+  Accumulator: {
+    bg: "bg-slate-100",
+    text: "text-slate-800",
+    darkBg: "bg-slate-500/15",
+    darkText: "text-slate-300",
+  },
+  "All-Phase": {
+    bg: "bg-purple-100",
+    text: "text-purple-800",
+    darkBg: "bg-purple-500/15",
+    darkText: "text-purple-300",
+  },
+  "Aggressive Opener": {
+    bg: "bg-orange-100",
+    text: "text-orange-800",
+    darkBg: "bg-orange-500/15",
+    darkText: "text-orange-300",
+  },
 
   // Bowling — cool tones
-  'Wicket-Taker': { bg: 'bg-rose-100', text: 'text-rose-800', darkBg: 'bg-rose-500/15', darkText: 'text-rose-300' },
-  'Economy Specialist': { bg: 'bg-teal-100', text: 'text-teal-800', darkBg: 'bg-teal-500/15', darkText: 'text-teal-300' },
-  'Death Specialist': { bg: 'bg-violet-100', text: 'text-violet-800', darkBg: 'bg-violet-500/15', darkText: 'text-violet-300' },
-  'Powerplay Specialist': { bg: 'bg-cyan-100', text: 'text-cyan-800', darkBg: 'bg-cyan-500/15', darkText: 'text-cyan-300' },
+  "Wicket-Taker": {
+    bg: "bg-rose-100",
+    text: "text-rose-800",
+    darkBg: "bg-rose-500/15",
+    darkText: "text-rose-300",
+  },
+  "Economy Specialist": {
+    bg: "bg-teal-100",
+    text: "text-teal-800",
+    darkBg: "bg-teal-500/15",
+    darkText: "text-teal-300",
+  },
+  "Death Specialist": {
+    bg: "bg-violet-100",
+    text: "text-violet-800",
+    darkBg: "bg-violet-500/15",
+    darkText: "text-violet-300",
+  },
+  "Powerplay Specialist": {
+    bg: "bg-cyan-100",
+    text: "text-cyan-800",
+    darkBg: "bg-cyan-500/15",
+    darkText: "text-cyan-300",
+  },
 };
 
 const DEFAULT_COLOUR = {
-  bg: 'bg-gray-100',
-  text: 'text-gray-700',
-  darkBg: 'bg-surface-elevated',
-  darkText: 'text-text-secondary',
+  bg: "bg-gray-100",
+  text: "text-gray-700",
+  darkBg: "bg-surface-elevated",
+  darkText: "text-text-secondary",
 };
 
 function getArchetypeColour(archetype: string) {
@@ -137,20 +212,20 @@ function getArchetypeColour(archetype: string) {
 
 const SIZE_CLASSES = {
   xs: {
-    container: 'px-1.5 py-0.5 text-[10px] leading-none gap-0.5',
-    icon: 'text-[10px]',
+    container: "px-1.5 py-0.5 text-[10px] leading-none gap-0.5",
+    icon: "text-[10px]",
   },
   sm: {
-    container: 'px-2 py-0.5 text-xs leading-none gap-1',
-    icon: 'text-xs',
+    container: "px-2 py-0.5 text-xs leading-none gap-1",
+    icon: "text-xs",
   },
   md: {
-    container: 'px-3 py-1 text-xs leading-none gap-1',
-    icon: 'text-sm',
+    container: "px-3 py-1 text-xs leading-none gap-1",
+    icon: "text-sm",
   },
   lg: {
-    container: 'px-3 py-1.5 text-sm leading-none gap-1.5',
-    icon: 'text-base',
+    container: "px-3 py-1.5 text-sm leading-none gap-1.5",
+    icon: "text-base",
   },
 } as const;
 
@@ -166,7 +241,7 @@ interface ArchetypeBadgeProps {
   /** Whether to show the emoji icon. Default: true. */
   showIcon?: boolean;
   /** Shape variant. Default: "pill" (fully rounded). */
-  shape?: 'pill' | 'badge';
+  shape?: "pill" | "badge";
   /** Whether to use archetype-specific colours. Default: true. */
   coloured?: boolean;
   /** Click handler (e.g. to filter by archetype). */
@@ -181,20 +256,22 @@ interface ArchetypeBadgeProps {
 
 export default function ArchetypeBadge({
   archetype,
-  size = 'sm',
+  size = "sm",
   showIcon = true,
-  shape = 'pill',
+  shape = "pill",
   coloured = true,
   onClick,
-  className = '',
+  className = "",
   label,
 }: ArchetypeBadgeProps) {
-  const displayArchetype = archetype?.trim() || 'Unknown';
+  const displayArchetype = archetype?.trim() || "Unknown";
   const displayLabel = label ?? displayArchetype;
   const icon = archetypeIcon(displayArchetype);
-  const colours = coloured ? getArchetypeColour(displayArchetype) : DEFAULT_COLOUR;
+  const colours = coloured
+    ? getArchetypeColour(displayArchetype)
+    : DEFAULT_COLOUR;
   const sizeClasses = SIZE_CLASSES[size];
-  const roundedClass = shape === 'pill' ? 'rounded-full' : 'rounded-md';
+  const roundedClass = shape === "pill" ? "rounded-full" : "rounded-md";
 
   const isClickable = !!onClick;
 
@@ -211,28 +288,28 @@ export default function ArchetypeBadge({
 
   const colourClasses = coloured
     ? `${colours.bg} ${colours.text} dark:${colours.darkBg} dark:${colours.darkText}`
-    : 'bg-gray-100 text-gray-700 dark:bg-surface-elevated dark:text-text-secondary';
+    : "bg-gray-100 text-gray-700 dark:bg-surface-elevated dark:text-text-secondary";
 
-  const Tag = isClickable ? 'button' : 'span';
+  const Tag = isClickable ? "button" : "span";
 
   return (
     <Tag
       className={[
-        'archetype-badge inline-flex items-center font-medium select-none',
+        "archetype-badge inline-flex items-center font-medium select-none",
         sizeClasses.container,
         roundedClass,
         colourClasses,
         isClickable
-          ? 'cursor-pointer transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary'
-          : '',
+          ? "cursor-pointer transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          : "",
         className,
       ]
         .filter(Boolean)
-        .join(' ')}
+        .join(" ")}
       title={displayArchetype}
       aria-label={`Archetype: ${displayArchetype}`}
       onClick={isClickable ? () => onClick(displayArchetype) : undefined}
-      {...(isClickable ? { type: 'button' as const } : {})}
+      {...(isClickable ? { type: "button" as const } : {})}
     >
       {showIcon && (
         <span className={sizeClasses.icon} aria-hidden="true">
@@ -263,10 +340,10 @@ interface ArchetypeBadgeListProps {
 
 export function ArchetypeBadgeList({
   archetypes,
-  size = 'sm',
+  size = "sm",
   onSelect,
-  className = '',
-  gap = 'gap-2',
+  className = "",
+  gap = "gap-2",
 }: ArchetypeBadgeListProps) {
   if (!archetypes || archetypes.length === 0) return null;
 
@@ -297,9 +374,9 @@ interface ArchetypeBadgeInlineProps {
 export function ArchetypeBadgeInline({
   archetype,
   showIcon = true,
-  className = '',
+  className = "",
 }: ArchetypeBadgeInlineProps) {
-  const displayArchetype = archetype?.trim() || 'Unknown';
+  const displayArchetype = archetype?.trim() || "Unknown";
   const icon = archetypeIcon(displayArchetype);
 
   return (

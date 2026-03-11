@@ -302,16 +302,43 @@ class TestAssignBattingArchetypes:
         assert "archetype" in result.columns
 
     def test_explosive_finisher_assigned(self):
-        """Player with ACC ≥ 85 and POW ≥ 85 → Explosive Finisher."""
+        """Player with ACC ≥ 85, POW ≥ 85, and modal_position ≥ 4 → Explosive Finisher."""
         df = pd.DataFrame(
             {
                 "score_acceleration": [90.0],
                 "score_power": [88.0],
                 "score_control": [40.0],
+                "modal_position": [5],
             }
         )
         result = assign_batting_archetypes(df)
         assert result.iloc[0]["archetype"] == "Explosive Finisher"
+
+    def test_explosive_opener_assigned(self):
+        """Player with ACC ≥ 85, POW ≥ 85, and modal_position ≤ 3 → Explosive Opener."""
+        df = pd.DataFrame(
+            {
+                "score_acceleration": [90.0],
+                "score_power": [88.0],
+                "score_control": [40.0],
+                "modal_position": [1],
+            }
+        )
+        result = assign_batting_archetypes(df)
+        assert result.iloc[0]["archetype"] == "Explosive Opener"
+
+    def test_explosive_finisher_not_assigned_to_opener(self):
+        """Top-order batter (position 1-3) with elite ACC+POW must NOT get Explosive Finisher."""
+        df = pd.DataFrame(
+            {
+                "score_acceleration": [95.0],
+                "score_power": [95.0],
+                "score_control": [90.0],
+                "modal_position": [2],
+            }
+        )
+        result = assign_batting_archetypes(df)
+        assert result.iloc[0]["archetype"] != "Explosive Finisher"
 
     def test_classic_anchor_assigned(self):
         """Player with CTRL ≥ 80 and ACC ≤ 55 → Classic Anchor."""
@@ -400,16 +427,31 @@ class TestAssignBattingArchetypes:
 
     def test_first_match_wins(self):
         """If multiple archetypes could match, the first in order wins.
-        Explosive Finisher (ACC ≥ 85, POW ≥ 85) comes before All-Round Elite."""
-        df = pd.DataFrame(
+        Explosive Opener (ACC ≥ 85, POW ≥ 85, pos ≤ 3) comes before All-Round Elite for openers.
+        Explosive Finisher (ACC ≥ 85, POW ≥ 85, pos ≥ 4) comes before All-Round Elite for middle-order."""
+        # Top-order player → Explosive Opener wins
+        df_opener = pd.DataFrame(
             {
                 "score_acceleration": [90.0],
                 "score_power": [90.0],
                 "score_control": [90.0],
+                "modal_position": [1],
             }
         )
-        result = assign_batting_archetypes(df)
-        assert result.iloc[0]["archetype"] == "Explosive Finisher"
+        result_opener = assign_batting_archetypes(df_opener)
+        assert result_opener.iloc[0]["archetype"] == "Explosive Opener"
+
+        # Middle-order player → Explosive Finisher wins
+        df_finisher = pd.DataFrame(
+            {
+                "score_acceleration": [90.0],
+                "score_power": [90.0],
+                "score_control": [90.0],
+                "modal_position": [5],
+            }
+        )
+        result_finisher = assign_batting_archetypes(df_finisher)
+        assert result_finisher.iloc[0]["archetype"] == "Explosive Finisher"
 
     def test_nan_scores_get_utility_player(self):
         """NaN scores should not match any archetype conditions."""

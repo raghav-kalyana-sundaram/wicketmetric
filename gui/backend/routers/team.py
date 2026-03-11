@@ -132,9 +132,11 @@ def _row_to_player_summary(row: Any, role: str) -> PlayerSummary:
 
 _BATTING_ARCHETYPES = {
     "Explosive Finisher",
+    "Explosive Opener",
     "Power Hitter",
     "Pinch Hitter",
     "Aggressive Opener",
+    "Power Middle-Order",
     "Classic Anchor",
     "Power Anchor",
     "All-Round Elite",

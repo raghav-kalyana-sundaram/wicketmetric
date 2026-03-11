@@ -266,14 +266,23 @@ BATTING_ARCHETYPES: list[tuple[str, dict[str, float]]] = [
     # Order matters: first match wins.  More specific archetypes must
     # come before broader catch-alls like Float.
     #
-    # Explosive Finisher: elite acceleration + power, bats deep
-    ("Explosive Finisher", {"acceleration": 85, "power": 85}),
+    # Position-aware conditions:
+    #   position_min / position_max use modal_position (1-11).
+    #   Ensures openers aren't labelled "Explosive Finisher" just
+    #   because they have elite ACC+POW — finishers must bat deep.
+    #
+    # Explosive Opener: top-order (1-3) with elite acceleration + power
+    ("Explosive Opener", {"acceleration": 85, "power": 85, "position_max": 3}),
+    # Explosive Finisher: elite acceleration + power, bats in middle/lower (4+)
+    ("Explosive Finisher", {"acceleration": 85, "power": 85, "position_min": 4}),
     # Power Hitter: extreme power, lower control — high-risk slogger
     ("Power Hitter", {"power": 85, "control_max": 50}),
     # Pinch Hitter: extreme acceleration, low control — quick cameos
     ("Pinch Hitter", {"acceleration": 85, "control_max": 45}),
-    # Aggressive Opener: high acceleration + decent power, fast starts
-    ("Aggressive Opener", {"acceleration": 80, "power": 65}),
+    # Aggressive Opener: high acceleration + decent power, fast starts (top-order)
+    ("Aggressive Opener", {"acceleration": 80, "power": 65, "position_max": 3}),
+    # Power Middle-Order: high acceleration + decent power, bats 4+ (not an opener)
+    ("Power Middle-Order", {"acceleration": 80, "power": 65, "position_min": 4}),
     # Classic Anchor: elite control, moderate acceleration — stabilises innings
     ("Classic Anchor", {"control": 80, "acceleration_max": 55}),
     # Power Anchor: power + control hybrid — can hold and hit
@@ -334,8 +343,27 @@ def _conditions_match(
 
     Conditions ending with ``_max`` are upper bounds (<=);
     all others are lower bounds (>=).
+
+    Special positional conditions (not in *score_map*):
+        - ``position_min`` — ``modal_position >= value``
+        - ``position_max`` — ``modal_position <= value``
+    These read directly from the row's ``modal_position`` column.
     """
     for cond_key, threshold in conditions.items():
+        # ── Positional conditions (bypass score_map) ──
+        if cond_key in ("position_min", "position_max"):
+            if "modal_position" not in row.index:
+                return False
+            pos = row["modal_position"]
+            if pd.isna(pos):
+                return False
+            pos_val = float(pos)
+            if cond_key == "position_min" and pos_val < threshold:
+                return False
+            if cond_key == "position_max" and pos_val > threshold:
+                return False
+            continue
+
         is_upper_bound = cond_key.endswith("_max")
         base_key = cond_key.replace("_max", "") if is_upper_bound else cond_key
 
