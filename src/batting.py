@@ -1952,15 +1952,23 @@ DOT_PENALTY_DEATH: float = cfg("batting_dot_penalty_phase_weights.death", defaul
 # is applied post-percentile to all three scores:
 #   factor = VOLUME_BASE + (1 - VOLUME_BASE) * clip(innings / VOLUME_REF, 0, 1) ** VOLUME_CURVE
 #
-# With default values (base=0.80, ref=50, curve=0.6):
-#   10 innings → factor ~0.91   (9% penalty)
-#   19 innings → factor ~0.94   (6% penalty)
-#   30 innings → factor ~0.97   (3% penalty)
-#   50 innings → factor 1.00    (no penalty)
+# Players who exceed VOLUME_REF get a beyond-reference bonus:
+#   beyond_bonus = VOLUME_BEYOND_MAX * clip((innings - ref) / ref, 0, 1)
+#
+# With default values (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+#   10 innings → factor ~0.79   (21% penalty)
+#   19 innings → factor ~0.83   (17% penalty)
+#   30 innings → factor ~0.86   (14% penalty)
+#   50 innings → factor ~0.91   ( 9% penalty)
+#   75 innings → factor ~0.96   ( 4% penalty)
 #   100 innings → factor 1.00   (no penalty)
-VOLUME_BASE: float = cfg("batting_volume.base", default=0.80)
-VOLUME_REF: float = cfg("batting_volume.ref", default=50.0)
-VOLUME_CURVE: float = cfg("batting_volume.curve", default=0.6)
+#   120 innings → factor 1.01   ( 1% bonus)
+#   150 innings → factor 1.03   ( 3% bonus)
+#   200 innings → factor 1.06   ( 6% bonus, max)
+VOLUME_BASE: float = cfg("batting_volume.base", default=0.70)
+VOLUME_REF: float = cfg("batting_volume.ref", default=100.0)
+VOLUME_CURVE: float = cfg("batting_volume.curve", default=0.5)
+VOLUME_BEYOND_MAX: float = cfg("batting_volume.beyond_max", default=0.06)
 
 CTRL_WEIGHTS: dict[str, float] = cfg(
     "batting_control_weights",
@@ -2054,11 +2062,21 @@ def apply_volume_scaling(bat_careers: pd.DataFrame) -> pd.DataFrame:
 
         factor = VOLUME_BASE + (1 - VOLUME_BASE) * clip(innings / VOLUME_REF, 0, 1) ** VOLUME_CURVE
 
-    With defaults (base=0.80, ref=50, curve=0.6):
-        10 innings → factor ~0.91
-        19 innings → factor ~0.94
-        30 innings → factor ~0.97
-        50+ innings → factor 1.00
+    Players who exceed VOLUME_REF get a beyond-reference bonus that rewards
+    sustained career volume::
+
+        beyond_bonus = VOLUME_BEYOND_MAX * clip((innings - ref) / ref, 0, 1)
+
+    With defaults (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+        10 innings → factor ~0.79   (21% penalty)
+        19 innings → factor ~0.83   (17% penalty)
+        30 innings → factor ~0.86   (14% penalty)
+        50 innings → factor ~0.91   ( 9% penalty)
+        75 innings → factor ~0.96   ( 4% penalty)
+        100 innings → factor 1.00   (no penalty)
+        120 innings → factor 1.01   ( 1% bonus)
+        150 innings → factor 1.03   ( 3% bonus)
+        200+ innings → factor 1.06  ( 6% bonus, max)
 
     Parameters
     ----------
@@ -2074,6 +2092,14 @@ def apply_volume_scaling(bat_careers: pd.DataFrame) -> pd.DataFrame:
     innings = df["innings_count"].fillna(0).astype(float)
     ratio = (innings / VOLUME_REF).clip(lower=0.0, upper=1.0)
     factor = VOLUME_BASE + (1.0 - VOLUME_BASE) * (ratio**VOLUME_CURVE)
+
+    # Beyond-reference bonus: players exceeding VOLUME_REF get up to
+    # VOLUME_BEYOND_MAX additional scaling (e.g. 6% at 2× the reference).
+    beyond_mask = innings > VOLUME_REF
+    if beyond_mask.any():
+        extra_ratio = ((innings - VOLUME_REF) / VOLUME_REF).clip(lower=0.0, upper=1.0)
+        factor = factor + VOLUME_BEYOND_MAX * extra_ratio
+
     df["volume_factor"] = factor
 
     for col in ["score_acceleration", "score_power", "score_control"]:

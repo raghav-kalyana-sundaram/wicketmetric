@@ -99,17 +99,25 @@ batting_avg_quality:
 # Batting — Volume scaling (post-percentile)
 #
 # factor = base + (1 - base) * clip(innings / ref, 0, 1) ^ curve
+# Players exceeding ref get a beyond-reference bonus:
+#   beyond_bonus = beyond_max * clip((innings - ref) / ref, 0, 1)
 #
-# Examples with defaults (base=0.80, ref=50, curve=0.6):
-#   10 innings → factor ~0.91   (9% penalty)
-#   19 innings → factor ~0.94   (6% penalty)
-#   30 innings → factor ~0.97   (3% penalty)
-#   50+ innings → factor 1.00   (no penalty)
+# Examples with defaults (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+#   10 innings → factor ~0.79   (21% penalty)
+#   19 innings → factor ~0.83   (17% penalty)
+#   30 innings → factor ~0.86   (14% penalty)
+#   50 innings → factor ~0.91   ( 9% penalty)
+#   75 innings → factor ~0.96   ( 4% penalty)
+#   100 innings → factor 1.00   (no penalty)
+#   120 innings → factor 1.01   ( 1% bonus)
+#   150 innings → factor 1.03   ( 3% bonus)
+#   200+ innings → factor 1.06  ( 6% bonus, max)
 # ───────────────────────────────────────────────────────────────────────────
 batting_volume:
-  base: 0.80 # Floor factor for lowest-volume players
-  ref: 50.0 # Innings at which factor = 1.0
-  curve: 0.6 # Exponent (higher = steeper curve near ref)
+  base: 0.70 # Floor factor for lowest-volume players
+  ref: 100.0 # Innings at which factor = 1.0
+  curve: 0.5 # Exponent (higher = steeper curve near ref)
+  beyond_max: 0.06 # Max bonus for players exceeding ref (e.g. 6% at 2× ref)
 
 # ───────────────────────────────────────────────────────────────────────────
 # Competition quality gate (post-percentile)
@@ -199,16 +207,25 @@ bowling_threat_weights:
 # Bowling — Volume scaling (post-percentile)
 #
 # factor = base + (1 - base) * clip(matches / ref, 0, 1) ^ curve
+# Players exceeding ref get a beyond-reference bonus:
+#   beyond_bonus = beyond_max * clip((matches - ref) / ref, 0, 1)
 #
-# Examples with defaults (base=0.80, ref=50, curve=0.6):
-#   10 matches → factor ~0.91
-#   20 matches → factor ~0.94
-#   50+ matches → factor 1.00
+# Examples with defaults (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+#   10 matches → factor ~0.79   (21% penalty)
+#   19 matches → factor ~0.83   (17% penalty)
+#   30 matches → factor ~0.86   (14% penalty)
+#   50 matches → factor ~0.91   ( 9% penalty)
+#   75 matches → factor ~0.96   ( 4% penalty)
+#   100 matches → factor 1.00   (no penalty)
+#   120 matches → factor 1.01   ( 1% bonus)
+#   150 matches → factor 1.03   ( 3% bonus)
+#   200+ matches → factor 1.06  ( 6% bonus, max)
 # ───────────────────────────────────────────────────────────────────────────
 bowling_volume:
-  base: 0.80
-  ref: 50.0
-  curve: 0.6
+  base: 0.70
+  ref: 100.0
+  curve: 0.5
+  beyond_max: 0.06
 
 # ───────────────────────────────────────────────────────────────────────────
 # Wicket quality — position-based weighting for bowling Threat
@@ -605,6 +622,13 @@ presentation:
     C: 15
     D: 0
   archetypes_enabled: true
+  # Career production bonus (batting only) — additive bonus to overall score
+  # based on total career runs.  Rewards sustained high-volume producers and
+  # reduces overvaluation of low-volume situational finishers.
+  #   bonus = runs_bonus_max * clip(total_runs / runs_bonus_ref, 0, 1) ^ runs_bonus_curve
+  runs_bonus_max: 2.0 # Maximum additive bonus (points on the 0-100 scale)
+  runs_bonus_ref: 3000.0 # Total runs at which the full bonus is realised
+  runs_bonus_curve: 0.8 # Sub-linear curve (< 1) so partial credit at lower totals
 
 # ───────────────────────────────────────────────────────────────────────────
 # Feature 3: Clutch / Pressure Index

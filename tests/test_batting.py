@@ -2272,14 +2272,26 @@ class TestVolumeScaling:
         result = apply_volume_scaling(df)
         assert "volume_factor" in result.columns
 
-    def test_high_innings_no_penalty(self):
+    def test_ref_innings_no_penalty(self):
+        """A player at exactly VOLUME_REF innings should have factor ≈ 1.0."""
         from src.batting import VOLUME_REF, apply_volume_scaling
 
-        df = self._make_career_df([int(VOLUME_REF), int(VOLUME_REF) + 50])
+        df = self._make_career_df([int(VOLUME_REF)])
         result = apply_volume_scaling(df)
-        for _, row in result.iterrows():
-            assert row["volume_factor"] == pytest.approx(1.0, abs=0.01)
-            assert row["score_acceleration"] == pytest.approx(90.0, abs=0.5)
+        row = result.iloc[0]
+        assert row["volume_factor"] == pytest.approx(1.0, abs=0.01)
+        assert row["score_acceleration"] == pytest.approx(90.0, abs=0.5)
+
+    def test_beyond_ref_innings_gets_bonus(self):
+        """A player well above VOLUME_REF should get a factor > 1.0."""
+        from src.batting import VOLUME_REF, apply_volume_scaling
+
+        df = self._make_career_df([int(VOLUME_REF) + 80])
+        result = apply_volume_scaling(df)
+        row = result.iloc[0]
+        assert row["volume_factor"] > 1.0
+        # Score can exceed the base_score because factor > 1.0, but clipped at 100
+        assert row["score_acceleration"] >= 90.0
 
     def test_low_innings_penalised(self):
         from src.batting import apply_volume_scaling
@@ -2302,6 +2314,46 @@ class TestVolumeScaling:
         assert result.iloc[0]["score_power"] < result.iloc[1]["score_power"]
         assert result.iloc[0]["score_control"] < result.iloc[1]["score_control"]
 
+    def test_50_innings_worse_than_100(self):
+        """A 50-innings player should score lower than a 100-innings player."""
+        from src.batting import apply_volume_scaling
+
+        df = self._make_career_df([50, 100], base_score=90.0)
+        result = apply_volume_scaling(df)
+        assert (
+            result.iloc[0]["score_acceleration"] < result.iloc[1]["score_acceleration"]
+        )
+        assert result.iloc[0]["score_power"] < result.iloc[1]["score_power"]
+        assert result.iloc[0]["score_control"] < result.iloc[1]["score_control"]
+
+    def test_volume_factor_monotonically_increasing(self):
+        """Volume factor should increase with more innings."""
+        from src.batting import apply_volume_scaling
+
+        innings_list = [5, 10, 20, 50, 80, 100, 130, 180]
+        df = self._make_career_df(innings_list)
+        result = apply_volume_scaling(df)
+        factors = result["volume_factor"].tolist()
+        for i in range(len(factors) - 1):
+            assert factors[i] < factors[i + 1], (
+                f"Factor at {innings_list[i]} inn ({factors[i]:.4f}) should be "
+                f"< factor at {innings_list[i + 1]} inn ({factors[i + 1]:.4f})"
+            )
+
+    def test_beyond_ref_bonus_capped(self):
+        """Beyond-reference bonus should not exceed VOLUME_BEYOND_MAX."""
+        from src.batting import (
+            VOLUME_BEYOND_MAX,
+            VOLUME_REF,
+            apply_volume_scaling,
+        )
+
+        # Very large innings count — should cap the beyond-ref bonus
+        df = self._make_career_df([int(VOLUME_REF) * 5])
+        result = apply_volume_scaling(df)
+        # Factor = 1.0 (base at ref) + at most VOLUME_BEYOND_MAX
+        assert result.iloc[0]["volume_factor"] <= 1.0 + VOLUME_BEYOND_MAX + 0.001
+
     def test_volume_factor_has_floor(self):
         from src.batting import VOLUME_BASE, apply_volume_scaling
 
@@ -2314,6 +2366,16 @@ class TestVolumeScaling:
         from src.batting import apply_volume_scaling
 
         df = self._make_career_df([5], base_score=100.0)
+        result = apply_volume_scaling(df)
+        assert 0.0 <= result.iloc[0]["score_acceleration"] <= 100.0
+        assert 0.0 <= result.iloc[0]["score_power"] <= 100.0
+        assert 0.0 <= result.iloc[0]["score_control"] <= 100.0
+
+    def test_scores_clipped_with_beyond_bonus(self):
+        """Even with beyond-ref bonus, scores should be clipped to [0, 100]."""
+        from src.batting import VOLUME_REF, apply_volume_scaling
+
+        df = self._make_career_df([int(VOLUME_REF) * 2], base_score=99.0)
         result = apply_volume_scaling(df)
         assert 0.0 <= result.iloc[0]["score_acceleration"] <= 100.0
         assert 0.0 <= result.iloc[0]["score_power"] <= 100.0

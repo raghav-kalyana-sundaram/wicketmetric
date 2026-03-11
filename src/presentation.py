@@ -42,6 +42,26 @@ import pandas as pd
 from src.config import cfg
 
 # ---------------------------------------------------------------------------
+# Career production bonus constants (batting only)
+# ---------------------------------------------------------------------------
+# Rewards sustained run production in the overall score.  Players with more
+# total career runs receive an additive bonus on top of the dimension-based
+# overall.  This directly addresses finisher overvaluation: a player with
+# 4000 runs gets the full bonus while a 700-run finisher gets very little.
+#
+#   bonus = RUNS_BONUS_MAX * clip(total_runs / RUNS_BONUS_REF, 0, 1) ** RUNS_BONUS_CURVE
+#
+# With defaults (max=2.0, ref=3000, curve=0.8):
+#     500 runs → bonus 0.42
+#    1000 runs → bonus 0.72
+#    1500 runs → bonus 0.99
+#    2000 runs → bonus 1.24
+#    3000+ runs → bonus 2.00 (max)
+RUNS_BONUS_MAX: float = cfg("presentation.runs_bonus_max", default=2.0)
+RUNS_BONUS_REF: float = cfg("presentation.runs_bonus_ref", default=3000.0)
+RUNS_BONUS_CURVE: float = cfg("presentation.runs_bonus_curve", default=0.8)
+
+# ---------------------------------------------------------------------------
 # Grade boundaries (default; overridable via config)
 # ---------------------------------------------------------------------------
 
@@ -103,7 +123,7 @@ def _compute_overall_score(
     scores: list[float],
     *,
     superstar_threshold: float = 85.0,
-    superstar_bonus_weight: float = 0.10,
+    superstar_bonus_weight: float = 0.05,
 ) -> float:
     """
     Compute a single overall score from multiple sub-scores.
@@ -124,8 +144,11 @@ def _compute_overall_score(
     are elite in multiple dimensions (e.g. Explosive Finishers with
     ACC=95, POW=95 now get bonus = max(10, 10) = 10, not 20).
 
-    The weight was reduced from 0.15 → 0.10 to further dampen the
-    outsized effect on one-dimensional power hitters.
+    The weight was reduced from 0.15 → 0.10 → 0.05 as part of the
+    Rating Rebalance (v3.0) to reduce overvaluation of explosive
+    finishers whose ACC+POW both exceed the threshold.  The heavier
+    lifting is now done by strengthened volume scaling and the career
+    production bonus applied in ``add_batting_grades``.
 
     The result is clipped to [0, 100].
     """
@@ -151,6 +174,40 @@ def _compute_overall_score(
 # ---------------------------------------------------------------------------
 
 
+def _career_production_bonus(total_runs: float) -> float:
+    """
+    Compute an additive career production bonus from total runs scored.
+
+    This rewards sustained high-volume production and directly addresses
+    finisher overvaluation — a player with 4000 career runs gets the full
+    bonus while a 700-run situational finisher gets very little.
+
+    Formula::
+
+        bonus = RUNS_BONUS_MAX * clip(total_runs / RUNS_BONUS_REF, 0, 1) ** RUNS_BONUS_CURVE
+
+    With defaults (max=2.0, ref=3000, curve=0.8):
+        500 runs → bonus ~0.42
+       1000 runs → bonus ~0.72
+       1500 runs → bonus ~0.99
+       2000 runs → bonus ~1.24
+       3000+ runs → bonus  2.00 (max)
+
+    Parameters
+    ----------
+    total_runs : float
+        Career total runs scored.
+
+    Returns
+    -------
+    float — bonus in [0, RUNS_BONUS_MAX].
+    """
+    if pd.isna(total_runs) or total_runs <= 0:
+        return 0.0
+    ratio = min(total_runs / RUNS_BONUS_REF, 1.0)
+    return RUNS_BONUS_MAX * (ratio**RUNS_BONUS_CURVE)
+
+
 def add_batting_grades(bat_careers: pd.DataFrame) -> pd.DataFrame:
     """
     Add grade columns to the batting careers DataFrame.
@@ -162,10 +219,16 @@ def add_batting_grades(bat_careers: pd.DataFrame) -> pd.DataFrame:
         - ``overall_score``       (float, 0-100)
         - ``overall_grade``       (str)
 
+    The overall score is the superstar-aware mean of the three dimension
+    scores **plus** a career production bonus derived from total runs.
+    This ensures that consistent high-volume producers rank above
+    situational finishers with comparable per-ball metrics.
+
     Parameters
     ----------
     bat_careers : pd.DataFrame
         Must contain ``score_acceleration``, ``score_power``, ``score_control``.
+        If ``total_runs`` is present, it is used for the production bonus.
 
     Returns
     -------
@@ -183,14 +246,25 @@ def add_batting_grades(bat_careers: pd.DataFrame) -> pd.DataFrame:
         else:
             df[grade_col] = "?"
 
-    # Overall score with superstar bonus
+    has_runs = "total_runs" in df.columns
+
+    # Overall score with superstar bonus + career production bonus
     def _row_overall(row: pd.Series) -> float:
         scores = [
             row.get("score_acceleration", np.nan),
             row.get("score_power", np.nan),
             row.get("score_control", np.nan),
         ]
-        return _compute_overall_score(scores)
+        base = _compute_overall_score(scores)
+        if np.isnan(base):
+            return base
+
+        # Career production bonus — additive, rewards total runs scored
+        if has_runs:
+            runs = row.get("total_runs", 0.0)
+            base += _career_production_bonus(runs)
+
+        return float(np.clip(base, 0.0, 100.0))
 
     df["overall_score"] = df.apply(_row_overall, axis=1).round(1)
     df["overall_grade"] = df["overall_score"].apply(

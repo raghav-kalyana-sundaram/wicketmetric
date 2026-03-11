@@ -341,7 +341,7 @@ TrueSkill-inspired hierarchical Bayesian rating (see [Section 7](#7-rating-syste
 
 **Grades:** Maps 0–100 scores to letter grades: S (95+), A+ (85+), A (75+), B+ (60+), B (45+), C+ (30+), C (15+), D (0+).
 
-**Overall Score:** Weighted mean of dimension scores with superstar bonus (capped at single best dimension, +10% weight per dimension ≥ 90).
+**Overall Score:** Weighted mean of dimension scores with superstar bonus (capped at single best dimension, +5% weight per dimension ≥ 85) and a career production bonus (batting only) that adds up to 2 points based on total career runs (3000+ runs for full bonus). This ensures consistent high-volume producers rank above situational finishers with comparable per-ball metrics.
 
 **Batting Archetypes** (13 types, first-match-wins, up to 3 assigned):
 
@@ -467,9 +467,11 @@ adjusted × (1 + 0.03 × ln(1+n) / ln(1+100))
   │
   ▼  Step 4: Average quality gate (batting only)
   │
-  ▼  Step 5: Volume scaling
+  ▼  Step 5: Volume scaling (with beyond-reference bonus)
   │
   ▼  Step 6: Competition quality gate
+  │
+  ▼  Step 7: Overall score (superstar bonus + career production bonus)
   │
   ▼
 FINAL DISPLAYED SCORE (0–100)
@@ -485,6 +487,28 @@ FINAL DISPLAYED SCORE (0–100)
 | 25 | 68% | 32% |
 | 50 | 81% | 19% |
 | 100 | 89% | 11% |
+
+**Volume scaling (post-percentile):**
+
+Applied to all three dimension scores. Uses a base floor + power curve up to the reference innings, then a linear beyond-reference bonus for high-volume players:
+
+| Innings | Factor | Effect |
+|---------|--------|--------|
+| 10 | ~0.79 | 21% penalty |
+| 19 | ~0.83 | 17% penalty |
+| 30 | ~0.86 | 14% penalty |
+| 50 | ~0.91 | 9% penalty |
+| 75 | ~0.96 | 4% penalty |
+| 100 | 1.00 | no penalty |
+| 120 | ~1.01 | 1% bonus |
+| 150 | ~1.03 | 3% bonus |
+| 200+ | 1.06 | 6% bonus (max) |
+
+**Overall score (batting):**
+
+The overall score combines the three dimension scores with two bonuses:
+- **Superstar bonus** (weight 0.05): if any dimension exceeds 85, the single best dimension's excess is added at 5% weight.
+- **Career production bonus** (max 2.0 points): additive bonus based on total career runs — `bonus = 2.0 × clip(runs / 3000, 0, 1)^0.8`. Players with 3000+ runs get the full 2-point bonus; a 700-run finisher gets ~0.6 points.
 
 ---
 
@@ -1031,9 +1055,13 @@ The following changes are planned for v3.0.
 **Problem:** Openers (Abhishek Sharma, Chris Gayle, etc.) were being labelled as "Explosive Finisher" because the archetype system only checked score thresholds (ACC ≥ 85, POW ≥ 85), not batting position.
 **Fix:** Added `position_min` / `position_max` conditions to `_conditions_match()` in `presentation.py`. "Explosive Finisher" now requires `position ≥ 4`. New "Explosive Opener" archetype (ACC ≥ 85, POW ≥ 85, position ≤ 3) for top-order power hitters. "Aggressive Opener" gated to position ≤ 3; new "Power Middle-Order" for position ≥ 4. Updated `team.py` `_BATTING_ARCHETYPES` set and `ArchetypeBadge.tsx` icons/colours for new archetypes.
 
-### Rating Rebalance — Reduce Finisher Overvaluation
-**Problem:** Players like Dhoni are rated comparably to Kohli despite significantly fewer total runs, because the explosive finisher archetype gets disproportionate acceleration/power scores from death-overs performance. The system undervalues volume and sustained production.
-**Fix:** Increase the weight of total runs / career volume in the final scoring. Players with high form AND high run totals should be rewarded more. Ensure that consistent high-volume producers rank above situational finishers.
+### ~~Rating Rebalance — Reduce Finisher Overvaluation~~ ✅ Done
+**Problem:** Players like Dhoni were rated comparably to Kohli despite significantly fewer total runs, because explosive finishers got disproportionate acceleration/power scores from death-overs performance. The system undervalued volume and sustained production. In T20I, Dhoni (82 inn, 1584 runs) scored 93.6 overall vs Kohli (112 inn, 3969 runs) at 89.2. Low-volume finishers like KD Karthik (47 inn, 686 runs) reached 95.5 overall.
+**Fix:** Three-pronged rebalance applied:
+1. **Strengthened volume scaling** (`batting.py`, `bowling.py`, `config.yaml`): lowered `VOLUME_BASE` 0.80→0.70 (bigger penalty for low-volume), raised `VOLUME_REF` 50→100 (reward extends further), lowered `VOLUME_CURVE` 0.6→0.5, and added a beyond-reference bonus (`VOLUME_BEYOND_MAX=0.06`) so players exceeding the reference innings get up to 6% additional scaling. A 50-innings player now sees a ~9% penalty (was 0%), while a 140-innings player gets a ~4% bonus (was 0%).
+2. **Reduced superstar bonus** (`presentation.py`): `superstar_bonus_weight` reduced 0.10→0.05, halving the outsized uplift that explosive finishers with both ACC and POW above 85 received.
+3. **Career production bonus** (`presentation.py`): new `_career_production_bonus()` adds up to 2 points to the overall score based on total career runs (`RUNS_BONUS_MAX=2.0`, `RUNS_BONUS_REF=3000`, `RUNS_BONUS_CURVE=0.8`). Players with 3000+ runs get the full bonus; a 700-run finisher gets ~0.6 points. This directly rewards sustained high-volume production.
+**Result:** High-volume elite players now rank at the top (Buttler 100.0, RG Sharma 99.6). Low-volume finishers dropped significantly (Karthik 95.5→86.8, Shepherd 97.0→89.4). Kohli (91.0) and Dhoni (91.5) are now within 0.5 points instead of the previous 4.4-point gap. Bowling volume scaling updated in parallel for consistency.
 
 ### Rankings Page — Show All Stats
 **Problem:** Users can't see clutch index, WAR, or other advanced metrics on the rankings page.

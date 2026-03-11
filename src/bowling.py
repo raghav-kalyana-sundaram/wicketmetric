@@ -302,14 +302,23 @@ THREAT_WEIGHTS: dict[str, float] = cfg(
 # is applied post-percentile to all three scores:
 #   factor = BOWL_VOLUME_BASE + (1 - BOWL_VOLUME_BASE) * clip(matches / BOWL_VOLUME_REF, 0, 1) ** BOWL_VOLUME_CURVE
 #
-# With defaults (base=0.80, ref=50, curve=0.6):
-#   10 matches → factor ~0.91
-#   20 matches → factor ~0.94
-#   30 matches → factor ~0.97
-#   50+ matches → factor 1.00
-BOWL_VOLUME_BASE: float = cfg("bowling_volume.base", default=0.80)
-BOWL_VOLUME_REF: float = cfg("bowling_volume.ref", default=50.0)
-BOWL_VOLUME_CURVE: float = cfg("bowling_volume.curve", default=0.6)
+# Players who exceed BOWL_VOLUME_REF get a beyond-reference bonus:
+#   beyond_bonus = BOWL_VOLUME_BEYOND_MAX * clip((matches - ref) / ref, 0, 1)
+#
+# With defaults (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+#   10 matches → factor ~0.79   (21% penalty)
+#   19 matches → factor ~0.83   (17% penalty)
+#   30 matches → factor ~0.86   (14% penalty)
+#   50 matches → factor ~0.91   ( 9% penalty)
+#   75 matches → factor ~0.96   ( 4% penalty)
+#   100 matches → factor 1.00   (no penalty)
+#   120 matches → factor 1.01   ( 1% bonus)
+#   150 matches → factor 1.03   ( 3% bonus)
+#   200+ matches → factor 1.06  ( 6% bonus, max)
+BOWL_VOLUME_BASE: float = cfg("bowling_volume.base", default=0.70)
+BOWL_VOLUME_REF: float = cfg("bowling_volume.ref", default=100.0)
+BOWL_VOLUME_CURVE: float = cfg("bowling_volume.curve", default=0.5)
+BOWL_VOLUME_BEYOND_MAX: float = cfg("bowling_volume.beyond_max", default=0.06)
 
 
 # ---------------------------------------------------------------------------
@@ -1012,11 +1021,21 @@ def apply_bowling_volume_scaling(bowl_careers: pd.DataFrame) -> pd.DataFrame:
 
         factor = BOWL_VOLUME_BASE + (1 - BOWL_VOLUME_BASE) * clip(matches / BOWL_VOLUME_REF, 0, 1) ** BOWL_VOLUME_CURVE
 
-    With defaults (base=0.80, ref=50, curve=0.6):
-        10 matches → factor ~0.91
-        20 matches → factor ~0.94
-        30 matches → factor ~0.97
-        50+ matches → factor 1.00
+    Players who exceed BOWL_VOLUME_REF get a beyond-reference bonus that
+    rewards sustained career volume::
+
+        beyond_bonus = BOWL_VOLUME_BEYOND_MAX * clip((matches - ref) / ref, 0, 1)
+
+    With defaults (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+        10 matches → factor ~0.79   (21% penalty)
+        19 matches → factor ~0.83   (17% penalty)
+        30 matches → factor ~0.86   (14% penalty)
+        50 matches → factor ~0.91   ( 9% penalty)
+        75 matches → factor ~0.96   ( 4% penalty)
+        100 matches → factor 1.00   (no penalty)
+        120 matches → factor 1.01   ( 1% bonus)
+        150 matches → factor 1.03   ( 3% bonus)
+        200+ matches → factor 1.06  ( 6% bonus, max)
 
     Parameters
     ----------
@@ -1032,6 +1051,16 @@ def apply_bowling_volume_scaling(bowl_careers: pd.DataFrame) -> pd.DataFrame:
     matches = df["matches"].fillna(0).astype(float)
     ratio = (matches / BOWL_VOLUME_REF).clip(lower=0.0, upper=1.0)
     factor = BOWL_VOLUME_BASE + (1.0 - BOWL_VOLUME_BASE) * (ratio**BOWL_VOLUME_CURVE)
+
+    # Beyond-reference bonus: players exceeding BOWL_VOLUME_REF get up to
+    # BOWL_VOLUME_BEYOND_MAX additional scaling (e.g. 6% at 2× the reference).
+    beyond_mask = matches > BOWL_VOLUME_REF
+    if beyond_mask.any():
+        extra_ratio = ((matches - BOWL_VOLUME_REF) / BOWL_VOLUME_REF).clip(
+            lower=0.0, upper=1.0
+        )
+        factor = factor + BOWL_VOLUME_BEYOND_MAX * extra_ratio
+
     df["volume_factor"] = factor
 
     for col in ["score_accuracy", "score_control", "score_threat"]:
