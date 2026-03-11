@@ -257,6 +257,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://localhost:4173",  # Vite preview
+        "https://wicketmetric-production.up.railway.app",  # Railway production
     ],
     allow_credentials=True,
     allow_methods=["GET", "OPTIONS"],
