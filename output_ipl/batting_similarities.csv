@@ -1,0 +1,704 @@
+batter_id,batter,comp_1,sim_1,comp_2,sim_2,comp_3,sim_3
+00ea847a,MA Agarwal,JR Hopes,86.1,AJ Finch,85.0,SW Billings,84.5
+0184dc35,R Dravid,JH Kallis,94.7,MEK Hussey,94.4,KC Sangakkara,92.7
+025c4400,MJ Suthar,RP Singh,87.4,PP Ojha,83.0,AB Dinda,79.6
+0264c10e,D Salunkhe,Bipul Sharma,65.9,AB Agarkar,63.5,M Vohra,60.0
+030f3089,K Yadav,S Nadeem,91.8,A Nehra,91.7,AB Dinda,84.5
+034b4b7d,VRV Singh,RD Chahar,60.2,MJ McClenaghan,50.5,AP Tare,42.2
+03806cf8,JR Hazlewood,A Nehra,85.5,S Nadeem,83.1,MM Sharma,77.6
+03a83c50,V Viyaskanth,DL Vettori,69.2,R Ashwin,68.5,A Kumble,60.7
+0404d43c,Liton Das,RD Chahar,50.0,AP Tare,47.5,SA Asnodkar,43.9
+0494fa6e,Vishnu Vinod,MA Starc,73.9,I Sharma,59.9,A Kumble,57.3
+04a418e8,R Parag,S Dube,95.5,H Klaasen,95.2,N Wadhera,92.6
+05c2ca46,RE van der Merwe,CH Morris,73.0,BCJ Cutting,63.1,SN Thakur,60.6
+0604ef16,SB Bangar,NM Coulter-Nile,51.2,RJ Harris,49.2,JC Archer,43.8
+063b3673,DH Yagnik,AB Agarkar,70.4,JD Unadkat,59.5,Harbhajan Singh,58.5
+08548b13,PHKD Mendis,Mandeep Singh,67.8,SC Ganguly,61.5,Shakib Al Hasan,59.3
+0890552f,A Manohar,RS Bopara,48.6,EJG Morgan,48.5,HV Patel,43.9
+0994d0ae,V Shankar,A Badoni,92.0,OA Shah,90.7,DA Miller,90.2
+0a3d54b9,VR Aaron,PP Ojha,83.3,Ravi Bishnoi,81.4,YS Chahal,79.5
+0a476045,S Dhawan,G Gambhir,96.6,DP Conway,96.5,SR Tendulkar,96.4
+0a4ebc61,T Henderson,SL Malinga,57.8,A Manohar,56.8,PWH de Silva,56.0
+0a509d6b,RK Singh,MP Stoinis,95.5,S Dube,94.5,H Klaasen,92.5
+0a67aec0,Akash Deep,K Gowtham,88.1,M Shahrukh Khan,77.9,JD Unadkat,77.9
+0a8fce53,Mustafizur Rahman,A Nehra,92.9,S Nadeem,90.8,MM Sharma,90.7
+0aadc906,PR Shah,GH Vihari,77.5,SK Warne,67.2,A Mishra,66.4
+0b60eb09,KA Maharaj,RP Singh,86.1,PP Ojha,82.6,AB Dinda,80.3
+0bacade8,Rahmanullah Gurbaz,Priyansh Arya,66.4,BB McCullum,62.9,P Simran Singh,62.8
+0c2730df,A Kumble,Kuldeep Yadav,85.7,RP Singh,80.9,MA Starc,80.2
+0c432afb,P Parameswaran,RP Singh,84.7,PP Ojha,75.2,JJ Bumrah,73.4
+0c94f480,UBT Chand,Lalit Yadav,71.1,Shahbaz Ahmed,69.0,Gurkeerat Singh,64.5
+0c9652b0,HR Shokeen,M Kaif,68.6,CA Pujara,65.2,Y Nagar,58.5
+0d232ffd,MA Khote,JD Unadkat,59.2,M Shahrukh Khan,46.8,R Dhawan,46.2
+0dc00542,Shahid Afridi,PJ Cummins,77.5,K Gowtham,74.0,MK Lomror,68.8
+0ebfb1ad,E Lewis,TM Head,92.2,KK Nair,92.0,Priyansh Arya,89.0
+0ed0cdbf,H Das,AB Dinda,92.2,S Nadeem,88.2,PP Ojha,87.5
+0f12f9df,NLTC Perera,MP Stoinis,81.0,JA Morkel,79.9,P Negi,79.9
+0f721006,JO Holder,Abdul Samad,72.2,B Lee,63.8,LR Shukla,63.6
+0fa5042b,L Ronchi,MM Sharma,64.1,RD Chahar,62.8,MJ McClenaghan,62.7
+107c26fb,KT Maphaka,DB Das,73.1,JD Unadkat,71.1,K Gowtham,68.7
+10a91f35,Shoaib Akhtar,TG Southee,74.9,Ravi Bishnoi,69.4,AB Dinda,69.1
+11614d87,D Pretorius,Mohammad Nabi,72.0,B Lee,57.0,MK Lomror,56.7
+119678fd,KV Sharma,R Bhatia,83.6,R Dhawan,80.4,Bipul Sharma,79.7
+11df3dc8,MJ Lumb,BB McCullum,76.1,CA Lynn,72.4,AC Gilchrist,69.9
+12314277,Arshad Khan,Sandeep Sharma,47.9,UT Yadav,47.2,Mohammad Nabi,46.7
+12314277,Arshad Khan (2),SA Asnodkar,45.2,AP Tare,39.6,DH Yagnik,34.4
+12b610c2,TM Head,E Lewis,92.2,YBK Jaiswal,91.5,Priyansh Arya,91.1
+12eddf28,RJ Harris,S Gopal,69.8,R Vinay Kumar,69.1,Z Khan,68.1
+1399b39c,Anmolpreet Singh,MS Bisla,71.4,CA Pujara,67.1,WP Saha,55.8
+13c35c9e,TG Southee,AB Dinda,86.8,B Kumar,83.4,PWH de Silva,80.1
+13fc5c6d,DS Rathi,S Nadeem,87.2,AB Dinda,86.9,A Nehra,86.9
+14b14cd8,DM Bravo,MG Johnson,43.7,Kuldeep Yadav,43.2,Mohammed Shami,34.5
+14f96089,A Zampa,R Ashwin,58.4,NM Coulter-Nile,55.8,DL Vettori,52.0
+16043342,AB McDonald,R Sathish,78.9,AD Mathews,70.5,SS Tiwary,70.1
+1647bd37,Karanveer Singh,MA Starc,74.1,RP Singh,72.5,A Kumble,66.7
+16dfcc19,Umar Gul,K Gowtham,90.6,M Shahrukh Khan,85.6,PJ Cummins,84.8
+172dff15,C Bosch,DJG Sammy,83.1,RN ten Doeschate,79.9,MS Dhoni,72.2
+1763bc6c,X Thalaivan Sargunam,MM Sharma,63.3,SP Goswami,63.0,SK Warne,55.6
+18c78b11,RE Levi,KK Nair,58.1,ST Jayasuriya,55.4,JD Ryder,54.3
+18e6906e,A Choudhary,JD Unadkat,85.5,M Shahrukh Khan,83.6,K Gowtham,74.7
+1a0c3177,P Awana,A Nehra,95.1,S Nadeem,94.4,AB Dinda,91.3
+1a156c88,DJM Short,RN ten Doeschate,55.4,Y Nagar,54.3,AM Nayar,50.0
+1a2676c5,SA Abbott,M Shahrukh Khan,45.9,R Powell,39.5,K Gowtham,39.3
+1abb78f8,SN Thakur,Rashid Khan,74.6,Washington Sundar,61.8,Ashutosh Sharma,61.0
+1ac746c8,Atharva Taide,WP Saha,88.5,RG Sharma,86.6,S Dhawan,83.0
+1b7b0fa7,Vivrant Sharma,RS Bopara,91.4,BJ Hodge,80.6,JP Duminy,78.3
+1be70c88,LPC Silva,V Sehwag,81.2,A Raghuvanshi,77.3,PJ Cummins,77.2
+1c17e270,RV Uthappa,SK Raina,95.7,Ishan Kishan,94.7,DR Smith,93.5
+1c2a64cd,A Ashish Reddy,JA Morkel,92.4,Bipul Sharma,85.8,DJ Bravo,84.6
+1c914163,Yuvraj Singh,SR Watson,92.7,R Parag,89.4,AB de Villiers,89.3
+1da489ff,S Kaushik,MM Sharma,87.8,S Nadeem,87.3,A Nehra,84.7
+1dc12ab9,SK Raina,RV Uthappa,95.7,KP Pietersen,94.4,RR Pant,94.3
+1e66c162,JD Unadkat,K Gowtham,84.6,R Vinay Kumar,79.9,Harpreet Brar,77.5
+1ee08e9a,JA Richardson,YS Chahal,77.6,PP Chawla,72.2,S Nadeem,71.3
+1efb8a28,AC Blizzard,JD Ryder,85.4,KK Nair,82.9,RR Rossouw,78.3
+1fc6ef83,SD Hope,AR Patel,87.0,S Dube,79.1,A Raghuvanshi,78.9
+2049f3a0,SJ Srivastava,MA Starc,73.9,A Kumble,73.9,DL Vettori,69.8
+20a941bb,M Ntini,SL Malinga,69.6,HV Patel,61.7,Mohammed Siraj,60.2
+21d4e29b,Navdeep Saini,UT Yadav,70.2,RP Singh,65.7,PP Ojha,63.7
+235c2bb6,H Klaasen,S Dube,96.5,RM Patidar,96.3,R Parag,95.2
+23ac69e6,RJ Quiney,SA Asnodkar,69.0,SW Billings,60.6,AJ Finch,56.9
+23cca426,OF Smith,SL Malinga,65.9,B Lee,64.0,MG Johnson,45.3
+23eeb873,DL Chahar,CH Morris,67.6,HV Patel,60.1,RE van der Merwe,59.4
+244048f6,Arshdeep Singh,I Sharma,86.5,Ravi Bishnoi,84.1,RP Singh,83.3
+245c97cb,TS Mills,MM Sharma,89.9,S Nadeem,86.0,A Nehra,85.9
+2461eef2,PA Reddy,AL Menaria,72.0,PA Patel,67.4,JH Kallis,66.7
+2498e163,JR Hopes,MA Agarwal,86.1,AK Markram,84.9,AJ Finch,84.1
+249d60c9,AU Rashid,SA Asnodkar,70.6,SW Billings,62.3,N Rana,59.7
+24d94623,Ankit Sharma,DS Kulkarni,79.5,M Jansen,77.4,Mohammed Shami,75.4
+25eeb281,PC Valthaty,TM Dilshan,82.8,D Padikkal,77.8,JD Ryder,76.6
+25f7b7d6,T Banton,DB Das,57.6,NV Ojha,47.0,MK Lomror,46.4
+26989d80,Shashank Singh,H Klaasen,91.8,C Green,91.7,Dhruv Jurel,90.3
+26a85969,R Dhawan,AB Agarkar,92.0,R Bhatia,84.1,R Vinay Kumar,80.7
+26d041c4,Sikandar Raza,DJ Mitchell,83.6,MK Pandey,83.1,SM Curran,82.4
+26d76ad9,Virat Singh,S Nadeem,65.0,MM Sharma,62.6,SP Goswami,59.2
+26e5cabf,MK Tiwary,G Gambhir,91.9,KC Sangakkara,90.7,DPMD Jayawardene,88.5
+26ff4c29,RJ Peterson,P Kumar,71.8,JC Archer,61.8,I Sharma,58.7
+271f83cd,SA Yadav,H Klaasen,94.9,KP Pietersen,94.3,AB de Villiers,93.3
+2728e7e9,P Dogra,GH Vihari,74.3,M Kaif,71.1,YS Chahal,70.6
+272d796e,BR Dunk,SA Asnodkar,61.2,PP Shaw,52.9,AJ Finch,48.8
+27af6414,BJ Rohrer,AB de Villiers,95.8,SA Yadav,92.8,YK Pathan,92.4
+27e71d47,K Upadhyay,Bipul Sharma,74.8,KV Sharma,73.0,R Ashwin,66.3
+2815fe50,AA Jhunjhunwala,M Kaif,72.3,TL Suman,65.8,S Badrinath,62.7
+287686fd,S Narwal,JC Archer,50.5,P Negi,50.0,CA Ingram,48.1
+28c78fb3,Harpreet Singh,KH Pandya,66.9,PK Garg,64.9,M Manhas,64.0
+297b26da,Yashpal Singh,M Kaif,83.0,GH Vihari,80.4,AA Jhunjhunwala,67.4
+29d72eb2,AA Chavan,RD Chahar,41.0,AP Tare,37.2,MD Mishra,35.2
+29e95537,AM Rahane,SV Samson,96.2,F du Plessis,94.1,B Sai Sudharsan,93.3
+2a2e6343,DT Christian,S Gopal,72.2,SK Warne,68.4,R Sathish,62.1
+2a72fd4f,Harmeet Singh,NM Coulter-Nile,50.1,P Negi,49.4,Harbhajan Singh,47.1
+2af1b6d2,AN Ahmed,A Ashish Reddy,74.4,DS Kulkarni,70.8,RN ten Doeschate,67.4
+2b6e6dec,AC Gilchrist,V Sehwag,94.9,DR Smith,94.8,CH Gayle,93.2
+2bb09eb2,Mohammad Ashraful,S Nadeem,79.6,TG Southee,78.0,MM Sharma,75.9
+2be41edb,MJ Guptill,Abhishek Sharma,90.2,PD Salt,89.3,N Pooran,85.4
+2c25d4f5,D Padikkal,DA Warner,93.7,RG Sharma,92.4,Ishan Kishan,90.8
+2c76b512,DJ Muthuswami,MM Sharma,80.0,A Nehra,70.6,AB Dinda,69.6
+2cdce1be,C Sakariya,R Sharma,70.8,A Nehra,69.5,MM Sharma,66.9
+2cffab74,Mukesh Kumar,AB Dinda,91.8,PP Ojha,88.8,A Nehra,88.8
+2d140b79,AA Kulkarni,RD Chahar,70.1,MJ McClenaghan,64.1,MM Sharma,61.8
+2e11c706,BCJ Cutting,Naman Dhir,90.5,TH David,88.0,RN ten Doeschate,83.6
+2e171977,AR Patel,S Dube,92.1,RK Singh,91.5,H Klaasen,91.3
+2e78f685,KR Sen,S Nadeem,87.9,A Nehra,87.6,MM Sharma,85.3
+2e81a32d,B Kumar,YS Chahal,89.6,AB Dinda,84.6,TG Southee,83.4
+2e8994e7,JP Duminy,BJ Hodge,94.9,KL Rahul,93.9,SS Tiwary,92.1
+2e9fdf9b,DAJ Bracewell,Bipul Sharma,77.2,AB Agarkar,69.7,DJ Mitchell,66.5
+2ed569a0,RD Chahar,Ravi Bishnoi,59.2,R Sharma,55.7,MJ McClenaghan,54.9
+2eeb4370,C Madan,MS Bisla,54.9,SA Asnodkar,54.5,SP Goswami,51.6
+2f49c897,Mohammed Siraj,SL Malinga,87.4,MG Johnson,72.1,B Kumar,68.2
+2f9d0389,LH Ferguson,JD Unadkat,75.5,DB Das,68.6,DJ Bravo,68.2
+30a2649b,CM Gautam,SA Asnodkar,67.9,CA Ingram,61.7,MS Bisla,60.2
+30a45b23,SPD Smith,DPMD Jayawardene,92.1,SE Marsh,91.9,S Badrinath,91.4
+30df8c66,Simarjeet Singh,AB Dinda,94.1,TG Southee,92.0,S Nadeem,90.4
+30e37810,Sunny Singh,P Negi,57.6,DB Das,52.8,A Raghuvanshi,48.8
+3204c99f,G Coetzee,RD Chahar,61.9,MJ McClenaghan,55.1,NM Coulter-Nile,50.2
+32198ae0,MC Henriques,MV Boucher,86.3,AD Mathews,86.0,RA Jadeja,86.0
+3241e3fd,N Pooran,KA Pollard,96.9,Abhishek Sharma,96.0,YK Pathan,95.8
+327b58d3,PVD Chameera,A Nehra,77.0,RP Singh,74.9,B Kumar,71.2
+331ea488,UT Khawaja,DB Das,85.0,RA Tripathi,81.5,DPMD Jayawardene,78.6
+3355b542,F du Plessis,Ishan Kishan,95.8,Shubman Gill,95.0,JC Buttler,94.5
+33a364a6,R Bhatia,R Vinay Kumar,91.7,R Dhawan,84.1,KV Sharma,83.6
+33cb3411,Younis Khan,AB Dinda,79.1,YS Chahal,79.0,TG Southee,78.5
+33ffc3dd,R Sanjay Yadav,S Nadeem,88.1,MM Sharma,85.9,A Nehra,84.6
+342d8ade,CRD Fernando,R Ashwin,75.1,DL Vettori,71.2,DS Kulkarni,65.8
+350bb1b1,AF Milne,MG Johnson,87.4,PP Ojha,84.2,B Kumar,80.6
+35205dfc,DR Smith,SR Watson,97.7,CH Gayle,96.5,AC Gilchrist,94.8
+3576e47e,S Badrinath,SPD Smith,91.4,KS Williamson,89.4,JP Duminy,87.8
+35f173a0,MP Breetzke,RG Sharma,44.6,SA Asnodkar,41.6,SW Billings,41.3
+36d33dd0,RR Sarwan,GH Vihari,76.0,SS Tiwary,71.6,DJ Mitchell,67.5
+372455c4,Q de Kock,F du Plessis,91.2,BB McCullum,90.0,YBK Jaiswal,89.1
+378daa89,Aman Hakim Khan,Gurkeerat Singh,76.9,DB Ravi Teja,71.9,Shahbaz Ahmed,71.3
+38f2c66c,VS Yeligati,NM Coulter-Nile,63.3,JJ Bumrah,59.8,RP Singh,52.9
+39086549,JR Philippe,RS Bopara,80.6,CA Pujara,79.5,GH Vihari,63.6
+39a2dfa8,R Tewatia,KD Karthik,89.3,M Shahrukh Khan,88.9,TH David,87.5
+39ed0d2f,KS Sharma,GH Vihari,55.0,AB Dinda,53.6,S Nadeem,53.1
+39f01cdb,KP Pietersen,SK Raina,94.4,SA Yadav,94.3,ML Hayden,94.0
+39f82db3,DJ Harris,M Vijay,88.4,SR Tendulkar,88.1,HH Gibbs,87.2
+3a02626a,AG Paunikar,SP Goswami,60.3,MS Bisla,55.5,K Goel,55.1
+3a60e0b5,WD Parnell,PP Ojha,86.6,RP Singh,77.3,TG Southee,74.4
+3ae3f034,AUK Pathan,M Vohra,62.9,K Gowtham,61.9,AP Tare,61.0
+3b53243a,XC Bartlett,M Kaif,55.4,A Manohar,52.2,PK Garg,51.1
+3c28853f,Sediqullah Atal,A Raghuvanshi,75.0,AR Patel,73.2,Tilak Varma,71.6
+3c55c703,JG Bethell,YBK Jaiswal,88.0,WG Jacks,86.8,TM Head,86.1
+3c6ffae8,YK Pathan,KA Pollard,97.3,N Pooran,95.8,KD Karthik,93.3
+3d284ca3,PD Salt,N Pooran,95.1,Abhishek Sharma,94.9,CH Gayle,92.2
+3d7e087f,SK Trivedi,S Nadeem,91.2,Ravi Bishnoi,86.2,AB Dinda,85.6
+3d8feaf8,MR Marsh,JC Buttler,92.8,SV Samson,91.6,F du Plessis,91.2
+3dba85c2,WA Mota,DL Vettori,78.2,GH Vihari,77.5,MA Starc,68.2
+3eac9d95,JDP Oram,M Manhas,77.8,K Rabada,63.4,AM Nayar,62.5
+3edb58fc,AD Mascarenhas,A Mishra,75.8,DT Christian,66.5,R Sathish,65.8
+3fb19989,MA Starc,RP Singh,82.4,A Kumble,80.2,I Sharma,75.0
+3fca55af,S Sohal,J Fraser-McGurk,74.0,E Lewis,71.9,SP Narine,67.8
+3ff033bb,MD Shanaka,R Sharma,56.6,K Goel,56.2,A Nehra,52.2
+402f8494,RJ Gleeson,JJ Bumrah,53.1,NM Coulter-Nile,50.1,A Kumble,49.6
+40caa465,T Kohli,MA Starc,70.5,RP Singh,69.6,S Nadeem,68.1
+4125d931,J Suchith,MM Sharma,54.8,R Sharma,43.5,S Nadeem,40.1
+4180d897,JE Taylor,DL Vettori,66.6,DS Kulkarni,65.7,Mohammed Shami,64.5
+41eb4a4f,R Vinay Kumar,R Bhatia,91.7,Harpreet Brar,83.0,R Dhawan,80.7
+4329fbb5,SR Watson,DR Smith,97.7,CH Gayle,96.7,AC Gilchrist,92.8
+4353bba5,YA Abdulla,A Nehra,83.2,S Nadeem,80.7,MM Sharma,79.5
+441c72ae,P Ray Barman,RS Bopara,82.0,GH Vihari,73.0,M Kaif,66.0
+44a89551,KS Bharat,Q de Kock,87.6,MEK Hussey,87.5,R Dravid,87.0
+44aac2f0,Arjun Tendulkar,R Ashwin,59.8,R Tewatia,59.1,KV Sharma,58.9
+44afbf2d,NJ Maddinson,JD Ryder,51.0,AP Tare,49.2,SA Asnodkar,48.3
+45a43fe2,RD Gaikwad,JC Buttler,97.8,HM Amla,96.7,DP Conway,96.3
+45c2196c,DE Bollinger,JJ Bumrah,61.8,Sandeep Sharma,61.6,SL Malinga,59.9
+45eda7c8,CA Lynn,ML Hayden,93.9,JM Bairstow,93.6,DA Warner,92.6
+462411b3,JJ Bumrah,RP Singh,68.4,PP Ojha,67.8,Sandeep Sharma,64.4
+4663bd23,TL Seifert,I Sharma,79.3,A Nehra,66.9,MA Starc,62.1
+469ea22b,KMDN Kulasekara,JD Unadkat,65.4,PP Shaw,59.6,DB Das,58.0
+46a9bea1,TU Deshpande,NM Coulter-Nile,80.1,JC Archer,57.8,TA Boult,57.1
+470f446b,V Suryavanshi,Abhishek Sharma,95.0,Priyansh Arya,93.1,PD Salt,92.3
+4885bbe6,Yudhvir Singh,K Gowtham,48.1,Ramandeep Singh,48.0,JD Unadkat,45.1
+48a1d7b7,SO Hetmyer,HH Pandya,92.3,KD Karthik,92.1,YK Pathan,91.4
+48fd7349,MEK Hussey,HM Amla,97.1,RD Gaikwad,95.3,SR Tendulkar,94.4
+4933f499,JP Behrendorff,MA Starc,89.4,RP Singh,86.8,A Kumble,81.9
+495d42a5,R Ashwin,KV Sharma,78.5,DS Kulkarni,74.3,Bipul Sharma,70.3
+4a8a2e3b,MS Dhoni,T Stubbs,84.8,R Tewatia,84.6,AB de Villiers,82.2
+4ae1755b,HC Brook,SP Goswami,74.8,Mandeep Singh,65.7,HH Gibbs,62.2
+4b4d1957,PM Sarvesh Kumar,RP Singh,88.6,PP Ojha,83.6,AB Dinda,78.7
+4b57e452,M Vijay,SR Tendulkar,95.1,LMP Simmons,93.0,S Dhawan,92.4
+4ba44e19,M Muralitharan,AB Dinda,84.4,S Nadeem,84.2,A Nehra,82.8
+4bd09374,Akash Madhwal,RP Singh,58.4,YS Chahal,55.5,A Kumble,55.2
+4c4fa80b,SMSM Senanayake,I Sharma,79.4,A Nehra,74.5,MA Starc,73.0
+4c5d73db,CR Woakes,DL Vettori,72.5,MA Starc,68.8,R Sathish,65.5
+4d5a1617,R Bishnoi,MM Sharma,78.1,MJ McClenaghan,62.5,SP Goswami,61.7
+4d6d6280,Salman Butt,BB McCullum,88.5,PA Patel,87.0,HH Gibbs,86.3
+4d7f517e,AJ Hosein,R Tewatia,66.8,M Shahrukh Khan,64.4,AD Mathews,58.6
+4e04666c,YV Takawale,SR Watson,71.7,NV Ojha,71.3,DR Smith,70.5
+4ec07775,RN ten Doeschate,BCJ Cutting,83.6,DJG Sammy,83.3,LS Livingstone,82.5
+4f629497,SE Bond,TG Southee,66.1,PWH de Silva,64.9,AB Dinda,63.7
+5056011d,GJ Bailey,Gurkeerat Singh,90.3,JEC Franklin,88.7,Y Venugopal Rao,86.7
+508a1ea7,SE Marsh,SR Tendulkar,97.4,V Kohli,96.5,KL Rahul,95.6
+50c6bc2b,LS Livingstone,D Brevis,89.7,AD Russell,88.9,MP Stoinis,86.1
+51a3c5ef,MJ McClenaghan,S Nadeem,74.6,A Nehra,73.3,MM Sharma,71.4
+529eb9e0,OC McCoy,K Gowtham,85.6,M Shahrukh Khan,83.5,PJ Cummins,80.3
+53f27a35,BB Samantray,MC Henriques,82.1,RA Jadeja,79.9,MV Boucher,79.7
+53fe6ee4,DS Lehmann,SK Warne,50.1,DJ Hooda,42.6,MM Sharma,42.1
+541f85c9,SP Goswami,MM Sharma,70.6,K Goel,64.1,R Sharma,62.3
+5451a2c1,B Chipli,R Ravindra,73.5,M Vohra,71.3,Nithish Kumar Reddy,67.3
+54e52590,Vijaykumar Vyshak,PWH de Silva,77.5,JJ Bumrah,72.4,A Nehra,68.0
+557153ca,KK Cooper,K Gowtham,90.4,PJ Cummins,88.7,M Shahrukh Khan,78.9
+5574750c,JC Archer,NM Coulter-Nile,61.2,DL Vettori,54.6,Ramandeep Singh,53.3
+5673a3fc,NL McCullum,Bipul Sharma,73.6,DJ Mitchell,72.0,A Raghuvanshi,70.0
+56ab442f,NM Coulter-Nile,P Kumar,67.1,JC Archer,61.2,TA Boult,58.3
+5724e517,Tanush Kotian,RS Bopara,85.0,CA Pujara,81.3,GH Vihari,61.6
+5748e866,TD Paine,S Nadeem,75.5,A Nehra,67.6,MM Sharma,65.9
+57ca01b3,Kumar Kushagra,MM Sharma,83.6,Ravi Bishnoi,80.3,AB Dinda,76.8
+57ee1fde,YS Chahal,B Kumar,89.6,PP Ojha,85.2,AB Dinda,80.4
+57efa3be,SB Styris,R Sathish,74.2,KM Jadhav,69.0,SS Tiwary,62.4
+59559bc2,J Overton,PJ Cummins,81.3,K Gowtham,75.9,M Vohra,72.8
+5afd4539,MS Bisla,TM Dilshan,88.2,JH Kallis,86.4,SC Ganguly,84.9
+5b040b81,A Singh,S Nadeem,89.0,AB Dinda,84.3,A Nehra,84.2
+5b16a806,A Dananjaya,RP Singh,84.9,MA Starc,84.5,PP Ojha,76.7
+5b7ab5a9,CV Varun,MG Johnson,84.4,PP Ojha,78.1,RP Singh,74.6
+5b8c830e,KH Pandya,C Green,75.4,M Manhas,73.8,BA Stokes,70.1
+5bb1a1c4,I Sharma,RP Singh,80.3,A Nehra,76.9,PP Ojha,76.8
+5bb5a915,M Morkel,NLTC Perera,71.2,JP Faulkner,69.2,P Negi,67.5
+5bdcdb72,TM Dilshan,M Vijay,89.1,JH Kallis,88.7,SR Tendulkar,88.6
+5d096f3d,RR Powar,DS Kulkarni,78.9,B Lee,73.8,HV Patel,67.4
+5d1e7582,BKG Mendis,M Shahrukh Khan,88.5,MP Stoinis,77.4,K Gowtham,76.0
+5d2eea49,Kartik Tyagi,RP Singh,91.0,AB Dinda,88.9,PP Ojha,88.4
+5d9a1a73,R Sharma,Z Khan,75.1,A Nehra,73.0,Ravi Bishnoi,72.1
+5f26df4f,VS Malik,A Kumble,71.8,RP Singh,70.3,MG Johnson,67.5
+5f4e9e8f,RR Raje,NM Coulter-Nile,64.3,MG Johnson,62.3,JJ Bumrah,60.3
+5f547c8b,Rashid Khan,SN Thakur,74.6,Naman Dhir,71.7,J Fraser-McGurk,71.2
+5f5d3ad4,SS Shaikh,MD Mishra,41.6,DB Das,40.3,LR Shukla,36.4
+5fa06777,IK Pathan,GJ Bailey,86.0,Azhar Mahmood,82.2,DJ Bravo,81.8
+5ffc0565,V Nigam,PJ Cummins,87.2,HH Pandya,84.9,JM Sharma,84.0
+6042bf26,NJ Rimmington,DL Vettori,75.3,R Ashwin,70.4,A Kumble,67.3
+60500956,RV Patel,R Vinay Kumar,75.0,A Ashish Reddy,74.6,J Botha,74.1
+605b7efa,MC Juneja,CA Ingram,67.4,KM Jadhav,66.8,M Manhas,63.0
+611926bc,GR Napier,RS Bopara,75.3,GH Vihari,66.9,M Kaif,58.4
+6165bca6,A Mukund,S Nadeem,73.0,MM Sharma,70.8,A Nehra,68.6
+619aa81f,W Jaffer,CA Pujara,77.4,MS Bisla,75.5,PC Valthaty,68.4
+622cc511,U Kaul,S Nadeem,87.9,A Nehra,87.7,MM Sharma,84.8
+626c5379,R Sathish,A Mishra,74.5,S Gopal,65.8,DT Christian,62.1
+62af8546,Mohammad Nabi,JO Holder,46.7,DL Chahar,46.1,B Lee,41.8
+63bff7f9,SM Harwood,RP Singh,83.2,PP Ojha,82.4,YS Chahal,80.5
+641ac5ff,IS Sodhi,TG Southee,80.1,AB Dinda,76.8,S Nadeem,74.4
+64775749,RP Meredith,S Nadeem,88.0,A Nehra,87.7,MM Sharma,84.9
+64a4c383,S Sriram,GH Vihari,80.2,RS Bopara,77.8,CA Pujara,65.8
+64c34cd0,Shoaib Malik,DL Vettori,80.1,Shakib Al Hasan,67.9,CA Ingram,65.1
+64d43928,Sohail Tanvir,R Ashwin,79.2,KV Sharma,71.8,AB Agarkar,71.6
+650d5e49,R Powell,LS Livingstone,82.6,SP Narine,80.5,MP Stoinis,80.2
+6581d753,JM Kemp,M Jansen,58.1,PK Garg,53.8,HV Patel,49.4
+65b6943c,L Wood,M Shahrukh Khan,85.2,Ramandeep Singh,83.0,JD Unadkat,82.6
+662c47a6,Y Nagar,JP Faulkner,60.0,RS Bopara,57.0,K Rabada,56.5
+663b5e34,PN Mankad,AJ Finch,68.6,JD Ryder,65.3,WP Saha,64.2
+66b30f71,AB Dinda,A Nehra,90.8,S Nadeem,90.7,PP Ojha,88.7
+66cf56a5,A Mithun,CA Ingram,44.3,DJ Hooda,42.3,JD Unadkat,41.6
+670709ec,SB Joshi,TG Southee,70.1,Ravi Bishnoi,67.3,AB Dinda,65.5
+6821ac10,JJ van der Wath,MM Sharma,82.1,MJ McClenaghan,78.2,Ravi Bishnoi,76.9
+6834d1f2,B Stanlake,JD Unadkat,77.3,A Ashish Reddy,71.8,DB Das,68.4
+68c56d09,KA Jamieson,MM Sharma,88.5,A Nehra,75.4,S Nadeem,70.7
+69762509,DR Martyn,RS Bopara,87.6,GH Vihari,77.9,SS Tiwary,71.6
+69be866a,Anureet Singh,PP Chawla,85.1,YS Chahal,81.6,S Nadeem,72.9
+69d03465,AT Carey,DL Vettori,73.0,MA Starc,66.1,Shakib Al Hasan,59.8
+6a26221c,AK Markram,V Kohli,90.9,Tilak Varma,90.7,KL Rahul,90.2
+6aed7e79,PV Tambe,A Kumble,86.9,MA Starc,86.5,RP Singh,76.8
+6afb26d6,MD Mishra,R Powell,62.3,AP Tare,58.8,M Morkel,49.1
+6b19d823,A Mishra,R Sathish,74.5,GH Vihari,70.9,SK Warne,69.2
+6b2ff18f,SB Dubey,DJG Sammy,76.4,BCJ Cutting,75.7,RN ten Doeschate,75.2
+6b71e6cf,KC Sangakkara,SR Tendulkar,93.5,G Gambhir,93.0,MEK Hussey,92.8
+6b8eb6e5,S Sreesanth,S Nadeem,84.8,Mohammed Siraj,79.7,A Nehra,77.9
+6c19c6e5,YBK Jaiswal,BB McCullum,96.8,P Simran Singh,96.5,ML Hayden,96.4
+6c6591ab,PP Ojha,RP Singh,94.3,AB Dinda,88.7,YS Chahal,85.2
+6c882e9a,PBB Rajapaksa,RA Tripathi,93.8,SE Rutherford,89.0,JM Sharma,84.4
+6dbcf855,VH Zol,SW Billings,64.2,A Raghuvanshi,60.4,DJ Hooda,57.2
+6eb146d2,Gurkeerat Singh,GJ Bailey,90.3,DB Ravi Teja,84.5,Y Venugopal Rao,79.4
+6ec424a9,ND Doshi,S Nadeem,87.1,A Nehra,82.8,MM Sharma,78.9
+6ef60d3a,Kamran Khan,TG Southee,61.3,AB Dinda,55.2,PWH de Silva,55.2
+6f49cc6e,Shivam Sharma,Bipul Sharma,66.8,KV Sharma,66.5,AB Agarkar,64.3
+7023d182,AN Ghosh,MM Sharma,80.4,RD Chahar,66.1,SP Goswami,65.4
+7050a1e7,DB Das,N Rana,84.7,MP Stoinis,81.1,YK Pathan,80.7
+709b0bac,SS Tiwary,JP Duminy,92.1,AD Mathews,88.6,V Shankar,87.9
+70d205c9,AT Rayudu,SS Iyer,92.6,H Klaasen,92.3,RR Pant,91.6
+710dd98c,MN van Wyk,HM Amla,90.7,RD Gaikwad,89.1,SE Marsh,87.9
+7210d461,Yash Dayal,AB Dinda,94.6,TG Southee,87.9,PP Ojha,87.5
+725529bc,SC Ganguly,JH Kallis,93.6,HH Gibbs,91.7,R Dravid,89.7
+72861603,GC Smith,TM Dilshan,87.5,M Vijay,85.5,KS Williamson,82.0
+73ad96ed,DJ Hooda,Shahbaz Ahmed,74.2,SM Curran,69.5,V Shankar,65.1
+73c18486,KR Mayers,E Lewis,89.1,Priyansh Arya,88.5,TM Head,87.5
+740742ef,RG Sharma,D Padikkal,92.4,F du Plessis,91.8,MR Marsh,90.4
+75224f22,KMA Paul,S Nadeem,76.4,MJ McClenaghan,74.2,Ravi Bishnoi,72.3
+752f7486,Ishan Kishan,F du Plessis,95.8,JC Buttler,95.5,RV Uthappa,94.7
+756389bd,S Vidyut,SA Asnodkar,80.5,PP Shaw,75.9,N Rana,67.1
+759ac88f,MM Sharma,A Nehra,85.5,S Nadeem,83.5,Ravi Bishnoi,79.2
+75de770f,T Taibu,DL Vettori,64.9,KM Jadhav,59.6,DJ Hooda,59.1
+76388dc8,S Badree,MM Sharma,81.6,Ravi Bishnoi,76.7,S Nadeem,73.4
+765a4731,Mukesh Choudhary,R Ashwin,65.7,Mohammed Shami,50.8,DS Kulkarni,47.4
+77255a9e,RA Tripathi,BA Stokes,90.6,A Raghuvanshi,88.1,MK Tiwary,88.0
+77b1aa15,Harshit Rana,VVS Laxman,67.1,MJ McClenaghan,66.5,MJ Santner,66.3
+78eb4223,KAJ Roach,KM Jadhav,53.4,DJ Hooda,49.7,A Raghuvanshi,49.7
+798cc28e,KM Asif,TG Southee,64.4,MM Sharma,61.4,Ravi Bishnoi,60.9
+7a8bd078,S Gopal,DT Christian,72.2,RJ Harris,69.8,Z Khan,67.5
+7bb62642,Anirudh Singh,GC Smith,56.5,RS Bopara,54.5,M Vijay,54.0
+7bf96684,OA Shah,V Shankar,90.7,A Badoni,88.9,DA Miller,88.3
+7c3b3b78,VG Arora,AB Dinda,96.9,PP Ojha,89.3,Ravi Bishnoi,88.7
+7c503806,J Botha,MK Tiwary,80.7,KM Jadhav,78.5,RA Tripathi,77.9
+7c7d63a2,AJ Tye,M Morkel,66.9,MJ McClenaghan,63.6,UT Yadav,62.3
+7ca5e05d,RS Bopara,CA Pujara,73.1,SS Tiwary,72.9,BJ Hodge,72.2
+7d3720ba,RR Bhatkal,S Nadeem,88.4,MM Sharma,86.1,A Nehra,86.0
+7d3937ed,DJ Thornely,TG Southee,63.7,S Nadeem,59.5,YS Chahal,55.9
+7d415ea5,RT Ponting,PP Chawla,68.2,YS Chahal,67.6,SK Warne,67.6
+7d92277a,Mujeeb Ur Rahman,NM Coulter-Nile,80.3,JJ Bumrah,63.6,PWH de Silva,61.7
+7daedf2f,KB Arun Karthik,MA Starc,80.3,I Sharma,72.4,AB Dinda,70.9
+7dc35884,Shakib Al Hasan,KH Pandya,69.9,LA Pomersbach,68.3,CA Ingram,67.1
+7dcb9bc9,M Shahrukh Khan,R Tewatia,88.9,MP Stoinis,88.6,RK Singh,83.1
+7eae4418,Misbah-ul-Haq,BCJ Cutting,77.5,CH Morris,77.0,B Lee,74.2
+7f048519,DJ Willey,CA Pujara,73.2,AA Jhunjhunwala,54.6,M Kaif,48.4
+800d2d97,JM Sharma,WG Jacks,90.5,Abdul Samad,89.0,N Rana,88.4
+808f425a,JP Faulkner,K Rabada,76.0,JA Morkel,75.3,M Morkel,69.2
+80b2fb19,Prince Yadav,MA Starc,91.4,A Kumble,84.4,RP Singh,84.3
+81049310,J Yadav,K Gowtham,83.5,PJ Cummins,79.4,DB Das,74.7
+81c08fa3,Umran Malik,B Lee,72.5,Mohammad Nabi,66.2,JJ Bumrah,50.0
+81c36ee9,M Jansen,HV Patel,70.9,B Kumar,66.8,Mohammed Shami,66.6
+8291f939,AL Menaria,JH Kallis,76.3,DPMD Jayawardene,74.5,SC Ganguly,74.5
+83c3e8e3,SH Johnson,RP Singh,84.2,MA Starc,82.3,A Kumble,78.4
+844e79d1,D Brevis,LS Livingstone,89.7,N Pooran,86.6,KP Pietersen,84.1
+84d9c311,Ashutosh Sharma,N Pooran,91.7,KA Pollard,90.8,YK Pathan,90.1
+855a210c,AP Tare,SW Billings,64.8,JD Ryder,62.4,UBT Chand,60.2
+85aae393,Iqbal Abdulla,Sandeep Sharma,50.5,Mohammed Siraj,50.0,Y Nagar,48.4
+85b3fab2,T Stubbs,Dhruv Jurel,92.0,H Klaasen,89.7,AB de Villiers,89.3
+85e0cf10,M Prasidh Krishna,AB Dinda,95.1,A Nehra,92.4,S Nadeem,92.2
+85ec8e33,SS Iyer,RR Pant,98.1,SK Raina,93.8,F du Plessis,93.5
+864c199e,AC Voges,A Symonds,92.6,Tilak Varma,91.7,JP Duminy,91.0
+86dc8f2e,JH Kallis,R Dravid,94.7,SC Ganguly,93.6,MEK Hussey,92.3
+871e9faf,Basil Thampi,MA Starc,74.2,A Kumble,67.5,Sandeep Sharma,59.8
+872b03f7,A Badoni,RA Jadeja,94.3,SM Curran,92.5,V Shankar,92.0
+87e562a9,DJ Bravo,Bipul Sharma,87.4,A Ashish Reddy,84.6,STR Binny,83.4
+881a9bdd,S Chanderpaul,SP Goswami,71.4,S Nadeem,69.0,MM Sharma,68.1
+888e32bf,Abdur Razzak,S Nadeem,88.0,A Nehra,87.6,MM Sharma,84.7
+88fccd6c,SM Pollock,A Manohar,61.7,EJG Morgan,59.9,D Brevis,55.4
+890946a0,NV Ojha,Yuvraj Singh,88.5,SR Watson,86.8,CH Gayle,85.7
+896d78ad,AD Mathews,SS Tiwary,88.6,MC Henriques,86.0,JP Duminy,82.9
+8998a68f,Sumit Kumar,SL Malinga,54.1,Mohammed Siraj,48.1,Mohammad Nabi,45.8
+89f64c19,LMP Simmons,DP Conway,93.8,DA Warner,93.1,M Vijay,93.0
+8a668774,Shoaib Ahmed,S Nadeem,90.9,A Nehra,89.2,MM Sharma,85.0
+8abdf100,CJ Anderson,Azhar Mahmood,85.9,EJG Morgan,80.5,DB Ravi Teja,79.2
+8ac93ca2,P Chopra,SA Asnodkar,53.7,MD Mishra,50.4,R Powell,45.6
+8b3e9c7c,PP Shaw,YBK Jaiswal,92.0,P Simran Singh,91.1,V Sehwag,90.7
+8b5b6769,Harbhajan Singh,DJ Bravo,78.2,Rashid Khan,70.5,IK Pathan,70.5
+8b9704ae,L Ablish,S Nadeem,88.0,A Nehra,87.8,MM Sharma,85.4
+8ba8195d,V Sehwag,AC Gilchrist,94.9,SA Yadav,91.4,P Simran Singh,91.0
+8cf9814c,Mohammed Shami,DS Kulkarni,81.1,MG Johnson,70.6,M Jansen,66.6
+8d2c70ad,Kuldeep Yadav,A Kumble,85.7,I Sharma,69.5,RP Singh,67.8
+8d92a2c3,MA Wood,JD Unadkat,84.4,K Gowtham,84.2,M Shahrukh Khan,76.7
+8db7f47f,RJW Topley,PP Ojha,88.4,RP Singh,88.1,AB Dinda,84.9
+8e514b4c,Abdul Samad,JM Sharma,89.0,Ramandeep Singh,78.9,K Gowtham,78.5
+8f6dd463,Azmatullah Omarzai,DJ Hooda,58.4,P Negi,58.1,JC Archer,50.8
+8fd1a8f5,DW Steyn,TA Boult,78.9,Kuldeep Yadav,65.4,Z Khan,62.1
+90de905a,K Gowtham,Ramandeep Singh,87.0,PJ Cummins,86.7,JD Unadkat,84.6
+90edaaa9,S Rana,Shakib Al Hasan,77.6,KM Jadhav,73.4,AS Raut,68.3
+9170ff49,Parvez Rasool,MA Starc,82.4,A Kumble,71.9,RP Singh,68.4
+919a3be2,RR Pant,SS Iyer,98.1,SK Raina,94.3,SV Samson,93.9
+91a4a398,Z Khan,R Sharma,75.1,P Kumar,68.2,RJ Harris,68.1
+91b9300b,UA Birla,S Nadeem,46.9,M Kaif,46.0,RD Chahar,45.8
+91ffa6c6,JD Ryder,AJ Finch,88.1,KK Nair,80.0,AC Gilchrist,79.7
+9219eff0,JDS Neesham,M Kaif,78.4,DT Christian,77.8,GH Vihari,75.6
+92aeac25,AD Hales,WP Saha,91.1,HH Gibbs,82.5,G Gambhir,78.2
+9385de2e,SS Prabhudessai,SK Warne,63.0,VVS Laxman,57.0,AL Menaria,56.1
+93a17209,VY Mahesh,AB Dinda,88.2,S Nadeem,85.3,Ravi Bishnoi,84.8
+93b4fc78,MK Pandey,V Kohli,90.2,B Sai Sudharsan,90.2,KL Rahul,89.5
+9418198b,P Simran Singh,YBK Jaiswal,96.5,JJ Roy,93.0,N Rana,92.6
+94253925,GH Vihari,M Kaif,73.5,A Mishra,70.9,RS Bopara,63.7
+943fd425,I Malhotra,Bipul Sharma,78.0,KV Sharma,74.6,AB Agarkar,71.1
+944533a5,KK Nair,E Lewis,92.0,TM Head,90.6,RR Rossouw,88.9
+94bc776b,D Kalyankrishna,S Nadeem,89.5,AB Dinda,87.3,A Nehra,83.7
+94d7f855,C de Grandhomme,KM Jadhav,67.8,Harpreet Brar,66.5,TL Suman,65.0
+94eac556,CJ McKay,GH Vihari,67.0,M Kaif,46.1,A Manohar,44.3
+957532de,S Aravind,DH Yagnik,47.2,UT Yadav,46.8,JJ Bumrah,45.5
+95a2ea61,S Anirudha,RN ten Doeschate,78.7,A Ashish Reddy,72.7,Bipul Sharma,68.2
+9601c534,SD Lad,SA Asnodkar,59.2,JD Ryder,53.0,AP Tare,51.3
+96fd40ae,A Nehra,S Nadeem,91.9,AB Dinda,90.8,MM Sharma,85.5
+970ddd24,Suryansh Shedge,PWH de Silva,74.4,RP Singh,72.4,AB Dinda,69.4
+983f2f61,Swapnil Singh,Mohammad Nabi,75.2,B Lee,69.7,JO Holder,52.0
+9868bc75,BMAJ Mendis,PWH de Silva,57.7,A Manohar,55.0,PK Garg,53.3
+989889ff,JP Inglis,RM Patidar,94.7,WG Jacks,94.6,N Rana,94.2
+98ae73b1,PP Chawla,SK Warne,87.4,B Kumar,73.9,A Nehra,69.3
+9948e262,HE van der Dussen,Ravi Bishnoi,58.5,AB Dinda,54.5,TG Southee,50.0
+99b202b3,A Chandila,A Nehra,75.9,MM Sharma,71.3,AB Dinda,69.0
+99b75528,JC Buttler,RD Gaikwad,97.8,Shubman Gill,97.0,Ishan Kishan,95.5
+99d63244,KM Jadhav,DJ Mitchell,81.6,J Botha,78.5,SS Tiwary,74.6
+99ed60f8,JPR Scantlebury-Searles,JD Unadkat,83.1,K Gowtham,80.3,M Shahrukh Khan,80.2
+9a0146b3,P Sahu,A Ashish Reddy,85.0,Bipul Sharma,84.2,R Ashwin,77.6
+9a158001,Azhar Mahmood,CJ Anderson,85.9,GJ Bailey,84.2,DB Ravi Teja,83.7
+9a46c4e5,GD Phillips,MS Gony,67.2,B Lee,64.9,BCJ Cutting,56.4
+9a5f2863,Mohit Rathee,RP Singh,88.5,PP Ojha,83.2,AB Dinda,77.5
+9a963804,LE Plunkett,S Nadeem,88.7,A Nehra,87.2,AB Dinda,82.1
+9ab63e7b,Mohammad Hafeez,RD Chahar,73.3,M Kaif,58.0,CA Pujara,54.0
+9b4935c8,CJ Ferguson,M Kaif,70.0,GH Vihari,62.8,AA Jhunjhunwala,57.2
+9b6e1b3f,J Fraser-McGurk,SP Narine,89.8,Abhishek Sharma,86.9,N Pooran,86.1
+9caf69a1,WG Jacks,RM Patidar,94.4,H Klaasen,92.7,JM Sharma,90.5
+9d430b40,SP Narine,J Fraser-McGurk,89.8,KK Nair,87.5,PD Salt,86.9
+9d704f6f,SZ Mulani,DL Vettori,74.3,A Kumble,70.6,R Ashwin,69.6
+9d80c5e1,S Nadeem,A Nehra,91.9,AB Dinda,90.7,MM Sharma,83.5
+9e7225b0,Saurav Chauhan,Ravi Bishnoi,70.6,MJ McClenaghan,66.0,MM Sharma,64.5
+9eb1455b,NT Ellis,PWH de Silva,90.8,TG Southee,74.2,SL Malinga,68.4
+9f77963a,Gulbadin Naib,DJ Mitchell,76.1,KM Jadhav,69.3,A Raghuvanshi,63.7
+9f961c14,Joginder Sharma,MM Sharma,89.9,A Nehra,82.2,S Nadeem,78.2
+9fc0ef64,PJ Sangwan,AB Dinda,93.1,PP Ojha,92.6,TG Southee,88.2
+9ff100a6,RS Gavaskar,TG Southee,72.7,Ravi Bishnoi,71.1,S Nadeem,70.9
+a03bba42,T Shamsi,RP Singh,86.8,PP Ojha,86.5,AB Dinda,82.6
+a12e1d51,SL Malinga,Mohammed Siraj,87.4,MG Johnson,75.0,PWH de Silva,69.5
+a1d053dd,SS Cottrell,MM Sharma,85.0,S Nadeem,83.9,Ravi Bishnoi,80.0
+a1d95bd8,LB Williams,RP Singh,88.7,PP Ojha,83.6,AB Dinda,78.3
+a1f1829d,K Goel,SP Goswami,64.1,MS Bisla,62.6,GC Smith,59.8
+a24be938,VR Iyer,JM Bairstow,93.5,JJ Roy,93.1,RM Patidar,92.3
+a2870fb7,NK Patel,JH Kallis,81.2,TM Dilshan,80.4,KS Williamson,80.4
+a2f46292,KK Ahmed,S Nadeem,89.7,A Nehra,88.2,AB Dinda,88.1
+a316d663,GC Viljoen,MM Sharma,90.9,A Nehra,89.8,S Nadeem,87.3
+a343262c,JE Root,DJ Hooda,50.2,PK Garg,40.2,LR Shukla,39.0
+a386e91b,PD Collingwood,A Symonds,92.1,SS Iyer,91.8,RR Pant,91.6
+a3b0600d,Aniket Verma,JM Sharma,90.3,Abdul Samad,89.1,MP Stoinis,87.4
+a3ecf01f,RS Sodhi,PP Shaw,61.5,DB Das,60.1,SA Asnodkar,57.4
+a457cfb5,Mayank Dagar,S Nadeem,87.2,MM Sharma,86.3,A Nehra,82.8
+a45a5e8d,AM Nayar,M Manhas,70.0,KH Pandya,67.6,JP Faulkner,65.4
+a4cc73aa,SV Samson,AM Rahane,96.2,JC Buttler,95.0,RR Pant,93.9
+a4e37e47,S Dube,H Klaasen,96.5,R Parag,95.5,RK Singh,94.5
+a757b0d8,KA Pollard,YK Pathan,97.3,N Pooran,96.9,TH David,95.0
+a76d10ba,TM Srivastava,RP Singh,86.0,PP Ojha,80.6,YS Chahal,76.9
+a7c226e1,FH Edwards,A Nehra,77.8,S Nadeem,73.9,AB Dinda,72.7
+a818c1be,TA Boult,DW Steyn,78.9,RP Singh,66.6,Kuldeep Yadav,64.6
+a84468fe,DJ Jacobs,Rahmanullah Gurbaz,56.9,RN ten Doeschate,43.5,MD Mishra,43.5
+a90e53ec,MW Short,RR Rossouw,86.0,N Rana,85.7,KK Nair,84.4
+a97c8ec2,PWH de Silva,TG Southee,80.1,B Kumar,77.5,SL Malinga,69.5
+a9da7784,KJ Abbott,JC Archer,61.1,Ramandeep Singh,59.1,P Negi,53.7
+a9fd84fb,M Markande,KV Sharma,59.7,NM Coulter-Nile,56.2,DJ Bravo,55.6
+aa5d8c9e,A Tomar,RD Chahar,72.5,S Nadeem,62.5,Ravi Bishnoi,56.9
+aa8d28ae,D Wiese,K Gowtham,80.9,JD Unadkat,79.6,Ramandeep Singh,74.2
+aaa1b522,TL Suman,M Vijay,79.9,SA Asnodkar,73.7,GC Smith,72.6
+aad0c365,Nithish Kumar Reddy,AK Markram,80.9,DJ Hussey,80.5,LA Pomersbach,79.0
+ab89348d,MF Maharoof,A Ashish Reddy,84.1,JA Morkel,81.1,DJG Sammy,78.9
+abb83e27,JM Bairstow,JJ Roy,95.0,YBK Jaiswal,94.2,CA Lynn,93.6
+abfeb126,M Kartik,DL Vettori,94.4,A Kumble,68.6,MA Starc,67.4
+ac5ae4af,I Udana,NM Coulter-Nile,54.3,RD Chahar,52.4,MJ McClenaghan,50.4
+acc1aeda,SP Jackson,MA Starc,76.1,RP Singh,62.9,DL Vettori,62.5
+acd4f5dc,DP Vijaykumar,DL Vettori,73.7,A Kumble,71.2,MA Starc,71.0
+acdc62f5,A Nortje,R Sharma,84.2,DW Steyn,81.0,Z Khan,77.8
+acee4cc4,Imran Tahir,B Lee,66.5,JJ Bumrah,57.2,Mohammad Nabi,46.9
+ad3b6e95,Abishek Porel,R Parag,89.7,WG Jacks,87.7,N Rana,86.9
+ad427b5c,Lalit Yadav,UBT Chand,71.1,Y Venugopal Rao,63.2,Gurkeerat Singh,61.1
+ad9c32a2,DJ Malan,RS Bopara,90.7,SS Tiwary,66.3,Y Venugopal Rao,65.2
+ada15e88,PSP Handscomb,YS Chahal,64.4,GH Vihari,63.6,S Nadeem,62.8
+addbde6c,N Saini,SP Goswami,81.5,CA Ingram,66.7,K Goel,66.6
+addfb70e,SW Tait,NM Coulter-Nile,65.4,R Ravindra,64.1,M Vohra,63.4
+ae091d39,SA Asnodkar,PA Patel,81.6,PP Shaw,80.5,N Rana,79.1
+ae78bc32,MS Gony,CH Morris,58.1,HV Patel,52.8,BCJ Cutting,45.5
+aedc3b7c,NS Naik,SP Goswami,84.8,MM Sharma,82.2,SK Warne,81.2
+af2c687b,C Munro,S Sohal,81.0,E Lewis,79.0,SP Narine,77.5
+af7dadf7,B Akhil,Harbhajan Singh,74.0,K Gowtham,68.7,B Lee,65.9
+afa7e784,MS Wade,CA Ingram,68.6,SA Asnodkar,67.4,TL Suman,64.0
+afe3355a,AR Bawne,AS Raut,58.0,DS Kulkarni,56.4,Bipul Sharma,51.2
+b0482a1d,Tilak Varma,SM Curran,93.1,SK Raina,92.7,SV Samson,92.4
+b0946605,AS Joseph,MA Starc,80.7,I Sharma,80.3,A Kumble,68.2
+b0c772ee,BJ Haddin,PP Shaw,76.9,YBK Jaiswal,71.9,RG Sharma,70.8
+b0f2baf4,Sanvir Singh,MJ McClenaghan,71.0,TG Southee,67.0,Ravi Bishnoi,66.5
+b1451597,LR Shukla,Abdul Samad,76.6,CA Ingram,73.6,JM Sharma,73.4
+b17e2f24,KL Rahul,Shubman Gill,96.0,V Kohli,95.7,SE Marsh,95.6
+b2570b38,RV Gomez,SL Malinga,69.9,PWH de Silva,69.5,MG Johnson,64.0
+b274dbbd,ER Dwivedi,B Lee,67.7,JA Morkel,66.0,Naman Dhir,66.0
+b2a79f17,B Laughlin,S Nadeem,92.7,MM Sharma,92.2,A Nehra,87.8
+b2ae53f5,T Thushara,PP Ojha,87.3,Sandeep Sharma,80.0,RP Singh,79.7
+b2b23612,RG More,DL Vettori,74.7,A Kumble,69.9,R Ashwin,69.3
+b2b4f545,A Mhatre,Abhishek Sharma,96.3,PD Salt,95.0,TM Head,93.9
+b2b50355,L Balaji,Ravi Bishnoi,89.2,I Sharma,86.9,PP Ojha,84.9
+b410bd3d,S Lamichhane,S Nadeem,88.3,A Nehra,86.8,MM Sharma,86.8
+b4b99816,Shubman Gill,B Sai Sudharsan,97.7,V Kohli,97.5,JC Buttler,97.0
+b4f5c2d9,KL Nagarkoti,AB Dinda,91.6,PP Ojha,87.8,TG Southee,87.5
+b52ffbbd,FA Allen,MM Sharma,73.7,SP Goswami,70.4,Ravi Bishnoi,68.8
+b552a935,AC Thomas,MM Sharma,79.2,S Nadeem,76.1,A Nehra,73.3
+b56dc5f7,BE Hendricks,S Nadeem,89.9,A Nehra,88.8,AB Dinda,83.1
+b5797845,Priyansh Arya,Abhishek Sharma,95.1,TM Head,91.1,PD Salt,90.0
+b57f8a9a,BJ Hodge,JP Duminy,94.9,KL Rahul,92.6,A Symonds,88.3
+b5da6c24,PA Patel,WP Saha,91.7,G Gambhir,91.6,R Dravid,90.7
+b61a3e1a,LRPL Taylor,MP Stoinis,86.3,YK Pathan,85.7,RK Singh,85.5
+b63ab531,LA Pomersbach,MK Tiwary,84.3,AD Mathews,82.2,F du Plessis,81.6
+b63e358a,RK Bhui,MM Sharma,94.1,S Nadeem,87.8,A Nehra,84.7
+b681e71e,GJ Maxwell,RR Rossouw,91.3,AD Russell,85.0,V Sehwag,82.9
+b69e69ed,AA Noffke,DJ Hooda,59.6,PK Garg,52.5,LR Shukla,36.5
+b720a5d6,DB Ravi Teja,Gurkeerat Singh,84.5,GJ Bailey,84.1,Azhar Mahmood,83.7
+b8527c3d,Rasikh Salam,S Gopal,41.1,UT Yadav,34.8,Z Khan,33.7
+b8a55852,BB McCullum,YBK Jaiswal,96.8,ML Hayden,96.2,DR Smith,93.3
+b8d490fd,AJ Finch,RV Uthappa,90.1,RG Sharma,88.1,JD Ryder,88.1
+b970a03f,M Klinger,CA Pujara,79.7,MS Bisla,75.5,AL Menaria,74.5
+b9be6507,AS Yadav,MJ McClenaghan,52.6,SP Goswami,40.7,NM Coulter-Nile,40.1
+ba5e1069,R Ravindra,M Vohra,88.5,Q de Kock,79.0,V Sehwag,78.9
+ba607b88,V Kohli,B Sai Sudharsan,98.5,Shubman Gill,97.5,SE Marsh,96.5
+ba6b2f91,RA Bawa,DS Kulkarni,78.1,R Ashwin,69.4,Sandeep Sharma,62.6
+bae11797,Y Gnaneswara Rao,SR Tendulkar,69.8,DPMD Jayawardene,69.5,WP Saha,67.4
+bafd0398,R Minz,TG Southee,81.5,S Nadeem,80.7,AB Dinda,78.8
+bb18be76,SK Warne,PP Chawla,87.4,A Mishra,69.2,DT Christian,68.4
+bb345e0b,G Gambhir,S Dhawan,96.6,SR Tendulkar,94.9,Shubman Gill,93.6
+bb351c23,MM Ali,Dhruv Jurel,86.2,RR Pant,86.1,AT Rayudu,85.8
+bb965e9a,PK Garg,KH Pandya,59.4,SN Khan,59.1,KM Jadhav,58.5
+bbd41817,AD Russell,Naman Dhir,94.5,Abhishek Sharma,92.1,RR Rossouw,89.8
+bcce309e,WPUJC Vaas,MA Starc,86.9,RP Singh,75.8,UT Yadav,73.3
+bcf325d2,Dhruv Jurel,H Klaasen,93.1,T Stubbs,92.0,A Badoni,91.7
+bd17b45f,STR Binny,KD Karthik,87.1,YK Pathan,86.2,KA Pollard,85.8
+bd54eef5,N Jagadeesan,SP Goswami,74.9,K Goel,71.7,Mandeep Singh,66.0
+bd77eb62,A Symonds,SK Raina,94.2,CL White,93.6,KL Rahul,92.2
+bdadf7da,JL Denly,S Nadeem,88.1,A Nehra,87.5,MM Sharma,85.5
+be24ead0,Ramandeep Singh,K Gowtham,87.0,PJ Cummins,84.0,Abdul Samad,78.9
+be869ccf,GHS Garton,S Nadeem,87.7,A Nehra,86.4,AB Dinda,81.4
+bff458c6,AA Bilakhia,GH Vihari,76.3,A Mishra,75.9,DL Vettori,73.8
+c03c6200,DJG Sammy,RN ten Doeschate,83.3,MP Stoinis,83.1,RK Singh,82.1
+c03e2850,M Vohra,R Ravindra,88.5,Q de Kock,83.6,MM Ali,77.2
+c03f1114,KD Karthik,KA Pollard,93.7,HH Pandya,93.7,YK Pathan,93.3
+c05edf8e,Harpreet Brar,R Vinay Kumar,83.0,JD Unadkat,77.5,R Dhawan,77.0
+c0c411cb,Naveen-ul-Haq,SL Malinga,70.8,PWH de Silva,65.2,Sandeep Sharma,62.6
+c15e2193,FY Fazal,Shakib Al Hasan,62.1,SS Tiwary,61.5,GH Vihari,61.0
+c16d4035,SW Billings,MA Agarwal,84.5,DPMD Jayawardene,80.4,AJ Finch,78.2
+c18496e1,Bipul Sharma,DJ Bravo,87.4,A Ashish Reddy,85.8,KV Sharma,79.7
+c24a2c5d,S Tyagi,MA Starc,86.9,A Kumble,84.2,RP Singh,82.4
+c27b5a0e,PVSN Raju,DL Vettori,74.3,A Kumble,70.3,R Ashwin,70.1
+c2dd89ea,BR Sharath,TG Southee,79.9,AB Dinda,76.1,PWH de Silva,74.1
+c33d8116,Mohsin Khan,NM Coulter-Nile,63.3,R Ashwin,62.5,RJ Harris,51.6
+c38d3503,Shivam Mavi,MM Sharma,91.9,A Nehra,83.1,S Nadeem,81.1
+c3a96caf,Mandeep Singh,JH Kallis,60.6,SC Ganguly,59.9,AL Menaria,58.9
+c3d1402f,RP Singh,PP Ojha,94.3,AB Dinda,82.7,MA Starc,82.4
+c3d35165,JA Morkel,A Ashish Reddy,92.4,TH David,85.9,RK Singh,84.6
+c404f58a,DP Nannes,S Nadeem,85.0,Ravi Bishnoi,81.4,AB Dinda,81.3
+c42aaf71,M Manhas,CA Ingram,79.4,KH Pandya,73.8,AM Nayar,70.0
+c4487b84,AB de Villiers,SA Yadav,93.3,YK Pathan,92.5,CH Gayle,91.6
+c5aef772,R Shepherd,Harbhajan Singh,73.0,K Gowtham,72.1,STR Binny,70.7
+c64c2443,J Syed Mohammad,AB Agarkar,70.8,Bipul Sharma,66.2,R Dhawan,66.0
+c654af19,R McLaren,UBT Chand,80.9,Shahbaz Ahmed,71.2,Gurkeerat Singh,68.1
+c69a7b5c,AS Raut,Bipul Sharma,70.5,KM Jadhav,64.4,C Green,62.8
+c740ea83,RM Patidar,H Klaasen,96.3,WG Jacks,94.4,S Dube,93.4
+c7a995d3,R Sai Kishore,MA Starc,82.2,RP Singh,81.0,A Kumble,73.2
+c8179c68,SB Jakati,JJ Bumrah,63.6,Sandeep Sharma,60.5,DS Kulkarni,46.4
+c8f5f961,Anuj Rawat,CJ Anderson,75.2,GJ Bailey,73.2,DJ Bravo,69.5
+c96f6ac5,PWA Mulder,Shakib Al Hasan,50.1,NM Coulter-Nile,40.6,B Chipli,39.2
+c995d726,CA Ingram,M Manhas,79.4,LR Shukla,73.6,SN Khan,69.4
+cad00a4d,RR Rossouw,GJ Maxwell,91.3,N Rana,90.4,TM Head,90.3
+caf69bf7,DR Sams,MJ McClenaghan,56.6,MS Gony,52.9,K Gowtham,48.2
+cbf58a86,SK Rasheed,M Kaif,64.3,CA Pujara,63.1,Y Nagar,60.0
+cc1e8c68,UT Yadav,Sandeep Sharma,74.5,PP Chawla,62.1,MA Starc,60.5
+cc777ffa,Abdul Basith,DL Vettori,74.9,MA Starc,74.7,A Kumble,67.3
+cca50cd6,LJ Wright,KA Pollard,86.8,Abhishek Sharma,85.5,AD Russell,85.4
+cd8d2859,DG Nalkande,PWH de Silva,70.9,TG Southee,64.9,R Sharma,59.4
+ce4cc4d5,R Ninan,PP Ojha,90.5,AB Dinda,89.3,RP Singh,89.2
+ce794613,T Natarajan,A Nehra,93.4,S Nadeem,90.9,AB Dinda,89.6
+ce820073,Sandeep Sharma,UT Yadav,74.5,MG Johnson,68.9,B Kumar,64.9
+cf59b3f0,Urvil Patel,TH David,84.6,PJ Cummins,83.7,ST Jayasuriya,81.5
+cf73ad76,JEC Franklin,GJ Bailey,88.7,Y Venugopal Rao,87.9,S Badrinath,86.8
+cfa4bd2b,Y Prithvi Raj,S Nadeem,88.1,A Nehra,87.0,MM Sharma,84.6
+cfad138c,CK Kapugedera,TG Southee,82.2,S Nadeem,81.5,AB Dinda,80.9
+d014d5ac,SE Rutherford,R Parag,84.6,S Dube,83.6,Abishek Porel,81.9
+d027ba9f,KS Williamson,M Vijay,90.1,MEK Hussey,90.0,S Badrinath,89.4
+d0513f63,CL White,A Symonds,93.6,KC Sangakkara,90.7,AB de Villiers,89.9
+d18f9182,DPMD Jayawardene,SE Marsh,95.0,SK Raina,92.9,R Dravid,92.6
+d1a60072,N Wadhera,R Parag,92.6,Dhruv Jurel,90.4,H Klaasen,89.3
+d1c36f5c,JJ Roy,YBK Jaiswal,95.4,JM Bairstow,95.0,VR Iyer,93.1
+d1c94b25,CK Langeveldt,RD Chahar,68.2,R Sharma,65.2,TG Southee,63.0
+d2a6c0e6,EJG Morgan,GJ Bailey,84.5,Yuvraj Singh,81.0,CJ Anderson,80.5
+d2a989fc,DS Kulkarni,Mohammed Shami,81.1,R Ashwin,74.3,HV Patel,67.9
+d2c2b2d5,SR Tendulkar,SE Marsh,97.4,S Dhawan,96.4,M Vijay,95.1
+d2d4bb0a,TR Birt,RN ten Doeschate,83.4,B Lee,78.7,DJG Sammy,75.8
+d3a3e82d,AB Barath,VVS Laxman,68.0,CA Pujara,65.2,RS Bopara,60.1
+d4eef961,M de Lange,RP Singh,87.8,PP Ojha,84.1,AB Dinda,82.5
+d4f9dbd4,CA Pujara,MS Bisla,80.2,SC Ganguly,73.9,JH Kallis,73.5
+d5130a30,B Sai Sudharsan,V Kohli,98.5,Shubman Gill,97.7,S Dhawan,95.5
+d621b427,Musheer Khan,TG Southee,70.0,MM Sharma,69.8,Ravi Bishnoi,68.2
+d67d5f00,DA Miller,A Badoni,91.0,V Shankar,90.2,OA Shah,88.3
+d68e7f48,R Rampaul,HV Patel,77.4,SL Malinga,76.6,PWH de Silva,69.5
+d7017798,A Raghuvanshi,WG Jacks,89.8,Tilak Varma,88.9,RA Tripathi,88.1
+d718440b,V Pratap Singh,S Nadeem,86.7,MM Sharma,83.7,A Nehra,83.0
+d7a57f75,D du Preez,GH Vihari,70.0,DL Vettori,59.5,MA Starc,58.2
+d7b3a420,Jaskaran Singh,AB Dinda,90.5,RP Singh,90.3,PP Ojha,89.7
+d7c6af50,DL Vettori,MA Starc,73.3,A Kumble,66.5,RJ Harris,63.9
+d84378a4,M Kaif,GH Vihari,73.5,AA Jhunjhunwala,72.3,S Gopal,63.7
+d8699ab7,ML Hayden,YBK Jaiswal,96.4,BB McCullum,96.2,JC Buttler,95.2
+d872f52a,LA Carseldine,A Raghuvanshi,77.6,SA Asnodkar,75.4,AM Rahane,68.8
+d8b2f218,BB Sran,MA Starc,91.0,A Kumble,84.3,RP Singh,83.1
+d9273ee7,MP Stoinis,RK Singh,95.5,N Pooran,93.7,S Dube,93.0
+d92e42f5,KP Appanna,RP Singh,87.6,PP Ojha,82.8,AB Dinda,78.6
+da934ee8,MK Lomror,PJ Cummins,79.9,HH Pandya,78.7,KD Karthik,78.0
+db31895a,AS Rajpoot,AB Dinda,80.7,A Nehra,76.5,PP Ojha,75.3
+db584dad,CH Gayle,SR Watson,96.7,DR Smith,96.5,ML Hayden,95.0
+dbc50253,AP Dole,R Parag,71.8,Yuvraj Singh,69.9,SR Watson,69.7
+dbe50b21,HH Pandya,H Klaasen,93.8,KD Karthik,93.7,YK Pathan,93.1
+dc4686e6,BA Bhatt,JD Unadkat,70.3,K Gowtham,68.2,M Shahrukh Khan,62.8
+dc9dd038,Sachin Baby,AA Jhunjhunwala,74.2,Z Khan,71.1,SN Khan,64.2
+dcce6f09,DA Warner,RD Gaikwad,95.3,JC Buttler,94.5,SE Marsh,94.2
+dce2019b,F Behardien,Ravi Bishnoi,73.8,MM Sharma,72.8,TG Southee,72.5
+dcf81436,S Kaul,AB Dinda,87.2,S Nadeem,86.3,RP Singh,85.8
+dd09ff8e,B Lee,A Ashish Reddy,72.2,BCJ Cutting,67.2,RN ten Doeschate,66.5
+dd7e9b3b,YV Dhull,TG Southee,64.4,AB Dinda,63.3,S Nadeem,62.7
+ddc0828d,A Flintoff,JP Duminy,90.2,SS Tiwary,88.1,V Shankar,88.1
+dddca1d6,SB Wagh,MM Sharma,84.7,Ravi Bishnoi,76.2,A Nehra,75.3
+dded65e7,IR Jaggi,GH Vihari,74.6,YS Chahal,73.9,B Kumar,69.7
+de4b0555,R Shukla,MA Starc,87.1,I Sharma,79.1,A Kumble,72.7
+de8cce37,VVS Laxman,S Nadeem,48.3,A Nehra,44.2,AB Dinda,43.3
+de8d3876,M Rawat,MA Starc,89.4,I Sharma,79.8,RP Singh,79.1
+dec8e038,J Theron,RP Singh,91.7,PP Ojha,86.6,AB Dinda,81.8
+ded9240e,PJ Cummins,HH Pandya,88.2,K Gowtham,86.7,Ramandeep Singh,84.0
+df064e1a,Ravi Bishnoi,AB Dinda,86.4,S Nadeem,81.7,PP Ojha,80.9
+df5a6881,DP Conway,S Dhawan,96.5,RD Gaikwad,96.3,HM Amla,96.0
+dfc4d8b5,KW Richardson,MA Starc,77.0,DL Vettori,64.5,UT Yadav,53.0
+e0351c86,DNT Zoysa,NM Coulter-Nile,66.6,M Jansen,57.3,MA Starc,57.1
+e03b66ec,Mohammad Asif,AB Dinda,84.9,TG Southee,84.7,Ravi Bishnoi,82.9
+e0407c01,IC Pandey,S Nadeem,88.2,MM Sharma,87.5,A Nehra,86.5
+e087956b,BA Stokes,RA Tripathi,90.6,SK Raina,88.4,VR Iyer,88.0
+e186f49c,Mashrafe Mortaza,NM Coulter-Nile,71.5,JJ Bumrah,62.1,P Kumar,55.9
+e1d1b294,HH Gibbs,SC Ganguly,91.7,M Vijay,87.0,LMP Simmons,85.9
+e1d9ae9c,Shivam Singh,RP Singh,83.8,MA Starc,81.8,PP Ojha,72.6
+e249fdaa,A Chopra,SP Goswami,74.6,S Nadeem,72.3,SK Warne,71.5
+e2db2409,M Ashwin,R Sharma,76.9,Ravi Bishnoi,74.9,MJ McClenaghan,74.4
+e32d22f6,Pankaj Singh,RP Singh,91.6,PP Ojha,91.2,AB Dinda,89.7
+e342e5fb,CR Brathwaite,BCJ Cutting,92.2,A Ashish Reddy,85.8,RN ten Doeschate,84.5
+e3851766,KS Rathore,S Nadeem,87.2,MM Sharma,86.4,A Nehra,82.8
+e38bce7a,MG Bracewell,SS Tiwary,75.5,DJ Mitchell,70.7,KM Jadhav,68.2
+e412cb64,HF Gurney,A Nehra,93.2,S Nadeem,92.6,AB Dinda,89.9
+e4a0deae,MJ Santner,MJ McClenaghan,61.3,M Jansen,60.4,Mohammed Siraj,59.2
+e4cdf230,AS Roy,MM Sharma,80.3,NM Coulter-Nile,67.5,PWH de Silva,63.8
+e62dd25d,K Rabada,JP Faulkner,76.0,Y Nagar,56.5,KV Sharma,54.0
+e66732f8,RD Rickelton,TM Head,93.2,PP Shaw,89.9,RG Sharma,89.1
+e798611a,HM Amla,MEK Hussey,97.1,RD Gaikwad,96.7,DP Conway,96.0
+e86754b2,TK Curran,BJ Hodge,68.5,RS Bopara,64.2,KS Williamson,59.8
+e938e1bc,P Kumar,Z Khan,68.2,NM Coulter-Nile,67.1,I Sharma,66.7
+e94915e6,SM Curran,Tilak Varma,93.1,A Badoni,92.5,A Symonds,90.3
+e96801ea,MS Bhandage,TG Southee,68.2,PWH de Silva,61.8,Ravi Bishnoi,61.6
+e9c7f0d0,Fazalhaq Farooqi,MA Starc,86.9,RP Singh,85.3,A Kumble,83.0
+ea0cdc12,BAW Mendis,AB Dinda,94.5,PP Ojha,92.8,RP Singh,92.5
+eaa76d3c,C Green,Shashank Singh,91.7,Dhruv Jurel,87.9,Tilak Varma,87.4
+eade4650,DJ Mitchell,Tilak Varma,87.1,RA Jadeja,83.7,SS Tiwary,82.7
+ed5a5510,P Dubey,SP Goswami,64.9,SK Warne,60.3,VVS Laxman,55.0
+edb3d4f8,KC Cariappa,JD Unadkat,66.7,Mohammad Nabi,57.7,K Rabada,52.6
+ee3dfa89,Sunny Gupta,MM Sharma,85.2,S Nadeem,82.4,Ravi Bishnoi,80.6
+ee7d0c82,GD McGrath,RD Chahar,74.3,MJ McClenaghan,59.2,R Sharma,58.7
+eea6b7f1,SP Fleming,MD Mishra,75.3,Y Nagar,63.2,RV Uthappa,62.9
+eef2536f,Avesh Khan,Ramandeep Singh,73.7,K Gowtham,69.9,JD Unadkat,67.7
+ef5da05c,AG Murtaza,RP Singh,80.3,PP Ojha,80.0,MG Johnson,78.1
+efc04be7,Noor Ahmad,S Nadeem,91.9,AB Dinda,86.3,A Nehra,83.1
+f088b960,SN Khan,TL Suman,70.9,CA Ingram,69.4,LR Shukla,68.5
+f0af99a7,D Ferreira,S Nadeem,83.8,AB Dinda,82.8,TG Southee,82.3
+f0f628c7,MM Patel,A Nehra,81.5,MM Sharma,77.8,S Nadeem,77.7
+f10e94c4,AD Nath,DT Christian,63.5,S Gopal,60.2,M Kaif,59.8
+f18ba07f,Ankit Soni,JD Unadkat,54.5,MS Gony,47.2,K Gowtham,46.5
+f19ccfad,Washington Sundar,Ashutosh Sharma,84.3,RM Patidar,76.8,VR Iyer,75.2
+f1f99156,TH David,KA Pollard,95.0,N Pooran,92.6,Naman Dhir,91.3
+f21043a5,MDKJ Perera,RD Chahar,62.9,Mohammed Siraj,59.3,SL Malinga,51.0
+f233bbb4,ST Jayasuriya,PD Salt,90.5,AC Gilchrist,89.5,CH Gayle,89.3
+f24c6701,M Theekshana,AB Dinda,86.5,S Nadeem,78.1,Ravi Bishnoi,77.4
+f24ca2ba,C Nanda,S Nadeem,88.5,A Nehra,86.1,MM Sharma,84.9
+f29185a1,Abhishek Sharma,N Pooran,96.0,Priyansh Arya,95.1,PD Salt,94.9
+f2c936d7,MJ Owen,MM Sharma,88.0,S Nadeem,87.2,A Nehra,84.0
+f3cb53a1,MV Boucher,MC Henriques,86.3,DJ Hussey,81.5,JP Duminy,79.5
+f48cf4da,DT Patil,DB Das,70.4,JD Unadkat,69.7,R Vinay Kumar,60.0
+f4cb4f53,AP Majumdar,MK Pandey,77.9,DPMD Jayawardene,76.9,KC Sangakkara,76.1
+f4f0fafd,B Sumanth,KM Jadhav,74.0,DJ Mitchell,72.7,AB Agarkar,65.7
+f5180fe6,MG Johnson,SL Malinga,75.0,B Kumar,74.5,Mohammed Siraj,72.1
+f5f18a18,S Randiv,AB Dinda,94.1,S Nadeem,92.4,A Nehra,90.7
+f62772e5,P Negi,NLTC Perera,79.9,M Morkel,67.5,MK Lomror,61.8
+f663ef00,J Arunkumar,RD Chahar,70.1,Mohammed Siraj,69.2,PWH de Silva,64.6
+f6d8a7ab,K Kartikeya,TG Southee,64.6,AB Dinda,63.5,RP Singh,63.3
+f708a0bc,GB Hogg,A Kumble,75.2,DL Vettori,74.8,MA Starc,71.0
+f752db61,JL Pattinson,DL Vettori,78.0,A Kumble,70.7,Kuldeep Yadav,63.8
+f834dcfc,L Ngidi,A Nehra,87.8,S Nadeem,87.7,MM Sharma,86.1
+f836b33d,T Kohler-Cadmore,CA Pujara,90.2,MS Bisla,75.7,SC Ganguly,59.6
+f842c2cf,MJ Clarke,AL Menaria,65.9,Shakib Al Hasan,65.9,CA Ingram,62.2
+f846de6a,MN Samuels,AA Jhunjhunwala,61.3,R Sharma,57.9,Z Khan,57.5
+f89d3b11,Sameer Rizvi,P Simran Singh,90.7,V Sehwag,89.2,DR Smith,88.8
+f986ca1a,HV Patel,M Jansen,70.9,PWH de Silva,69.3,DS Kulkarni,67.9
+f9e6e7ef,Shahbaz Ahmed,DB Ravi Teja,83.6,Gurkeerat Singh,77.0,Azhar Mahmood,75.9
+fa463154,AB Agarkar,R Dhawan,92.0,DJ Bravo,77.5,Bipul Sharma,74.4
+faa7365d,DR Shorey,PK Garg,48.3,DL Vettori,43.3,Ravi Bishnoi,43.3
+facb9086,SD Chitnis,AD Mathews,73.8,SS Tiwary,63.5,MC Henriques,60.7
+fb2d1dda,N Rana,P Simran Singh,92.6,JJ Roy,92.2,YBK Jaiswal,91.6
+fb5f69e4,M Tiwari,TG Southee,65.7,PWH de Silva,64.3,RP Singh,62.4
+fb66ce1f,CH Morris,BCJ Cutting,76.2,RE van der Merwe,73.0,J Fraser-McGurk,68.7
+fb693839,S Ladda,S Nadeem,90.2,MM Sharma,87.9,A Nehra,85.5
+fcc21ace,A Kamboj,Mohammed Shami,59.4,A Kumble,53.4,Kuldeep Yadav,52.5
+fd835ab3,DJ Hussey,Y Venugopal Rao,90.4,AK Markram,89.9,DPMD Jayawardene,87.3
+fdcb08c2,A Uniyal,S Nadeem,91.0,A Nehra,91.0,AB Dinda,86.3
+fdedb37c,SM Katich,E Lewis,93.2,TM Head,87.9,KK Nair,86.7
+fe11caa6,WP Saha,PA Patel,91.7,S Dhawan,91.1,G Gambhir,90.7
+fe763256,Y Venugopal Rao,DJ Hussey,90.4,JEC Franklin,87.9,GJ Bailey,86.7
+fe93fd9d,RA Jadeja,A Badoni,94.3,H Klaasen,90.1,Tilak Varma,90.0
+ff077124,Kamran Akmal,JM Sharma,91.2,AD Russell,89.7,N Rana,89.1
+ff1e12a0,AJ Turner,Mohammad Nabi,65.2,SL Malinga,46.6,PP Ojha,37.7
+ff1e68fa,B Indrajith,MM Sharma,85.3,SP Goswami,78.3,S Nadeem,73.0
+ffe699c0,CJ Jordan,HV Patel,85.6,DS Kulkarni,80.3,PWH de Silva,68.4
+fffa744b,Naman Dhir,AD Russell,94.5,Abhishek Sharma,91.5,TH David,91.3

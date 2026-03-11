@@ -1,0 +1,490 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── Reset & defaults ─────────────────────────────────────── */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-text-primary font-sans;
+    min-height: 100vh;
+  }
+
+  /* Respect reduced motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* ── Light mode overrides ─────────────────────────────────── */
+  html:not(.dark) body {
+    @apply bg-background-light text-text-primary-light;
+  }
+
+  /* ── Focus ring for keyboard accessibility ────────────────── */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+
+  /* ── Skip to main content link (accessibility) ────────────── */
+  .skip-link {
+    @apply absolute -top-10 left-4 z-50 rounded bg-primary px-4 py-2 text-white transition-all;
+  }
+
+  .skip-link:focus {
+    @apply top-4;
+  }
+
+  /* ── Scrollbar styling (dark mode) ────────────────────────── */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-surface-elevated;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted;
+  }
+
+  html:not(.dark) ::-webkit-scrollbar-track {
+    @apply bg-background-light;
+  }
+
+  html:not(.dark) ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300;
+  }
+
+  /* ── Typography defaults ──────────────────────────────────── */
+  h1 {
+    @apply text-h1;
+  }
+  h2 {
+    @apply text-h2;
+  }
+  h3 {
+    @apply text-h3;
+  }
+
+  /* Monospace numbers for scores / stats */
+  .font-score {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+}
+
+@layer components {
+  /* ── Card ──────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-card bg-surface p-4 shadow-card transition-shadow duration-200;
+  }
+
+  .card:hover {
+    @apply shadow-card-hover;
+  }
+
+  html:not(.dark) .card {
+    @apply bg-surface-light border border-gray-200;
+  }
+
+  /* ── Score bar ────────────────────────────────────────────── */
+  .score-bar {
+    @apply relative h-3 w-full overflow-hidden rounded-full bg-surface-elevated;
+  }
+
+  .score-bar-fill {
+    @apply absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out;
+  }
+
+  /* ── Grade badges ─────────────────────────────────────────── */
+  .grade-badge {
+    @apply inline-flex items-center justify-center rounded-md px-2 py-0.5 text-xs font-semibold uppercase leading-none;
+  }
+
+  .grade-s {
+    @apply bg-gold/20 text-gold;
+  }
+
+  .grade-a-plus {
+    @apply bg-accent/20 text-accent;
+  }
+
+  .grade-a {
+    @apply bg-green-500/20 text-green-400;
+  }
+
+  .grade-b-plus {
+    @apply bg-cyan-500/20 text-cyan-400;
+  }
+
+  .grade-b {
+    @apply bg-primary/20 text-primary-light;
+  }
+
+  .grade-c-plus {
+    @apply bg-warning/20 text-warning;
+  }
+
+  .grade-c {
+    @apply bg-orange-500/20 text-orange-400;
+  }
+
+  .grade-d {
+    @apply bg-danger/20 text-danger;
+  }
+
+  /* Light mode grade badge variants */
+  html:not(.dark) .grade-s {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  html:not(.dark) .grade-a-plus {
+    @apply bg-emerald-100 text-emerald-800;
+  }
+  html:not(.dark) .grade-a {
+    @apply bg-green-100 text-green-800;
+  }
+  html:not(.dark) .grade-b-plus {
+    @apply bg-cyan-100 text-cyan-800;
+  }
+  html:not(.dark) .grade-b {
+    @apply bg-blue-100 text-blue-800;
+  }
+  html:not(.dark) .grade-c-plus {
+    @apply bg-amber-100 text-amber-800;
+  }
+  html:not(.dark) .grade-c {
+    @apply bg-orange-100 text-orange-800;
+  }
+  html:not(.dark) .grade-d {
+    @apply bg-red-100 text-red-800;
+  }
+
+  /* ── Archetype badge ──────────────────────────────────────── */
+  .archetype-badge {
+    @apply inline-flex items-center gap-1 rounded-full bg-surface-elevated px-3 py-1 text-xs font-medium text-text-secondary;
+  }
+
+  html:not(.dark) .archetype-badge {
+    @apply bg-gray-100 text-gray-700;
+  }
+
+  /* ── Provisional badge ────────────────────────────────────── */
+  .provisional-badge {
+    @apply inline-flex items-center gap-1 rounded-full bg-warning/20 px-2 py-0.5 text-xs font-medium text-warning;
+  }
+
+  /* ── Metric tooltip ───────────────────────────────────────── */
+  .metric-tooltip {
+    @apply absolute z-50 max-w-xs rounded-lg bg-surface-elevated p-3 text-sm text-text-primary shadow-lg;
+    @apply pointer-events-none opacity-0 transition-opacity duration-150;
+  }
+
+  .metric-tooltip.visible {
+    @apply opacity-100;
+  }
+
+  /* ── Dominance gauge ──────────────────────────────────────── */
+  .dominance-gauge {
+    @apply relative h-4 w-full overflow-hidden rounded-full;
+    background: linear-gradient(
+      to right,
+      #ef4444 0%,
+      #ef4444 25%,
+      #64748b 50%,
+      #22c55e 75%,
+      #22c55e 100%
+    );
+  }
+
+  .dominance-gauge-pointer {
+    @apply absolute top-0 h-full w-1 -translate-x-1/2 rounded bg-white shadow-md;
+  }
+
+  /* ── Sortable table ───────────────────────────────────────── */
+  .sortable-table {
+    @apply w-full border-collapse;
+  }
+
+  .sortable-table th {
+    @apply cursor-pointer select-none border-b border-surface-elevated px-3 py-2 text-left text-small text-text-secondary;
+  }
+
+  .sortable-table th:hover {
+    @apply text-primary;
+  }
+
+  .sortable-table td {
+    @apply border-b border-surface-elevated/50 px-3 py-2 text-body;
+  }
+
+  .sortable-table tr:hover td {
+    @apply bg-surface-elevated/30;
+  }
+
+  html:not(.dark) .sortable-table th {
+    @apply border-gray-200 text-gray-600;
+  }
+
+  html:not(.dark) .sortable-table td {
+    @apply border-gray-100;
+  }
+
+  html:not(.dark) .sortable-table tr:hover td {
+    @apply bg-gray-50;
+  }
+
+  /* ── Filter bar ───────────────────────────────────────────── */
+  .filter-select {
+    @apply rounded-lg border border-surface-elevated bg-surface px-3 py-2 text-sm text-text-primary outline-none transition-colors;
+    @apply focus:border-primary focus:ring-1 focus:ring-primary;
+  }
+
+  html:not(.dark) .filter-select {
+    @apply border-gray-300 bg-white text-gray-900;
+  }
+
+  .filter-input {
+    @apply rounded-lg border border-surface-elevated bg-surface px-3 py-2 text-sm text-text-primary outline-none transition-colors;
+    @apply placeholder:text-text-muted;
+    @apply focus:border-primary focus:ring-1 focus:ring-primary;
+  }
+
+  html:not(.dark) .filter-input {
+    @apply border-gray-300 bg-white text-gray-900 placeholder:text-gray-400;
+  }
+
+  /* ── Buttons ──────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors;
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-hover;
+  }
+
+  .btn-secondary {
+    @apply btn bg-surface-elevated text-text-primary hover:bg-surface-elevated/80;
+  }
+
+  html:not(.dark) .btn-secondary {
+    @apply bg-gray-100 text-gray-900 hover:bg-gray-200;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-text-secondary hover:bg-surface-elevated hover:text-text-primary;
+  }
+
+  .btn-danger {
+    @apply btn bg-danger text-white hover:bg-danger-hover;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  /* ── Pagination ───────────────────────────────────────────── */
+  .pagination-btn {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium text-text-secondary transition-colors;
+    @apply hover:bg-surface-elevated hover:text-text-primary;
+  }
+
+  .pagination-btn.active {
+    @apply bg-primary text-white;
+  }
+
+  /* ── Search autocomplete dropdown ─────────────────────────── */
+  .autocomplete-dropdown {
+    @apply absolute left-0 right-0 top-full z-40 mt-1 max-h-96 overflow-y-auto rounded-lg border border-surface-elevated bg-surface shadow-lg;
+  }
+
+  html:not(.dark) .autocomplete-dropdown {
+    @apply border-gray-200 bg-white;
+  }
+
+  .autocomplete-item {
+    @apply cursor-pointer px-4 py-3 transition-colors;
+    @apply hover:bg-surface-elevated;
+  }
+
+  .autocomplete-item.highlighted {
+    @apply bg-surface-elevated;
+  }
+
+  html:not(.dark) .autocomplete-item:hover,
+  html:not(.dark) .autocomplete-item.highlighted {
+    @apply bg-gray-50;
+  }
+
+  /* ── Skeleton loading placeholders ────────────────────────── */
+  .skeleton {
+    @apply animate-pulse rounded bg-surface-elevated;
+  }
+
+  .skeleton-text {
+    @apply skeleton h-4 w-full;
+  }
+
+  .skeleton-title {
+    @apply skeleton h-6 w-3/4;
+  }
+
+  .skeleton-score-bar {
+    @apply skeleton h-3 w-full rounded-full;
+  }
+
+  .skeleton-avatar {
+    @apply skeleton h-12 w-12 rounded-full;
+  }
+
+  /* ── Radar chart container ────────────────────────────────── */
+  .radar-chart-container svg {
+    overflow: visible;
+  }
+
+  .radar-chart-container .radar-polygon {
+    transition: d 0.3s ease-out, opacity 0.2s ease-out;
+  }
+
+  .radar-chart-container .radar-axis-label {
+    @apply fill-text-secondary text-xs font-medium;
+  }
+
+  .radar-chart-container .radar-grid {
+    @apply stroke-surface-elevated;
+    stroke-width: 0.5;
+    fill: none;
+  }
+
+  /* ── Phase bar chart ──────────────────────────────────────── */
+  .phase-bar {
+    @apply flex items-end gap-1;
+  }
+
+  .phase-bar-segment {
+    @apply rounded-t transition-all duration-300 ease-out;
+  }
+}
+
+@layer utilities {
+  /* ── Score colour utilities (applied dynamically) ──────── */
+  .score-color-s {
+    color: #ffd700;
+  }
+  .score-color-a-plus {
+    color: #10b981;
+  }
+  .score-color-a {
+    color: #22c55e;
+  }
+  .score-color-b-plus {
+    color: #06b6d4;
+  }
+  .score-color-b {
+    color: #3b82f6;
+  }
+  .score-color-c-plus {
+    color: #f59e0b;
+  }
+  .score-color-c {
+    color: #f97316;
+  }
+  .score-color-d {
+    color: #ef4444;
+  }
+
+  .score-bg-s {
+    background-color: #ffd700;
+  }
+  .score-bg-a-plus {
+    background-color: #10b981;
+  }
+  .score-bg-a {
+    background-color: #22c55e;
+  }
+  .score-bg-b-plus {
+    background-color: #06b6d4;
+  }
+  .score-bg-b {
+    background-color: #3b82f6;
+  }
+  .score-bg-c-plus {
+    background-color: #f59e0b;
+  }
+  .score-bg-c {
+    background-color: #f97316;
+  }
+  .score-bg-d {
+    background-color: #ef4444;
+  }
+
+  /* ── Tabular numbers for stat columns ─────────────────── */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Truncate with ellipsis ───────────────────────────── */
+  .truncate-name {
+    @apply max-w-[12rem] truncate;
+  }
+
+  /* ── Sticky first column for scrollable tables ────────── */
+  .sticky-col-first {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    @apply bg-surface;
+  }
+
+  html:not(.dark) .sticky-col-first {
+    @apply bg-white;
+  }
+
+  /* ── Glow effect for elite players ────────────────────── */
+  .glow-elite {
+    @apply shadow-glow;
+  }
+
+  .glow-gold-elite {
+    @apply shadow-glow-gold;
+  }
+
+  /* ── Hide scrollbar but keep scroll functionality ─────── */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

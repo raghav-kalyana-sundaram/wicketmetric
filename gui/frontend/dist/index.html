@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" class="dark">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="description"
+            content="Cricket Metrics — T20I Player Intelligence. Search, compare, and analyse every T20I cricketer with advanced performance metrics."
+        />
+        <meta name="theme-color" content="#0F172A" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+            rel="stylesheet"
+        />
+        <title>Cricket Metrics — T20I Player Intelligence</title>
+        <!-- Prevent flash of wrong theme by reading localStorage before paint -->
+        <script>
+            (function () {
+                try {
+                    var theme = localStorage.getItem("cricket-metrics-theme");
+                    if (theme === "light") {
+                        document.documentElement.classList.remove("dark");
+                    } else if (theme === "dark") {
+                        document.documentElement.classList.add("dark");
+                    } else if (
+                        window.matchMedia &&
+                        window.matchMedia("(prefers-color-scheme: light)")
+                            .matches
+                    ) {
+                        document.documentElement.classList.remove("dark");
+                    }
+                } catch (e) {}
+            })();
+        </script>
+      <script type="module" crossorigin src="/assets/index-C3JIf_XJ.js"></script>
+      <link rel="modulepreload" crossorigin href="/assets/vendor-CYVYoDpF.js">
+      <link rel="modulepreload" crossorigin href="/assets/query-CKNVQoH_.js">
+      <link rel="stylesheet" crossorigin href="/assets/index-BxGMh5hy.css">
+    </head>
+    <body class="bg-background text-text-primary antialiased">
+        <div id="root"></div>
+    </body>
+</html>

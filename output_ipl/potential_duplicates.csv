@@ -1,0 +1,33 @@
+id_a,name_a,id_b,name_b,team,innings_a,innings_b,reason
+7daedf2f,KB Arun Karthik,c03f1114,KD Karthik,Royal Challengers Bangalore,7,40,same_surname_same_team_no_match_overlap
+91a4a398,Z Khan,f088b960,SN Khan,Royal Challengers Bangalore,13,17,same_surname_same_team_no_match_overlap
+6afb26d6,MD Mishra,6b19d823,A Mishra,Deccan Chargers,11,14,same_surname_same_team_no_match_overlap
+3c6ffae8,YK Pathan,5fa06777,IK Pathan,Sunrisers Hyderabad,20,6,same_surname_same_team_no_match_overlap
+1c2a64cd,A Ashish Reddy,aad0c365,Nithish Kumar Reddy,Sunrisers Hyderabad,18,22,same_surname_same_team_no_match_overlap
+2461eef2,PA Reddy,aad0c365,Nithish Kumar Reddy,Sunrisers Hyderabad,7,22,same_surname_same_team_no_match_overlap
+759ac88f,MM Sharma,9f961c14,Joginder Sharma,Chennai Super Kings,9,5,same_surname_same_team_no_match_overlap
+759ac88f,MM Sharma,c18496e1,Bipul Sharma,Kings XI Punjab,16,9,same_surname_same_team_no_match_overlap
+c18496e1,Bipul Sharma,ce820073,Sandeep Sharma,Kings XI Punjab,9,11,same_surname_same_team_no_match_overlap
+119678fd,KV Sharma,ce820073,Sandeep Sharma,Sunrisers Hyderabad,27,12,same_surname_same_team_no_match_overlap
+119678fd,KV Sharma,f29185a1,Abhishek Sharma,Sunrisers Hyderabad,27,71,same_surname_same_team_no_match_overlap
+c18496e1,Bipul Sharma,ce820073,Sandeep Sharma,Sunrisers Hyderabad,8,12,same_surname_same_team_no_match_overlap
+c18496e1,Bipul Sharma,f29185a1,Abhishek Sharma,Sunrisers Hyderabad,8,71,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,30e37810,Sunny Singh,Kings XI Punjab,48,5,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,69be866a,Anureet Singh,Kings XI Punjab,48,7,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,6eb146d2,Gurkeerat Singh,Kings XI Punjab,48,24,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,c3a96caf,Mandeep Singh,Kings XI Punjab,48,57,same_surname_same_team_no_match_overlap
+30e37810,Sunny Singh,69be866a,Anureet Singh,Kings XI Punjab,5,7,same_surname_same_team_no_match_overlap
+30e37810,Sunny Singh,6eb146d2,Gurkeerat Singh,Kings XI Punjab,5,24,same_surname_same_team_no_match_overlap
+30e37810,Sunny Singh,c3a96caf,Mandeep Singh,Kings XI Punjab,5,57,same_surname_same_team_no_match_overlap
+69be866a,Anureet Singh,c3a96caf,Mandeep Singh,Kings XI Punjab,7,57,same_surname_same_team_no_match_overlap
+be24ead0,Ramandeep Singh,c3a96caf,Mandeep Singh,Kolkata Knight Riders,16,5,same_surname_same_team_no_match_overlap
+244048f6,Arshdeep Singh,28c78fb3,Harpreet Singh,Punjab Kings,12,5,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,6eb146d2,Gurkeerat Singh,Royal Challengers Bangalore,14,8,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,c3a96caf,Mandeep Singh,Royal Challengers Bangalore,14,31,same_surname_same_team_no_match_overlap
+6eb146d2,Gurkeerat Singh,c3a96caf,Mandeep Singh,Royal Challengers Bangalore,8,31,same_surname_same_team_no_match_overlap
+1399b39c,Anmolpreet Singh,1c914163,Yuvraj Singh,Sunrisers Hyderabad,6,21,same_surname_same_team_no_match_overlap
+1399b39c,Anmolpreet Singh,26989d80,Shashank Singh,Sunrisers Hyderabad,6,5,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,26989d80,Shashank Singh,Sunrisers Hyderabad,21,5,same_surname_same_team_no_match_overlap
+1c914163,Yuvraj Singh,b0f2baf4,Sanvir Singh,Sunrisers Hyderabad,21,5,same_surname_same_team_no_match_overlap
+26989d80,Shashank Singh,b0f2baf4,Sanvir Singh,Sunrisers Hyderabad,5,5,same_surname_same_team_no_match_overlap
+30a45b23,SPD Smith,72861603,GC Smith,Rajasthan Royals,43,25,same_surname_same_team_no_match_overlap

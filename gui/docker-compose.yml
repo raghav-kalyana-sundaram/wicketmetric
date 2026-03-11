@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../output_t20i:/app/output_t20i:ro
+      - ../output_ipl:/app/output_ipl:ro
+    environment:
+      # Do NOT set OUTPUT_DIR — the backend auto-discovers output_t20i/ and
+      # output_ipl/ via load_all_data() when OUTPUT_DIR is unset.
+      - HOST=0.0.0.0
+      - PORT=8000
+    command: uvicorn app:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
