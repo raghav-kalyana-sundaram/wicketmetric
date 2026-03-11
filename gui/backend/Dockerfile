@@ -3,7 +3,7 @@
 # This Dockerfile is for LOCAL development with Docker Compose, where
 # the output data directories are mounted as volumes at runtime.
 #
-# For Railway / production deployment, use the root-level Dockerfile.backend
+# For Railway / production deployment, use the root-level Dockerfile
 # which copies the data directories into the image at build time.
 #
 # Local usage:

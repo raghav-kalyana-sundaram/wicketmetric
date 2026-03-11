@@ -141,11 +141,11 @@ Click **"New Project"** → **"Deploy from GitHub Repo"** → select your `crick
 
 The backend needs access to the `output_t20i/` and `output_ipl/` data directories
 at the project root, so it **must** be built from the repo root using the
-`Dockerfile.backend` file (not from `gui/backend/`).
+root-level `Dockerfile` (not from `gui/backend/`).
 
 1. Click on the service → **Settings**
 2. Set **Root Directory** to `/` (repo root — leave blank or set to `/`)
-3. Set **Dockerfile Path** to `Dockerfile.backend`
+3. Railway will auto-detect the root `Dockerfile`. If not, set **Dockerfile Path** to `Dockerfile`.
 4. **No Build Command or Start Command needed** — the Dockerfile handles both.
 5. Add these **Environment Variables** (optional — the Dockerfile sets sensible defaults):
 

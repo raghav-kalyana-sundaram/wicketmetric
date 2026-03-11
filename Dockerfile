@@ -3,10 +3,10 @@
 #
 # Railway setup:
 #   - Root Directory: (repo root, leave blank or set to "/")
-#   - Dockerfile Path: Dockerfile.backend
+#   - Railway will auto-detect this Dockerfile at the repo root.
 #
 # Local build:
-#   docker build -f Dockerfile.backend -t cricket-metrics-backend .
+#   docker build -t cricket-metrics-backend .
 
 FROM python:3.12-slim
 
