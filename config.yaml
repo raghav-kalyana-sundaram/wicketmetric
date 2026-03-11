@@ -83,9 +83,9 @@ batting_avg_quality:
   # Stage 1 — pre-percentile multiplicative factor
   reference: 18.0 # Population median T20 average
   exponent_below: 2.5 # Steep penalty below reference
-  exponent_above: 0.5 # Gentle bonus above reference
+  exponent_above: 0.65 # Moderate bonus above reference (raised from 0.5 for better elite-avg differentiation)
   floor: 0.40 # Minimum factor (worst case)
-  ceil: 1.20 # Maximum factor (best case)
+  ceil: 1.35 # Maximum factor (raised from 1.20 so avg-40 and avg-30 batters aren't both capped)
 
   # Stage 2 — post-percentile gate for ACC / POW
   gate_base: 0.55 # Floor: even worst avg can't go below 55%
@@ -637,6 +637,24 @@ presentation:
   runs_bonus_max: 2.0 # Maximum additive bonus (points on the 0-100 scale)
   runs_bonus_ref: 3000.0 # Total runs at which the full bonus is realised
   runs_bonus_curve: 0.8 # Sub-linear curve (< 1) so partial credit at lower totals
+  # Batting dimension weights for overall score.  Control gets the highest
+  # weight because not getting out is the single most important skill in T20
+  # cricket — every ball survived is a ball available to score.  This ensures
+  # that a player averaging 40 with SR 133 (Kohli in IPL) outranks a player
+  # averaging 30 with SR 132 (Rohit in IPL) despite a Power score gap.
+  # Weights are normalised internally so they don't need to sum exactly to 1.0.
+  bat_weight_acceleration: 0.35
+  bat_weight_power: 0.20
+  bat_weight_control: 0.45
+  # Career batting average bonus — additive bonus to overall score based on
+  # career batting average.  Rewards elite averages that indicate sustained
+  # consistency beyond what the ACC/POW/CTRL equal-weight mean captures.
+  # A T20 avg of 38+ is world-class; averaging 30 is merely good.
+  #   bonus = avg_bonus_max * clip(career_avg / avg_bonus_ref, 0, 1) ^ avg_bonus_curve
+  # Super-linear curve (> 1) so the reward accelerates for elite averages.
+  avg_bonus_max: 5.0 # Maximum additive bonus (points on the 0-100 scale)
+  avg_bonus_ref: 38.0 # Career avg at which the full bonus is realised
+  avg_bonus_curve: 2.5 # Super-linear curve (> 1) so elite avgs get disproportionate reward
 
 # ───────────────────────────────────────────────────────────────────────────
 # Feature 3: Clutch / Pressure Index

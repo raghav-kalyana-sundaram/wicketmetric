@@ -309,7 +309,7 @@ Computes match-level and innings-level normalisation metrics:
 | **Power** | boundary_pct (0.12), six_rate (0.15), boundary_rate_vs_par (0.13), peak_phase_sr (0.10), finishing_burst (0.15), power_impact (0.10), cabi (0.25) |
 | **Control** | dot_pct_weighted (0.08), rotation (0.08), contribution (0.10), avg_proxy (0.22), dismissal_quality (0.10), scoring_consistency (0.14), survival_ratio (0.28) |
 
-**Career Aggregation:** Opposition-quality-weighted averaging → Z-score normalisation (within position groups if enabled) → weighted composite per dimension → multiplicative average quality gate → volume scaling → competition quality gate.
+**Career Aggregation:** Opposition-quality-weighted averaging → blended Z-score normalisation (60% within position group + 40% population; see [Section 6](#blended-position-group-z-scores)) → weighted composite per dimension → multiplicative average quality gate → volume scaling (with beyond-reference bonus) → competition quality gate.
 
 Also includes: `compute_chase_splits()` (setting vs chasing SR and avg).
 
@@ -337,7 +337,7 @@ Also includes: `compute_bowling_innings_splits()` (bowl first / bowl second inde
 
 TrueSkill-inspired hierarchical Bayesian rating (see [Section 7](#7-rating-system)).
 
-### `presentation.py` — Grades, Archetypes, Overall Scores
+### `presentation.py` — Grades, Archetypes, Overall Scores (Weighted)
 
 **Grades:** Maps 0–100 scores to letter grades: S (95+), A+ (85+), A (75+), B+ (60+), B (45+), C+ (30+), C (15+), D (0+).
 
@@ -419,7 +419,7 @@ Z-scores for all dimension components are computed using a **weighted blend** of
 
     blended = α × within_group_z + (1 − α) × population_z     α = 0.6
 
-Pure within-group z-scoring (α = 1.0) makes scores incomparable across position groups — a top-order batter who is average *for an opener* on boundary% would score near zero on Power while a middle-order batter with identical raw stats could score in the 90s. The blend preserves role-aware comparison while ensuring cross-group comparability.
+Pure within-group z-scoring (α = 1.0) made scores incomparable across position groups — a top-order batter who was average *for an opener* on boundary% scored near zero on Power while a middle-order batter with identical raw stats scored in the 90s (e.g. V Kohli IPL Power = 28.8 vs RG Sharma Power = 95.6 despite similar raw boundary rates). The blend preserves role-aware comparison while ensuring cross-group comparability. Configurable via `batting_position_groups.blend_alpha` and `bowling_phase_groups.blend_alpha` in `config.yaml`.
 
 ### Context Normalisation
 
@@ -429,13 +429,7 @@ Pure within-group z-scoring (α = 1.0) makes scores incomparable across position
 
 ### Z-Score Normalisation
 
-Before compositing, every sub-component is z-score normalised. When position/phase groups are enabled (the default), a **blended z-score** is used:
-
-    blended = α × within_group_z + (1 − α) × population_z     α = 0.6
-
-This ensures that a top-order batter is still compared primarily to other top-order batters (60% weight), but also retains a meaningful absolute signal from the full population (40% weight). Pure within-group z-scoring (α = 1.0) caused cross-group incomparability — e.g. V Kohli scoring Power = 28 in IPL because he was merely average *for a top-order batter* on boundary%, while a middle-order batter with similar raw stats scored 96.
-
-Missing values are filled with 0 (population average).
+Before compositing, every sub-component is z-score normalised using the blended approach described above (see [Blended Position-Group Z-Scores](#blended-position-group-z-scores)). Missing values are filled with 0 (population average).
 
 ### Five-Layer Opposition Weighting
 
@@ -458,8 +452,8 @@ Combined effect: recent innings against a top team with a strong attack in a hig
 
 After the rating system produces 0–100 scores, three multiplicative gates adjust final scores:
 
-1. **Average Quality Gate** (batting only): Penalises low-average sloggers — reduces ACC/POW scores for batters with sub-par career averages
-2. **Volume Scaling**: Penalises small sample sizes (uses `log1p(innings) / log1p(ref_innings)`)
+1. **Average Quality Gate** (batting only): Penalises low-average sloggers — reduces ACC/POW scores for batters with sub-par career averages (gate base 0.55, ref avg 25)
+2. **Volume Scaling**: Penalises small sample sizes and rewards high-volume players. Base floor 0.70, reference 100 innings, curve 0.5. Players exceeding the reference get a beyond-reference bonus up to 6% (see [Volume scaling table](#7-rating-system) in Section 7)
 3. **Competition Quality Gate**: Directly scales down scores based on career-average opponent ICC rating — players facing mostly weak opposition lose 10–30%, top-nation players lose ≤3%
 
 ---
@@ -485,7 +479,8 @@ adjusted × (1 + 0.03 × ln(1+n) / ln(1+100))
   │
   ▼  Step 6: Competition quality gate
   │
-  ▼  Step 7: Overall score (superstar bonus + career production bonus)
+  ▼  Step 7: Overall score (weighted dimensions + superstar bonus
+             + career production bonus + career avg bonus)
   │
   ▼
 FINAL DISPLAYED SCORE (0–100)
@@ -520,9 +515,34 @@ Applied to all three dimension scores. Uses a base floor + power curve up to the
 
 **Overall score (batting):**
 
-The overall score combines the three dimension scores with two bonuses:
+The overall score combines the three dimension scores with **non-equal weights** and three additive bonuses:
+
+    overall = weighted_mean(ACC, POW, CTRL) + superstar_bonus + runs_bonus + avg_bonus
+
+**Dimension weights** (configurable via `presentation.bat_weight_*`):
+
+| Dimension | Weight | Rationale |
+|-----------|--------|-----------|
+| Acceleration | 0.35 | Scoring rate and xR value |
+| Power | 0.20 | Boundary-hitting ability (lowest weight — raw six-hitting can inflate scores for lower-average batters) |
+| Control | 0.45 | Survival, consistency, batting average (highest weight — not getting out is the single most important T20 skill) |
+
+Control gets the highest weight because every ball survived is a ball available to score. This directly addresses cases where a high-Power, low-average batter (e.g. Rohit avg 30, SR 132) would otherwise outscore a high-average batter with similar SR (e.g. Kohli avg 40, SR 133) under equal weights.
+
+**Additive bonuses:**
+
 - **Superstar bonus** (weight 0.05): if any dimension exceeds 85, the single best dimension's excess is added at 5% weight.
 - **Career production bonus** (max 2.0 points): additive bonus based on total career runs — `bonus = 2.0 × clip(runs / 3000, 0, 1)^0.8`. Players with 3000+ runs get the full 2-point bonus; a 700-run finisher gets ~0.6 points.
+- **Career average bonus** (max 5.0 points): additive bonus based on career batting average — `bonus = 5.0 × clip(avg / 38, 0, 1)^2.5`. The super-linear curve (exponent 2.5) ensures the reward accelerates for elite averages: averaging 30 earns ~2.75 points while averaging 38+ earns the full 5.0 points.
+
+| Career Avg | Avg Bonus | Career Runs | Runs Bonus |
+|------------|-----------|-------------|------------|
+| 15 | ~0.49 | 500 | ~0.42 |
+| 20 | ~1.00 | 1000 | ~0.72 |
+| 25 | ~1.76 | 1500 | ~0.99 |
+| 30 | ~2.75 | 2000 | ~1.24 |
+| 35 | ~4.07 | 3000+ | 2.00 |
+| 38+ | 5.00 | | |
 
 ---
 
@@ -564,6 +584,9 @@ The overall score combines the three dimension scores with two bonuses:
 
 ### Key Config Sections
 
+> **v3.0 additions** are marked with ★ below.
+
+
 | Section | Purpose |
 |---------|---------|
 | `pipeline.*` | Min innings/overs thresholds |
@@ -575,7 +598,11 @@ The overall score combines the three dimension scores with two bonuses:
 | `bowling_control_weights` | CTRL dimension weights (7 keys, sum=1.0) |
 | `bowling_threat_weights` | THR dimension weights (7 keys, sum=1.0) |
 | `batting_avg_quality.*` | Average quality gate parameters |
-| `batting_volume.*` | Volume scaling |
+| `batting_volume.*` | Volume scaling (base, ref, curve, beyond_max) |
+| `bowling_volume.*` | Bowling volume scaling (same structure) |
+| `batting_position_groups.*` | Position-group z-scoring (enabled, min_group_size, blend_alpha) |
+| `bowling_phase_groups.*` | Phase-group z-scoring (enabled, min_group_size, blend_alpha) |
+| `presentation.runs_bonus_*` | Career production bonus (max, ref, curve) |
 | `icc_ranking.*` | Per-team ICC rating values and curve parameters |
 | `match_quality.*` | Symmetric match quality weighting |
 | `recency.*` | Time-decay half-life (default 545 days) |
@@ -587,6 +614,10 @@ The overall score combines the three dimension scores with two bonuses:
 | `era_adjustment.*` | Era normalisation (disabled by default) |
 | `condition_dependence.*` | CDI parameters |
 | `matchup_shrinkage.*` | Bayesian shrinkage balls (default 30) |
+
+**★ Batting dimension weights** (`presentation.bat_weight_*`): Non-equal weights for the overall score — ACC 0.35, POW 0.20, CTRL 0.45. Configurable to rebalance how much Power vs Control matters.
+
+**★ Career average bonus** (`presentation.avg_bonus_*`): Additive bonus on overall score for elite batting averages — max 5.0 points at avg 38+, super-linear curve (exponent 2.5).
 
 ### Common Recipes
 
@@ -1044,6 +1075,20 @@ Major features implemented:
 - Fixed CORS configuration, Docker build context, serve@13 CLI compatibility
 - Production: `VITE_API_URL` baked into frontend build pointing at backend domain
 
+### v3.0 — Rating Rebalance, Archetype Fix & Average Valorisation
+
+1. **Position-Aware Archetypes** — `_conditions_match()` now supports `position_min`/`position_max`. New archetypes: Explosive Opener, Power Middle-Order. Prevents top-order batters being labelled "Explosive Finisher".
+2. **Strengthened Volume Scaling** — `VOLUME_BASE` 0.80→0.70, `VOLUME_REF` 50→100, `VOLUME_CURVE` 0.6→0.5, new `VOLUME_BEYOND_MAX=0.06` beyond-reference bonus. Applied to both batting and bowling.
+3. **Reduced Superstar Bonus** — Weight 0.10→0.05 in `_compute_overall_score()`.
+4. **Career Production Bonus** — New `_career_production_bonus()` adds up to 2 points to batting overall based on total career runs.
+5. **Blended Z-Scores** — `_grouped_zscore()` and `_grouped_zscore_bowl()` now blend within-group and population z-scores (α=0.6). Fixed cross-position score incomparability (Kohli IPL Power 28.8→73.9).
+6. **Weighted Dimension Scores** — Overall batting score now uses non-equal weights: ACC 0.35, POW 0.20, CTRL 0.45 (configurable via `presentation.bat_weight_*`). Control gets the highest weight because not getting out is the single most important T20 skill — every ball survived is a ball available to score. This prevents high-Power, low-average batters from outscoring high-average batters with comparable strike rates.
+7. **Career Average Bonus** — New `_career_avg_bonus()` adds up to 5 points to batting overall based on career batting average. Super-linear curve (exponent 2.5, ref=38) so the reward accelerates for elite averages: avg 30 → +2.75, avg 35 → +4.07, avg 38+ → +5.00. Configurable via `presentation.avg_bonus_*`.
+8. **Average Quality Ceiling Raised** — `batting_avg_quality.ceil` raised 1.20→1.35 and `exponent_above` 0.5→0.65 so that batters averaging 40 vs 30 are no longer both capped at the same pre-percentile multiplier.
+9. **Net effect on Kohli vs Rohit (IPL):** Kohli 98.8 (S, #20) vs Rohit 94.0 (A+, #31) — a ~5 point gap reflecting Kohli's 10-point higher average (39.6 vs 29.9), 1600 more runs, and 35% more WAR despite similar strike rates.
+
+Test count: 943 tests, all passing.
+
 ---
 
 ## 19. Known Limitations
@@ -1081,7 +1126,7 @@ The following changes are planned for v3.0.
 4. **Blended z-scores** (`batting.py::_grouped_zscore`, `bowling.py::_grouped_zscore_bowl`, `config.yaml`): replaced pure within-group z-scoring with a weighted blend of within-group and population z-scores (`blend_alpha=0.6`). Formula: `blended = 0.6 × within_group_z + 0.4 × population_z`. This preserves position-aware comparison while keeping cross-group scores on a comparable scale. V Kohli's IPL Power went from 28.8 → 73.9; the Kohli–Rohit overall gap shrank from 14.6 → 2.2 points.
 
 **Result (T20I):** Buttler 100.0 S, RG Sharma 99.7 S at the top. Kohli 91.9 A+ now edges Dhoni 91.7 A+. Low-volume finishers dropped (Karthik 95.5→86.8, Shepherd 97.0→89.4).
-**Result (IPL):** Kohli 90.0 A+ (was 74.1 B+), Rohit 92.2 A+ (was 88.7). Gap reduced from 14.6 to 2.2 points. Dhoni 100.0 S at 241 innings — genuinely earned through massive volume + elite per-ball metrics.
+**Result (IPL):** Kohli 98.8 S (was 74.1 B+), Rohit 94.0 A+ (was 88.7). Gap inverted from Rohit+14.6 to Kohli+4.8 points, reflecting Kohli's 10-point higher average (39.6 vs 29.9), 1600 more runs, and 35% more WAR despite similar strike rates. Dhoni 100.0 S at 241 innings — genuinely earned through massive volume + elite per-ball metrics.
 
 ### Rankings Page — Show All Stats
 **Problem:** Users can't see clutch index, WAR, or other advanced metrics on the rankings page.
@@ -1117,4 +1162,4 @@ The following changes are planned for v3.0.
 
 ---
 
-*This document was last updated at the start of the v3.0 development cycle. It consolidates and replaces all previous documentation files: `README.md`, `ARCHITECTURE.md`, `Version_1.0.md`, `version02.md`, `version03.md`, `documentation.md`, `gui.md`, `HOSTING.md`, and `algorithm_update.md`.*
+*This document was last updated during the v3.0 development cycle (Rating Rebalance + Blended Z-Scores). It consolidates and replaces all previous documentation files: `README.md`, `ARCHITECTURE.md`, `Version_1.0.md`, `version02.md`, `version03.md`, `documentation.md`, `gui.md`, `HOSTING.md`, and `algorithm_update.md`.*

@@ -62,6 +62,47 @@ RUNS_BONUS_REF: float = cfg("presentation.runs_bonus_ref", default=3000.0)
 RUNS_BONUS_CURVE: float = cfg("presentation.runs_bonus_curve", default=0.8)
 
 # ---------------------------------------------------------------------------
+# Batting dimension weights for overall score
+# ---------------------------------------------------------------------------
+# Control gets the highest weight because not getting out is the single most
+# important skill in T20 cricket — every ball survived is a ball available to
+# score.  This directly addresses cases like Kohli (avg 40, SR 133) vs Rohit
+# (avg 30, SR 132) in IPL where the Power gap overwhelms the average signal
+# under equal weights.
+#
+# Weights must sum to 1.0.  If they don't, they are normalised automatically.
+BAT_WEIGHT_ACC: float = cfg("presentation.bat_weight_acceleration", default=0.35)
+BAT_WEIGHT_POW: float = cfg("presentation.bat_weight_power", default=0.20)
+BAT_WEIGHT_CTRL: float = cfg("presentation.bat_weight_control", default=0.45)
+
+# ---------------------------------------------------------------------------
+# Career batting average bonus constants (batting only)
+# ---------------------------------------------------------------------------
+# Rewards elite batting averages with an additive bonus on the overall score.
+# A player averaging 40 in T20s is dramatically more valuable than one
+# averaging 30, but the equal-weight mean of ACC/POW/CTRL can obscure this
+# because Power scores are dominated by boundary rates and six rates rather
+# than survival / consistency.
+#
+# The bonus uses a **super-linear** curve (exponent > 1) so that the reward
+# accelerates toward the reference — averaging 35 vs 25 matters much more
+# than 25 vs 15.  This directly addresses scenarios like Kohli (avg ~40)
+# vs Rohit (avg ~30) in IPL where the Power gap overwhelms the avg signal.
+#
+#   bonus = AVG_BONUS_MAX * clip(career_avg / AVG_BONUS_REF, 0, 1) ** AVG_BONUS_CURVE
+#
+# With defaults (max=5.0, ref=38, curve=2.5):
+#     15 avg → bonus 0.49
+#     20 avg → bonus 1.00
+#     25 avg → bonus 1.76
+#     30 avg → bonus 2.75
+#     35 avg → bonus 4.07
+#     38+ avg → bonus 5.00 (max)
+AVG_BONUS_MAX: float = cfg("presentation.avg_bonus_max", default=5.0)
+AVG_BONUS_REF: float = cfg("presentation.avg_bonus_ref", default=38.0)
+AVG_BONUS_CURVE: float = cfg("presentation.avg_bonus_curve", default=2.5)
+
+# ---------------------------------------------------------------------------
 # Grade boundaries (default; overridable via config)
 # ---------------------------------------------------------------------------
 
@@ -122,6 +163,7 @@ def score_to_grade(score: float, boundaries: list[tuple[str, float]]) -> str:
 def _compute_overall_score(
     scores: list[float],
     *,
+    weights: list[float] | None = None,
     superstar_threshold: float = 85.0,
     superstar_bonus_weight: float = 0.05,
 ) -> float:
@@ -135,34 +177,64 @@ def _compute_overall_score(
     overall than the mean of their three scores.
 
     Formula:
-        base = weighted_mean(scores)      (equal weights)
+        base = weighted_mean(scores, weights)
         superstar_bonus = max(score − threshold) across elite scores
         overall = base + superstar_bonus_weight × superstar_bonus
 
-    The bonus is capped at the **single best** dimension's excess above
-    the threshold.  This prevents double/triple bonuses for players who
-    are elite in multiple dimensions (e.g. Explosive Finishers with
-    ACC=95, POW=95 now get bonus = max(10, 10) = 10, not 20).
+    Parameters
+    ----------
+    scores : list[float]
+        Dimension scores (e.g. [ACC, POW, CTRL]).
+    weights : list[float] | None
+        Per-dimension weights.  Must be the same length as *scores*.
+        If ``None``, equal weights are used.  Weights are normalised
+        internally so they don't need to sum to 1.0.
 
-    The weight was reduced from 0.15 → 0.10 → 0.05 as part of the
-    Rating Rebalance (v3.0) to reduce overvaluation of explosive
-    finishers whose ACC+POW both exceed the threshold.  The heavier
-    lifting is now done by strengthened volume scaling and the career
-    production bonus applied in ``add_batting_grades``.
+    The superstar bonus is capped at the **single best** dimension's
+    excess above the threshold.  This prevents double/triple bonuses
+    for players who are elite in multiple dimensions (e.g. Explosive
+    Finishers with ACC=95, POW=95 now get bonus = max(10, 10) = 10,
+    not 20).
+
+    The superstar bonus weight was reduced from 0.15 → 0.10 → 0.05 as
+    part of the Rating Rebalance (v3.0) to reduce overvaluation of
+    explosive finishers whose ACC+POW both exceed the threshold.  The
+    heavier lifting is now done by strengthened volume scaling, the
+    career production bonus, and non-equal dimension weights that tilt
+    toward Control applied in ``add_batting_grades``.
 
     The result is clipped to [0, 100].
     """
-    valid = [
-        s for s in scores if not (s is None or (isinstance(s, float) and np.isnan(s)))
-    ]
-    if not valid:
+    # Pair scores with weights, dropping NaN entries
+    if weights is None:
+        pairs = [
+            (s, 1.0)
+            for s in scores
+            if not (s is None or (isinstance(s, float) and np.isnan(s)))
+        ]
+    else:
+        pairs = [
+            (s, w)
+            for s, w in zip(scores, weights)
+            if not (s is None or (isinstance(s, float) and np.isnan(s)))
+        ]
+    if not pairs:
         return np.nan
 
-    base = float(np.mean(valid))
+    valid_scores = [p[0] for p in pairs]
+    valid_weights = np.array([p[1] for p in pairs], dtype=float)
+    # Normalise weights so they sum to 1.0
+    wsum = valid_weights.sum()
+    if wsum > 0:
+        valid_weights = valid_weights / wsum
+    else:
+        valid_weights = np.ones(len(valid_scores)) / len(valid_scores)
+
+    base = float(np.dot(valid_scores, valid_weights))
 
     # Superstar bonus: capped at the single best dimension's excess
     # (no double/triple bonus for multi-elite players)
-    individual_bonuses = [max(s - superstar_threshold, 0.0) for s in valid]
+    individual_bonuses = [max(s - superstar_threshold, 0.0) for s in valid_scores]
     bonus = max(individual_bonuses) if individual_bonuses else 0.0
     overall = base + superstar_bonus_weight * bonus
 
@@ -208,6 +280,46 @@ def _career_production_bonus(total_runs: float) -> float:
     return RUNS_BONUS_MAX * (ratio**RUNS_BONUS_CURVE)
 
 
+def _career_avg_bonus(career_avg: float) -> float:
+    """
+    Compute an additive career batting average bonus.
+
+    Rewards elite batting averages that indicate sustained consistency
+    and run-scoring ability beyond what the three-dimension (ACC/POW/CTRL)
+    equal-weight mean captures.  A T20 average of 38+ is world-class;
+    averaging 30 is merely good.
+
+    The super-linear curve (exponent=2.0) ensures the bonus accelerates
+    for truly elite averages — the gap between 30 and 38 matters more
+    than the gap between 18 and 26.
+
+    Formula::
+
+        bonus = AVG_BONUS_MAX * clip(career_avg / AVG_BONUS_REF, 0, 1) ** AVG_BONUS_CURVE
+
+    With defaults (max=5.0, ref=38, curve=2.5):
+        15 avg → bonus ~0.49
+        20 avg → bonus ~1.00
+        25 avg → bonus ~1.76
+        30 avg → bonus ~2.75
+        35 avg → bonus ~4.07
+        38+ avg → bonus  5.00 (max)
+
+    Parameters
+    ----------
+    career_avg : float
+        Career batting average.
+
+    Returns
+    -------
+    float — bonus in [0, AVG_BONUS_MAX].
+    """
+    if pd.isna(career_avg) or career_avg <= 0:
+        return 0.0
+    ratio = min(career_avg / AVG_BONUS_REF, 1.0)
+    return AVG_BONUS_MAX * (ratio**AVG_BONUS_CURVE)
+
+
 def add_batting_grades(bat_careers: pd.DataFrame) -> pd.DataFrame:
     """
     Add grade columns to the batting careers DataFrame.
@@ -247,15 +359,19 @@ def add_batting_grades(bat_careers: pd.DataFrame) -> pd.DataFrame:
             df[grade_col] = "?"
 
     has_runs = "total_runs" in df.columns
+    has_avg = "career_avg" in df.columns
 
-    # Overall score with superstar bonus + career production bonus
+    # Dimension weights — tilt toward Control to reward elite averages
+    bat_weights = [BAT_WEIGHT_ACC, BAT_WEIGHT_POW, BAT_WEIGHT_CTRL]
+
+    # Overall score with superstar bonus + career production bonus + avg bonus
     def _row_overall(row: pd.Series) -> float:
         scores = [
             row.get("score_acceleration", np.nan),
             row.get("score_power", np.nan),
             row.get("score_control", np.nan),
         ]
-        base = _compute_overall_score(scores)
+        base = _compute_overall_score(scores, weights=bat_weights)
         if np.isnan(base):
             return base
 
@@ -263,6 +379,11 @@ def add_batting_grades(bat_careers: pd.DataFrame) -> pd.DataFrame:
         if has_runs:
             runs = row.get("total_runs", 0.0)
             base += _career_production_bonus(runs)
+
+        # Career average bonus — additive, rewards elite batting averages
+        if has_avg:
+            avg = row.get("career_avg", 0.0)
+            base += _career_avg_bonus(avg)
 
         return float(np.clip(base, 0.0, 100.0))
 
