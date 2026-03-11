@@ -94,6 +94,13 @@ MIN_PHASE_BALLS: int = cfg("pipeline.min_phase_balls_bowling", default=6)
 PHASE_GROUPS_ENABLED: bool = cfg("bowling_phase_groups.enabled", default=True)
 MIN_PHASE_GROUP_SIZE: int = cfg("bowling_phase_groups.min_group_size", default=20)
 
+# Blend weight for within-group vs population z-scores (same rationale as
+# batting — see batting.py GROUP_ZSCORE_BLEND_ALPHA).
+# α = 1.0 → pure within-group (old behaviour, cross-group incomparable)
+# α = 0.0 → pure population (no phase adjustment at all)
+# α = 0.6 → 60% within-group + 40% population (recommended)
+PHASE_ZSCORE_BLEND_ALPHA: float = cfg("bowling_phase_groups.blend_alpha", default=0.6)
+
 # ---------------------------------------------------------------------------
 # Helper: ensure category columns are plain strings for groupby operations
 # ---------------------------------------------------------------------------
@@ -130,11 +137,22 @@ def _grouped_zscore_bowl(
     col: str,
     group_col: str = "phase_group",
     min_group_size: int = MIN_PHASE_GROUP_SIZE,
+    blend_alpha: float = PHASE_ZSCORE_BLEND_ALPHA,
 ) -> pd.Series:
     """
-    Z-score normalise a column within bowling phase groups.
+    Blended z-score: within-group + population, weighted by ``blend_alpha``.
 
-    Falls back to population-wide z-score for groups smaller than
+    Pure within-group z-scoring makes scores incomparable across phase
+    groups (e.g. a death bowler with economy 9 where death par is 10.5
+    would get a very different z-score than a PP bowler with economy 9
+    where PP par is 7.5, even though both are economy-9 bowlers).
+
+    The blend preserves the phase-aware comparison while keeping
+    cross-group scores on a comparable scale::
+
+        blended = α × within_group_z + (1 − α) × population_z
+
+    Falls back to pure population z-score for groups smaller than
     ``min_group_size``.
 
     Parameters
@@ -147,15 +165,19 @@ def _grouped_zscore_bowl(
         Column name containing group labels.
     min_group_size : int
         Minimum group size; smaller groups use population-wide z-score.
+    blend_alpha : float
+        Weight for within-group z-score.  0.0 = pure population,
+        1.0 = pure within-group (old behaviour).
 
     Returns
     -------
-    pd.Series of z-scored values, same index as career_df.
+    pd.Series of blended z-scored values, same index as career_df.
     """
     result = pd.Series(np.nan, index=career_df.index)
     values = career_df[col]
 
-    # Population-wide z-score as fallback
+    # Population-wide z-score (always computed — used as blend component
+    # and as fallback for small groups)
     pop_zscore = _zscore_series(values)
 
     group_sizes = career_df[group_col].value_counts()
@@ -163,7 +185,10 @@ def _grouped_zscore_bowl(
     for group_name, group_idx in career_df.groupby(group_col).groups.items():
         if group_sizes.get(group_name, 0) >= min_group_size:
             group_data = values.loc[group_idx]
-            result.loc[group_idx] = _zscore_series(group_data)
+            within_z = _zscore_series(group_data)
+            pop_z = pop_zscore.loc[group_idx]
+            # Blend: α × within-group + (1 − α) × population
+            result.loc[group_idx] = blend_alpha * within_z + (1.0 - blend_alpha) * pop_z
         else:
             # Fallback to population-wide z-score for small groups
             result.loc[group_idx] = pop_zscore.loc[group_idx]

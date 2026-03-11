@@ -543,6 +543,11 @@ batting_dot_penalty_phase_weights:
 batting_position_groups:
   enabled: true
   min_group_size: 20
+  # Blend weight for within-group vs population z-scores.
+  # 1.0 = pure within-group (old behaviour, cross-group incomparable)
+  # 0.0 = pure population (no position adjustment)
+  # 0.6 = 60% within-group + 40% population (recommended)
+  blend_alpha: 0.6
   # Map batting positions to group names
   groups:
     1: "top_order"
@@ -585,6 +590,9 @@ batting_position_groups:
 bowling_phase_groups:
   enabled: true
   min_group_size: 20
+  # Blend weight for within-group vs population z-scores
+  # (same rationale as batting_position_groups.blend_alpha)
+  blend_alpha: 0.6
 
 player_aliases: {}
   # Example:

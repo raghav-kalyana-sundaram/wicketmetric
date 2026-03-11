@@ -113,6 +113,18 @@ MIN_PHASE_BALLS: int = cfg("pipeline.min_phase_balls_batting", default=4)
 POSITION_GROUPS_ENABLED: bool = cfg("batting_position_groups.enabled", default=True)
 MIN_POSITION_GROUP_SIZE: int = cfg("batting_position_groups.min_group_size", default=20)
 
+# Blend weight for within-group vs population z-scores.
+# α = 1.0 → pure within-group (old behaviour, cross-group incomparable)
+# α = 0.0 → pure population (no position adjustment at all)
+# α = 0.6 → 60% within-group + 40% population (recommended)
+#
+# The blend prevents a top-order batter who is average *for an opener* from
+# scoring near-zero on Power while a middle-order batter with identical raw
+# stats scores in the 90s because they're above-average *for middle-order*.
+GROUP_ZSCORE_BLEND_ALPHA: float = cfg(
+    "batting_position_groups.blend_alpha", default=0.6
+)
+
 _raw_pos_groups: dict = cfg(
     "batting_position_groups.groups",
     default={
@@ -184,10 +196,31 @@ def _grouped_zscore(
     col: str,
     group_col: str = "position_group",
     min_group_size: int = MIN_POSITION_GROUP_SIZE,
+    blend_alpha: float = GROUP_ZSCORE_BLEND_ALPHA,
 ) -> pd.Series:
     """
-    Z-score normalise a column within groups.  Falls back to population-wide
-    z-score for groups smaller than ``min_group_size``.
+    Blended z-score: within-group + population, weighted by ``blend_alpha``.
+
+    Pure within-group z-scoring (the old behaviour) makes scores
+    incomparable across position groups.  A top-order batter who is
+    *average for an opener* on boundary% gets z ≈ 0, while a middle-order
+    batter with identical raw boundary% can get z ≈ +1.2 because
+    middle-order batters hit fewer boundaries on average.  This caused
+    V Kohli (top_order, IPL) to score Power=28 while RG Sharma
+    (upper_middle, similar raw stats) scored Power=96.
+
+    The fix is a **weighted blend** of within-group and population z-scores::
+
+        blended = α × within_group_z + (1 − α) × population_z
+
+    With α = 0.6 (default):
+    - Still rewards players who are strong *relative to their position*
+    - But also accounts for absolute performance level vs the full pool
+    - Prevents near-zero scores for players who are merely "average for
+      their (high-performing) position group"
+
+    Falls back to pure population z-score for groups smaller than
+    ``min_group_size``.
 
     Parameters
     ----------
@@ -199,15 +232,19 @@ def _grouped_zscore(
         Column name containing group labels.
     min_group_size : int
         Minimum group size; smaller groups use population-wide z-score.
+    blend_alpha : float
+        Weight for within-group z-score.  0.0 = pure population,
+        1.0 = pure within-group (old behaviour).
 
     Returns
     -------
-    pd.Series of z-scored values, same index as career_df.
+    pd.Series of blended z-scored values, same index as career_df.
     """
     result = pd.Series(np.nan, index=career_df.index)
     values = career_df[col]
 
-    # Population-wide z-score as fallback
+    # Population-wide z-score (always computed — used as blend component
+    # and as fallback for small groups)
     pop_zscore = _zscore_series(values)
 
     group_sizes = career_df[group_col].value_counts()
@@ -215,7 +252,10 @@ def _grouped_zscore(
     for group_name, group_idx in career_df.groupby(group_col).groups.items():
         if group_sizes.get(group_name, 0) >= min_group_size:
             group_data = values.loc[group_idx]
-            result.loc[group_idx] = _zscore_series(group_data)
+            within_z = _zscore_series(group_data)
+            pop_z = pop_zscore.loc[group_idx]
+            # Blend: α × within-group + (1 − α) × population
+            result.loc[group_idx] = blend_alpha * within_z + (1.0 - blend_alpha) * pop_z
         else:
             # Fallback to population-wide z-score for small groups
             result.loc[group_idx] = pop_zscore.loc[group_idx]

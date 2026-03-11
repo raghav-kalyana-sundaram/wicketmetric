@@ -341,7 +341,7 @@ TrueSkill-inspired hierarchical Bayesian rating (see [Section 7](#7-rating-syste
 
 **Grades:** Maps 0–100 scores to letter grades: S (95+), A+ (85+), A (75+), B+ (60+), B (45+), C+ (30+), C (15+), D (0+).
 
-**Overall Score:** Weighted mean of dimension scores with superstar bonus (capped at single best dimension, +5% weight per dimension ≥ 85) and a career production bonus (batting only) that adds up to 2 points based on total career runs (3000+ runs for full bonus). This ensures consistent high-volume producers rank above situational finishers with comparable per-ball metrics.
+**Overall Score:** Weighted mean of dimension scores with superstar bonus (capped at single best dimension, +5% weight per dimension ≥ 85) and a career production bonus (batting only) that adds up to 2 points based on total career runs (3000+ runs for full bonus). This ensures consistent high-volume producers rank above situational finishers with comparable per-ball metrics. Dimension z-scores use a blended approach (60% within-position-group + 40% population) to keep scores comparable across batting positions.
 
 **Batting Archetypes** (13 types, first-match-wins, up to 3 assigned):
 
@@ -413,6 +413,14 @@ A single number loses too much information. Batters have different roles (anchor
 | Spin restrictor (Narine) | High | High | Medium |
 | Strike bowler (Rabada) | Medium | Medium | Very High |
 
+### Blended Position-Group Z-Scores
+
+Z-scores for all dimension components are computed using a **weighted blend** of within-group (position or phase) and population-wide z-scores:
+
+    blended = α × within_group_z + (1 − α) × population_z     α = 0.6
+
+Pure within-group z-scoring (α = 1.0) makes scores incomparable across position groups — a top-order batter who is average *for an opener* on boundary% would score near zero on Power while a middle-order batter with identical raw stats could score in the 90s. The blend preserves role-aware comparison while ensuring cross-group comparability.
+
 ### Context Normalisation
 
 - **SR vs par** uses a ratio (`SR / match_par_sr`), not a difference
@@ -421,7 +429,13 @@ A single number loses too much information. Batters have different roles (anchor
 
 ### Z-Score Normalisation
 
-Before compositing, every sub-component is z-score normalised: `z = (x − mean) / std`. This ensures proportional contribution regardless of natural scale. Missing values are filled with 0 (population average).
+Before compositing, every sub-component is z-score normalised. When position/phase groups are enabled (the default), a **blended z-score** is used:
+
+    blended = α × within_group_z + (1 − α) × population_z     α = 0.6
+
+This ensures that a top-order batter is still compared primarily to other top-order batters (60% weight), but also retains a meaningful absolute signal from the full population (40% weight). Pure within-group z-scoring (α = 1.0) caused cross-group incomparability — e.g. V Kohli scoring Power = 28 in IPL because he was merely average *for a top-order batter* on boundary%, while a middle-order batter with similar raw stats scored 96.
+
+Missing values are filled with 0 (population average).
 
 ### Five-Layer Opposition Weighting
 
@@ -1056,12 +1070,18 @@ The following changes are planned for v3.0.
 **Fix:** Added `position_min` / `position_max` conditions to `_conditions_match()` in `presentation.py`. "Explosive Finisher" now requires `position ≥ 4`. New "Explosive Opener" archetype (ACC ≥ 85, POW ≥ 85, position ≤ 3) for top-order power hitters. "Aggressive Opener" gated to position ≤ 3; new "Power Middle-Order" for position ≥ 4. Updated `team.py` `_BATTING_ARCHETYPES` set and `ArchetypeBadge.tsx` icons/colours for new archetypes.
 
 ### ~~Rating Rebalance — Reduce Finisher Overvaluation~~ ✅ Done
-**Problem:** Players like Dhoni were rated comparably to Kohli despite significantly fewer total runs, because explosive finishers got disproportionate acceleration/power scores from death-overs performance. The system undervalued volume and sustained production. In T20I, Dhoni (82 inn, 1584 runs) scored 93.6 overall vs Kohli (112 inn, 3969 runs) at 89.2. Low-volume finishers like KD Karthik (47 inn, 686 runs) reached 95.5 overall.
-**Fix:** Three-pronged rebalance applied:
+**Problem:** Two related issues causing finisher overvaluation and cross-position score incomparability:
+1. The system undervalued volume and sustained production. In T20I, Dhoni (82 inn, 1584 runs) scored 93.6 overall vs Kohli (112 inn, 3969 runs) at 89.2. Low-volume finishers like KD Karthik (47 inn, 686 runs) reached 95.5 overall.
+2. Within-position-group z-scoring made scores incomparable across groups. In IPL, V Kohli (top_order, boundary_pct=0.515) got Power=28.8 because he was merely average *for a top-order batter*, while RG Sharma (upper_middle, boundary_pct=0.598) got Power=95.6 because he was elite *for a middle-order batter*. Overall gap: Rohit 88.7 vs Kohli 74.1 despite Kohli having more runs, higher avg, and higher SR.
+
+**Fix:** Four-pronged rebalance:
 1. **Strengthened volume scaling** (`batting.py`, `bowling.py`, `config.yaml`): lowered `VOLUME_BASE` 0.80→0.70 (bigger penalty for low-volume), raised `VOLUME_REF` 50→100 (reward extends further), lowered `VOLUME_CURVE` 0.6→0.5, and added a beyond-reference bonus (`VOLUME_BEYOND_MAX=0.06`) so players exceeding the reference innings get up to 6% additional scaling. A 50-innings player now sees a ~9% penalty (was 0%), while a 140-innings player gets a ~4% bonus (was 0%).
 2. **Reduced superstar bonus** (`presentation.py`): `superstar_bonus_weight` reduced 0.10→0.05, halving the outsized uplift that explosive finishers with both ACC and POW above 85 received.
 3. **Career production bonus** (`presentation.py`): new `_career_production_bonus()` adds up to 2 points to the overall score based on total career runs (`RUNS_BONUS_MAX=2.0`, `RUNS_BONUS_REF=3000`, `RUNS_BONUS_CURVE=0.8`). Players with 3000+ runs get the full bonus; a 700-run finisher gets ~0.6 points. This directly rewards sustained high-volume production.
-**Result:** High-volume elite players now rank at the top (Buttler 100.0, RG Sharma 99.6). Low-volume finishers dropped significantly (Karthik 95.5→86.8, Shepherd 97.0→89.4). Kohli (91.0) and Dhoni (91.5) are now within 0.5 points instead of the previous 4.4-point gap. Bowling volume scaling updated in parallel for consistency.
+4. **Blended z-scores** (`batting.py::_grouped_zscore`, `bowling.py::_grouped_zscore_bowl`, `config.yaml`): replaced pure within-group z-scoring with a weighted blend of within-group and population z-scores (`blend_alpha=0.6`). Formula: `blended = 0.6 × within_group_z + 0.4 × population_z`. This preserves position-aware comparison while keeping cross-group scores on a comparable scale. V Kohli's IPL Power went from 28.8 → 73.9; the Kohli–Rohit overall gap shrank from 14.6 → 2.2 points.
+
+**Result (T20I):** Buttler 100.0 S, RG Sharma 99.7 S at the top. Kohli 91.9 A+ now edges Dhoni 91.7 A+. Low-volume finishers dropped (Karthik 95.5→86.8, Shepherd 97.0→89.4).
+**Result (IPL):** Kohli 90.0 A+ (was 74.1 B+), Rohit 92.2 A+ (was 88.7). Gap reduced from 14.6 to 2.2 points. Dhoni 100.0 S at 241 innings — genuinely earned through massive volume + elite per-ball metrics.
 
 ### Rankings Page — Show All Stats
 **Problem:** Users can't see clutch index, WAR, or other advanced metrics on the rankings page.
