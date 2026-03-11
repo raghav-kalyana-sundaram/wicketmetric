@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+gui/frontend/dist/
+
+# Data sources (raw JSON — too large for git)
+t20s_male_json/
+ipl_json/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Legacy output dir
+output/
