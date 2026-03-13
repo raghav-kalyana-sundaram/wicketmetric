@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="paper">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1024">
+  <title>Local Cricket Warehouse</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="wordmark" href="#/">
+      <span class="mark" aria-hidden="true"></span>
+      Local Cricket Warehouse
+    </a>
+    <nav class="util">
+      <a href="#/build" data-nav="build">Build</a>
+      <a href="#/sql" data-nav="sql">SQL</a>
+      <a href="#/docs" data-nav="docs">Docs</a>
+      <span class="data-date" id="data-date">Data: —</span>
+    </nav>
+  </header>
+
+  <div class="shell" id="query-shell">
+    <div id="home-hero" hidden>
+      <h1 class="page-title">Local Cricket Warehouse</h1>
+      <p class="lede">Cricsheet-derived scorecards and T20 value metrics. Local, offline, yours.</p>
+    </div>
+    <div class="query-wrap hero" id="query-wrap">
+      <div class="query-box">
+        <svg class="query-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/>
+        </svg>
+        <div class="query-highlight" id="query-highlight" aria-hidden="true"></div>
+        <input class="query-input" id="query-input" type="text" autocomplete="off" spellcheck="false"
+               placeholder="player:kohli runs:89   or   kohli 89" aria-label="Query">
+      </div>
+      <div class="ghost" id="query-ghost" hidden></div>
+      <div class="ac" id="ac" role="listbox"></div>
+    </div>
+    <div id="home-extras">
+      <div class="try-label">Try:</div>
+      <div class="chips" id="chips"></div>
+      <div class="fmt-row" id="fmt-row">
+        <button class="tab active" data-fmt="">All</button>
+        <button class="tab" data-fmt="test">Tests</button>
+        <button class="tab" data-fmt="t20">T20 comps</button>
+      </div>
+      <div class="date-row">
+        <label>From <input type="date" id="from-date"></label>
+        <label>To <input type="date" id="to-date"></label>
+      </div>
+    </div>
+  </div>
+
+  <main class="shell" id="main"></main>
+
+  <footer class="provenance">
+    Data © Cricsheet (CC BY-SA / ODbL), built locally · Metrics per <a href="#/docs">MODEL.md</a> · This warehouse, not an official rating.
+    <a href="#/docs/attribution">ATTRIBUTION.md</a>
+  </footer>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
