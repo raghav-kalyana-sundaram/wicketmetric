@@ -86,6 +86,9 @@ import {
   fmtOvers,
   countryFlag,
   fmtPhase,
+  fmtPressureScore,
+  pressureScore,
+  fmtMatchupEdge,
 } from "@/lib/format";
 import type {
   BatterProfile,
@@ -597,21 +600,15 @@ function BatterProfileView({
             tooltip="WAR normalised per 50 innings"
           />
           <MetricTile
-            label="Clutch Index"
-            value={fmtSigned(p.clutch_index)}
-            colour={
-              (p.clutch_index ?? 0) > 5
-                ? "#22C55E"
-                : (p.clutch_index ?? 0) < -5
-                  ? "#EF4444"
-                  : undefined
-            }
+            label="Pressure Score"
+            value={`${fmtPressureScore(p.clutch_index, "bat")}/100`}
+            colour={scoreToColour(pressureScore(p.clutch_index, "bat"))}
             icon={
-              (p.clutch_index ?? 0) > 5 ? (
+              (pressureScore(p.clutch_index, "bat") ?? 0) >= 80 ? (
                 <Flame size={14} className="text-accent" />
               ) : undefined
             }
-            tooltip="SR uplift in high-pressure situations. Positive = clutch performer"
+            tooltip="0-100 score for how much better this batter performs in high-pressure situations. Around 50 is neutral."
           />
           <MetricTile
             label="Chase Master"
@@ -636,9 +633,10 @@ function BatterProfileView({
             tooltip="Composite score adjusted for venue difficulty"
           />
           <MetricTile
-            label="Avg Dominance"
-            value={fmtSigned(p.avg_dominance)}
-            tooltip="Average dominance index across all matchups"
+            label="Avg Matchup Edge"
+            value={`${fmtMatchupEdge(p.avg_dominance)}/100`}
+            colour={dominanceColour(p.avg_dominance)}
+            tooltip="Average 0-100 matchup edge across all bowler matchups. Around 50 is even, higher favours the batter."
           />
           <MetricTile
             label="Unique Bowlers"
@@ -1041,15 +1039,10 @@ function BowlerProfileView({
             suffix="/50 spells"
           />
           <MetricTile
-            label="Clutch Index"
-            value={fmtSigned(p.clutch_index_bowl)}
-            colour={
-              (p.clutch_index_bowl ?? 0) > 5
-                ? "#22C55E"
-                : (p.clutch_index_bowl ?? 0) < -5
-                  ? "#EF4444"
-                  : undefined
-            }
+            label="Pressure Score"
+            value={`${fmtPressureScore(p.clutch_index_bowl, "bowl")}/100`}
+            colour={scoreToColour(pressureScore(p.clutch_index_bowl, "bowl"))}
+            tooltip="0-100 score for how much better this bowler performs in high-pressure spells. Around 50 is neutral."
           />
           <MetricTile
             label="Flat Track Index"
@@ -1061,8 +1054,10 @@ function BowlerProfileView({
             tooltip="Percentage of wickets that are bowled or LBW — indicates quality dismissals"
           />
           <MetricTile
-            label="Avg Dominance"
-            value={fmtSigned(p.avg_dominance_bowl)}
+            label="Avg Matchup Edge"
+            value={`${fmtMatchupEdge(p.avg_dominance_bowl)}/100`}
+            colour={dominanceColour(p.avg_dominance_bowl)}
+            tooltip="Average 0-100 matchup edge across all batter matchups. Lower scores mean the bowler tends to control contests."
           />
           <MetricTile
             label="% Dominant"
@@ -1471,7 +1466,9 @@ function MatchupList({
             className="text-xs font-score tabular-nums shrink-0 font-medium"
             style={{ color: dominanceColour(m.dominance_index) }}
           >
-            {fmtSigned(m.dominance_index)}
+            {m.dominance_index != null
+              ? `${fmtMatchupEdge(m.dominance_index)}/100`
+              : "—"}
           </span>
         </div>
       ))}

@@ -7,7 +7,7 @@
  *   1. Core Batting Metrics — Acceleration, Power, Control (with sub-component breakdowns)
  *   2. Core Bowling Metrics — Accuracy, Control, Threat (with sub-component breakdowns)
  *   3. Rating System — Bayesian shrinkage, percentile mapping, confidence bonus
- *   4. Advanced Metrics — WAR, Clutch Index, Chase Master Index, WPA, Flat Track Index
+ *   4. Advanced Metrics — WAR, Pressure Score, Chase Master Index, WPA, Flat Track Index
  *   5. Context Adjustments — Opposition quality, team quality, match quality, recency, era
  *   6. Grades & Archetypes — Grade boundaries, archetype definitions
  *   7. Similarity — Cosine similarity methodology
@@ -247,15 +247,15 @@ const ADVANCED_METRICS: MetricDefinition[] = [
     badValue: "Negative WAR suggests below replacement level",
   },
   {
-    name: "Clutch Index",
-    shortName: "CLT",
+    name: "Pressure Score",
+    shortName: "PRS",
     description:
-      "Measures how much a player's performance improves (or deteriorates) in high-pressure situations compared to low-pressure ones. Uses Win Probability Added (WPA) in clutch moments vs. non-clutch moments.",
+      "A 0-100 score for how much a player's performance improves in high-pressure situations compared to their usual baseline.",
     interpretation:
-      "Positive = performs better under pressure. A clutch index of +10 means the player's effective scoring rate is ~10% higher in pressure situations. Negative = wilts under pressure.",
-    range: "-30 to +30",
-    goodValue: "+5 or above",
-    badValue: "Below -5",
+      "Around 50 is neutral. Scores above 65 indicate a player who usually gets better when the game tightens; scores below 35 suggest pressure hurts their output.",
+    range: "0–100",
+    goodValue: "65+",
+    badValue: "Below 35",
   },
   {
     name: "Chase Master Index",
@@ -380,7 +380,7 @@ const ARCHETYPES: {
       {
         name: "Chase Master",
         description:
-          "Elite performance in chases. High clutch index and chase master score. Can be trusted to pace a run chase perfectly.",
+          "Elite performance in chases. High pressure score and chase master score. Can be trusted to pace a run chase perfectly.",
         icon: "🎯",
       },
       {
@@ -479,9 +479,9 @@ const FAQ_ITEMS: FAQItem[] = [
       "The Compare page supports mixed comparisons — you can add both batters and bowlers. However, the stat table and radar chart will show role-specific metrics. The most meaningful comparisons are between players of the same role.",
   },
   {
-    question: "What is the dominance index in matchups?",
+    question: "What is matchup edge in matchups?",
     answer:
-      "The dominance index ranges from roughly -50 to +50. Positive values indicate the batter dominated the matchup (high SR, few dismissals). Negative values indicate the bowler dominated (low SR, frequent dismissals). Values near zero indicate an even contest. It's calculated from strike rate vs par, dismissal frequency, and dot ball percentage in the specific matchup.",
+      "Matchup edge is a 0-100 score. Around 50 means an even contest, higher values mean the batter tends to control the matchup, and lower values mean the bowler does. It is derived from strike rate versus expectation, dismissals, and ball-by-ball pressure markers like dots and boundaries.",
   },
   {
     question: "How is similarity calculated?",

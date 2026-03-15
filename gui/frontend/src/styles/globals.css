@@ -241,6 +241,17 @@
     @apply border-b border-surface-elevated/50 px-3 py-2 text-body;
   }
 
+  .sortable-table th.text-right,
+  .sortable-table td.text-right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sortable-table th.text-center,
+  .sortable-table td.text-center {
+    text-align: center;
+  }
+
   .sortable-table tr:hover td {
     @apply bg-surface-elevated/30;
   }
