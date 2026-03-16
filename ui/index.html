@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="paper">
+<html lang="en" data-theme="charcoal">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=1024">
-  <title>Local Cricket Warehouse</title>
+  <title>Wicket Metric</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
@@ -11,20 +11,23 @@
   <header class="topbar">
     <a class="wordmark" href="#/">
       <span class="mark" aria-hidden="true"></span>
-      Local Cricket Warehouse
+      Wicket Metric
     </a>
     <nav class="util">
+      <a href="#/stats" data-nav="stats">Stats</a>
+      <a href="#/wowy" data-nav="wowy">WOWY</a>
+      <a href="#/rankings" data-nav="rankings">Rankings</a>
       <a href="#/build" data-nav="build">Build</a>
-      <a href="#/sql" data-nav="sql">SQL</a>
       <a href="#/docs" data-nav="docs">Docs</a>
       <span class="data-date" id="data-date">Data: —</span>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">Dark</button>
     </nav>
   </header>
 
   <div class="shell" id="query-shell">
     <div id="home-hero" hidden>
-      <h1 class="page-title">Local Cricket Warehouse</h1>
-      <p class="lede">Cricsheet-derived scorecards and T20 value metrics. Local, offline, yours.</p>
+      <h1 class="page-title">Wicket Metric</h1>
+      <p class="lede">Context-aware cricket stats. Lineups and roles, not just the box score. Local, offline, yours.</p>
     </div>
     <div class="query-wrap hero" id="query-wrap">
       <div class="query-box">
@@ -33,22 +36,33 @@
         </svg>
         <div class="query-highlight" id="query-highlight" aria-hidden="true"></div>
         <input class="query-input" id="query-input" type="text" autocomplete="off" spellcheck="false"
-               placeholder="player:kohli runs:89   or   kohli 89" aria-label="Query">
+               placeholder="Search a player, or try: kohli 89" aria-label="Search">
       </div>
       <div class="ghost" id="query-ghost" hidden></div>
       <div class="ac" id="ac" role="listbox"></div>
     </div>
     <div id="home-extras">
-      <div class="try-label">Try:</div>
+      <div class="launch" id="launch">
+        <a class="launch-card" href="#/stats">
+          <h3>Stats</h3>
+          <p>Master table — batting and bowling together, with percentile ranks in this warehouse.</p>
+        </a>
+        <a class="launch-card" href="#/wowy">
+          <h3>WOWY</h3>
+          <p>With or without you. How a side changes when a player is in the XI.</p>
+        </a>
+        <a class="launch-card" href="#/rankings">
+          <h3>Rankings</h3>
+          <p>Runs, wickets, averages, and T20 WAR — filtered, not hidden behind query grammar.</p>
+        </a>
+      </div>
+      <div class="try-label">Or query:</div>
       <div class="chips" id="chips"></div>
       <div class="fmt-row" id="fmt-row">
         <button class="tab active" data-fmt="">All</button>
         <button class="tab" data-fmt="test">Tests</button>
-        <button class="tab" data-fmt="t20">T20 comps</button>
-      </div>
-      <div class="date-row">
-        <label>From <input type="date" id="from-date"></label>
-        <label>To <input type="date" id="to-date"></label>
+        <button class="tab" data-fmt="odi">ODI</button>
+        <button class="tab" data-fmt="t20i">T20I</button>
       </div>
     </div>
   </div>
@@ -56,7 +70,7 @@
   <main class="shell" id="main"></main>
 
   <footer class="provenance">
-    Data © Cricsheet (CC BY-SA / ODbL), built locally · Metrics per <a href="#/docs">MODEL.md</a> · This warehouse, not an official rating.
+    Data © Cricsheet (CC BY-SA / ODbL), built locally · Metrics per <a href="#/docs">MODEL.md</a> · In this warehouse, not an official rating.
     <a href="#/docs/attribution">ATTRIBUTION.md</a>
   </footer>
 
