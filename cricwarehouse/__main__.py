@@ -5,7 +5,7 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="cricwarehouse", description="Local Cricket Warehouse")
+    parser = argparse.ArgumentParser(prog="cricwarehouse", description="Wicket Metric")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_pull = sub.add_parser("pull", help="Download Cricsheet register and (if needed) match zips")

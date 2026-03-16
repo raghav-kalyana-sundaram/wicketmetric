@@ -54,3 +54,12 @@ def test_bare_war_is_leaderboard_mode():
     assert q.mode == "war"
     assert q.tokens.get("format") == "t20i"
     assert "player" not in q.tokens
+
+
+def test_odi_is_in_scope():
+    from cricwarehouse.competitions import classify_match
+
+    assert classify_match({"match_type": "ODI", "team_type": "international"}, "ODI") == "odi"
+    assert classify_match({"match_type": "ODM", "team_type": "international"}) == "odi"
+    assert classify_match({"match_type": "ODI", "team_type": "club"}) is None
+    assert classify_match({"match_type": "ODM", "team_type": "domestic"}, "ODM") is None

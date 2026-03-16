@@ -142,23 +142,47 @@ def _people_match(con, needle: str) -> list[dict]:
     if not n:
         return []
     slug = re.sub(r"[^a-z0-9]+", "-", n).strip("-")
+    last = n.split()[-1]
     rows = con.execute(
         """
-        SELECT person_id, display_name, unique_name, slug, gender
-        FROM people
-        WHERE lower(person_id) = ?
-           OR lower(slug) = ?
-           OR lower(unique_name) = ?
-           OR lower(display_name) = ?
-           OR lower(unique_name) LIKE ?
-           OR lower(display_name) LIKE ?
-           OR (name_variants IS NOT NULL AND lower(name_variants) LIKE ?)
+        SELECT p.person_id, p.display_name, p.unique_name, p.slug, p.gender,
+               CASE
+                 WHEN lower(p.slug) = ? THEN 0
+                 WHEN lower(p.unique_name) = ? THEN 1
+                 WHEN lower(p.display_name) = ? THEN 2
+                 WHEN lower(p.unique_name) LIKE ? THEN 3
+                 WHEN lower(p.slug) LIKE ? THEN 4
+                 WHEN lower(p.display_name) LIKE ? THEN 5
+                 WHEN lower(p.unique_name) LIKE ? THEN 6
+                 WHEN lower(p.display_name) LIKE ? THEN 7
+                 ELSE 8
+               END AS hit,
+               COALESCE(x.apps, 0) AS apps
+        FROM people p
+        LEFT JOIN (
+          SELECT person_id, COUNT(*) AS apps FROM xi GROUP BY 1
+        ) x ON x.person_id = p.person_id
+        WHERE lower(p.person_id) = ?
+           OR lower(p.slug) = ?
+           OR lower(p.unique_name) = ?
+           OR lower(p.display_name) = ?
+           OR lower(p.unique_name) LIKE ?
+           OR lower(p.display_name) LIKE ?
+           OR lower(p.slug) LIKE ?
+           OR (p.name_variants IS NOT NULL AND lower(p.name_variants) LIKE ?)
+        ORDER BY hit, apps DESC, p.unique_name
         LIMIT 20
         """,
-        [n, slug, n, n, f"%{n}%", f"%{n}%", f"%{n}%"],
+        [
+            slug, n, n,
+            f"% {last}", f"%-{last}", f"% {last}",
+            f"{n}%", f"{n}%",
+            n, slug, n, n,
+            f"%{n}%", f"%{n}%", f"%{slug}%", f"%{n}%",
+        ],
     ).fetchall()
-    cols = ["person_id", "display_name", "unique_name", "slug", "gender"]
-    return [dict(zip(cols, r)) for r in rows]
+    cols = ["person_id", "display_name", "unique_name", "slug", "gender", "hit", "apps"]
+    return [dict(zip(cols, r[:7])) for r in rows]
 
 
 def _date_bounds(tokens: dict[str, str]) -> tuple[str | None, str | None]:
@@ -185,9 +209,43 @@ def execute(raw: str) -> dict[str, Any]:
             "error": "Warehouse not built yet. Run: python -m cricwarehouse pull && python -m cricwarehouse build — or open the Build page.",
             "parsed": parsed.__dict__,
         }
+    dest_key = (parsed.bare_player or "").strip().lower()
+    only_name = (
+        parsed.mode == "innings"
+        and parsed.bare_player
+        and not any(k in parsed.tokens for k in ("runs", "out", "dismissed_by", "notout", "opposition", "opp", "venue", "year", "years", "from", "to"))
+    )
+    if only_name and dest_key in {"stats", "wowy", "rankings", "metrics", "war", "build", "docs"}:
+        return {"ok": True, "kind": "goto_page", "hash": "/metrics" if dest_key == "war" else f"/{dest_key}"}
     con = connect()
     try:
-        if parsed.mode == "compare":
+        if only_name:
+            people = _people_match(con, parsed.bare_player)
+            top = people[0] if people else None
+            nxt = people[1] if len(people) > 1 else None
+            clear_lead = bool(
+                top
+                and int(top.get("apps") or 0) >= 15
+                and int(top.get("apps") or 0) >= 3 * max(int((nxt or {}).get("apps") or 0), 1)
+            )
+            if top and (len(people) == 1 or clear_lead):
+                result = {"ok": True, "kind": "goto_player", "person": top, "people": people}
+            elif people:
+                result = {
+                    "ok": True,
+                    "kind": "pick_player",
+                    "people": people,
+                    "message": f"{len(people)} players match “{parsed.bare_player}”",
+                }
+            else:
+                result = {
+                    "ok": True,
+                    "kind": "empty",
+                    "message": f"No players match {parsed.bare_player}. Try a last name, or open Stats.",
+                    "rows": [],
+                    "columns": [],
+                }
+        elif parsed.mode == "compare":
             result = _exec_compare(con, parsed)
         elif parsed.mode == "pair":
             result = _exec_pair(con, parsed)

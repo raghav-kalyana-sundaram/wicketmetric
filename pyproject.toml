@@ -1,11 +1,11 @@
 [project]
 name = "cricwarehouse"
 version = "1.1.0"
-description = "Local Cricket Warehouse — Cricsheet scorecards and T20 value metrics"
+description = "Wicket Metric — Cricsheet scorecards, lineups, and T20 value metrics"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Local Cricket Warehouse" }]
+authors = [{ name = "Wicket Metric" }]
 dependencies = [
     "duckdb>=1.1",
     "pyarrow>=17",

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-# Locked v1 competitions (product spec §4). The Hundred is out of v1.
-IN_SCOPE = ("test", "t20i", "ipl", "wpl", "bbl", "wbbl")
+IN_SCOPE = ("test", "odi", "t20i", "ipl", "wpl", "bbl", "wbbl")
 T20_METRICS = ("t20i", "ipl", "wpl", "bbl", "wbbl")
 LEAGUES = ("ipl", "wpl", "bbl", "wbbl")
 
 LABELS = {
     "test": "Tests",
+    "odi": "ODI",
     "t20i": "T20I",
     "ipl": "IPL",
     "wpl": "WPL",
@@ -20,6 +20,8 @@ GENDER_LABEL = {"male": "Men", "female": "Women"}
 
 README_CODE = {
     "Test": "test",
+    "ODI": "odi",
+    "ODM": None,  # domestic List A — international ODIs only
     "T20": None,  # depends on team_type
     "IT20": "t20i",
     "IPL": "ipl",
@@ -31,6 +33,9 @@ README_CODE = {
 FORMAT_ALIASES = {
     "test": "test",
     "tests": "test",
+    "odi": "odi",
+    "odm": "odi",
+    "odis": "odi",
     "t20i": "t20i",
     "t20": "t20i",
     "it20": "t20i",
@@ -60,6 +65,8 @@ def classify_match(info: dict[str, Any], readme_code: str | None = None) -> str 
 
     if match_type == "test":
         return "test"
+    if match_type in {"odi", "odm"} and team_type == "international":
+        return "odi"
     if "indian premier league" in event_name:
         return "ipl"
     if "women's premier league" in event_name or "womens premier league" in event_name:

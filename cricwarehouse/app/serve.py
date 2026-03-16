@@ -19,6 +19,7 @@ from cricwarehouse.paths import ROOT, UI, USER_DATA, WAREHOUSE, ensure_dirs
 from cricwarehouse.app.db import DOCUMENTED_VIEWS, connect, disk_size_bytes, warehouse_ready
 from cricwarehouse.app.pull import discover_local_dumps, load_sources
 from cricwarehouse.app.query import execute, parse_query, suggest
+from cricwarehouse.app import catalog
 
 FORBIDDEN_SQL = re.compile(
     r"\b(insert|update|delete|drop|alter|copy|attach|detach|create|pragma|export|install|load|call)\b",
@@ -38,7 +39,7 @@ def _fmt_date(iso: str | None) -> str:
 
 def create_app() -> FastAPI:
     ensure_dirs()
-    app = FastAPI(title="Local Cricket Warehouse", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Wicket Metric", docs_url=None, redoc_url=None)
 
     if UI.exists():
         app.mount("/static", StaticFiles(directory=str(UI)), name="static")
@@ -111,7 +112,34 @@ def create_app() -> FastAPI:
 
     @app.get("/api/suggest")
     def api_suggest(q: str = ""):
-        return suggest(q)
+        return catalog.search(q)
+
+    @app.get("/api/stats")
+    def api_stats(
+        comp: str | None = None,
+        gender: str | None = None,
+        min_inns: int = 5,
+        role: str = "all",
+        sort: str = "runs",
+    ):
+        return catalog.master_stats(comp=comp or None, gender=gender or None, min_inns=min_inns, role=role, sort=sort)
+
+    @app.get("/api/rankings")
+    def api_rankings(
+        metric: str = "runs",
+        comp: str | None = None,
+        gender: str | None = None,
+        min_inns: int = 5,
+    ):
+        return catalog.rankings(metric=metric, comp=comp or None, gender=gender or None, min_inns=min_inns)
+
+    @app.get("/api/wowy")
+    def api_wowy(team: str, player: str, comp: str | None = None, gender: str | None = None):
+        return catalog.wowy(team=team, player=player, comp=comp or None, gender=gender or None)
+
+    @app.get("/api/teams")
+    def api_teams(q: str = ""):
+        return {"teams": catalog.teams(q)}
 
     @app.get("/api/match/{match_id}")
     def api_match(match_id: str):
@@ -231,11 +259,22 @@ def create_app() -> FastAPI:
             bowl = con.execute(
                 """
                 SELECT m.competition,
+                       COUNT(DISTINCT bl.match_id) AS matches,
                        SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
                        SUM(bl.legal_balls) AS legal_balls, SUM(bl.maidens) AS maidens
                 FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
                 WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
                 GROUP BY 1
+                """,
+                [pid],
+            ).fetchdf().to_dict("records")
+            bowl_inns = con.execute(
+                """
+                SELECT bl.*, m.start_date, m.competition, m.winner, m.result_method,
+                       CASE WHEN bl.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition
+                FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
+                WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
+                ORDER BY m.start_date DESC
                 """,
                 [pid],
             ).fetchdf().to_dict("records")
@@ -281,8 +320,12 @@ def create_app() -> FastAPI:
                 "SELECT MIN(start_date), MAX(start_date), COUNT(*) FROM matches m JOIN xi x ON x.match_id = m.match_id WHERE x.person_id = ?",
                 [pid],
             ).fetchone()
+            bat_balls = int(sum(int(s.get("balls") or 0) for s in summary))
+            bowl_balls = int(sum(int(s.get("legal_balls") or 0) for s in bowl))
+            primary_role = "bowl" if bowl_balls > bat_balls else "bat"
             return {
                 "person": p,
+                "primary_role": primary_role,
                 "span": {
                     "first": span[0],
                     "last": span[1],
@@ -296,6 +339,7 @@ def create_app() -> FastAPI:
                 "summary": _clean_list(summary),
                 "bowling_summary": _clean_list(bowl),
                 "innings": _clean_list(inns),
+                "bowling_innings": _clean_list(bowl_inns),
                 "fielding": {
                     "catches": int(field[0] or 0),
                     "run_outs": int(field[1] or 0),
@@ -453,7 +497,7 @@ def create_app() -> FastAPI:
         p = USER_DATA / "settings.json"
         if p.exists():
             return json.loads(p.read_text())
-        return {"theme": "paper", "weights": {"rae": 0.45, "wpa": 0.35, "consistency": 0.20}}
+            return {"theme": "charcoal", "weights": {"rae": 0.45, "wpa": 0.35, "consistency": 0.20}}
 
     @app.put("/api/settings")
     async def put_settings(request: Request):
@@ -564,5 +608,5 @@ def _metrics_scope(comp, season, gender, qualifiers, n) -> str:
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     import uvicorn
 
-    print(f"Local Cricket Warehouse  →  http://{host}:{port}", flush=True)
+    print(f"Wicket Metric  →  http://{host}:{port}", flush=True)
     uvicorn.run(create_app(), host=host, port=port, log_level="info")

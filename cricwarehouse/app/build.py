@@ -15,7 +15,7 @@ from cricwarehouse.app.db import write_parquet
 from cricwarehouse.app.standings import compute_standings
 from cricwarehouse.app import metrics as metrics_mod
 
-IN_SCOPE_README = {"Test", "T20", "IT20", "IPL", "WPL", "BBL", "WBB"}
+IN_SCOPE_README = {"Test", "ODI", "T20", "IT20", "IPL", "WPL", "BBL", "WBB"}
 TABLE_KEYS = (
     "matches",
     "people",

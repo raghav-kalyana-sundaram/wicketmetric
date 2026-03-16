@@ -163,7 +163,7 @@ def pull_zips(*, force: bool = False) -> None:
 
 def pull(*, force: bool = False) -> None:
     ensure_dirs()
-    _log("Local Cricket Warehouse — pull")
+    _log("Wicket Metric — pull")
     pull_register()
     dumps = discover_local_dumps()
     if dumps:
