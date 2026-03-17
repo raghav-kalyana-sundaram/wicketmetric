@@ -15,8 +15,9 @@ This document describes how to deploy the **frontend** to [Vercel](https://verce
 
 1. Go to [railway.app](https://railway.app) and sign in (e.g. with GitHub).
 2. **New Project** → **Deploy from GitHub repo** → select this repository.
-3. In the new service, open **Settings** → **Root Directory** and set it to **`gui/backend`**.
-4. Railway will detect Python and use `gui/backend/requirements.txt`. Build and start are configured in `gui/backend/railway.toml`.
+3. In the new service, open **Settings** → **Root Directory** and set it to **`gui/backend`** (required).
+4. With Root Directory = `gui/backend`, Railway will use **`gui/backend/Dockerfile`** (or Nixpacks if no Dockerfile). Do **not** leave Root Directory empty, or the build will fail (the repo root has no `Dockerfile`; see `Dockerfile.repo` for local full-image builds only).
+5. Build and start are configured in `gui/backend/railway.toml` when using Nixpacks; the Dockerfile in `gui/backend` works with this root directory.
 
 ### 1.2 Provide pipeline data
 
@@ -38,8 +39,9 @@ In Railway → your service → **Variables**, add if needed:
 
 ### 1.4 Deploy and get the API URL
 
-- Trigger a deploy (or push to the branch Railway watches). After a successful deploy, open **Settings** → **Networking** → **Generate Domain** to get a public URL (e.g. `https://your-app.up.railway.app`).  
+- Trigger a deploy (or push to the branch Railway watches). After a successful deploy, open **Settings** → **Networking** → **Generate Domain** to get a public URL (e.g. `https://your-app.up.railway.app`).
 - Use this URL as the **backend API base URL** for the frontend (no trailing slash).
+- **If the build fails** with `COPY gui/backend/ ... not found`: Root Directory must be **`gui/backend`** so the build context is the backend folder. The root-level Dockerfile has been renamed to `Dockerfile.repo` so Railway does not use it for this service.
 
 ---
 
@@ -77,10 +79,10 @@ Push to the connected branch or trigger a deploy from the Vercel dashboard. The 
 
 ## 3. Post-deploy checklist
 
-- [ ] Backend health: open `https://your-railway-url.up.railway.app/api/meta` (or `/api/health` if you have one). You should get JSON.
-- [ ] Frontend: open the Vercel URL; the app should load.
+- [ ] **Backend health:** open `https://your-railway-url.up.railway.app/api/meta`. You should get JSON. If you get CORS errors in the browser, add your Vercel URL to **`CORS_ORIGINS`** on Railway.
+- [ ] **Frontend loads data:** In Vercel, set **`VITE_API_URL`** to your Railway URL (e.g. `https://your-app.up.railway.app`, no trailing slash). Redeploy the frontend after changing it. Without this, the UI shows "Failed to load" because API requests go to the wrong place.
+- [ ] **CORS:** On Railway, set **`CORS_ORIGINS`** to your Vercel URL (e.g. `https://your-project.vercel.app`) so the browser allows API requests from the frontend.
 - [ ] Format/data: switch between T20I and IPL in the UI; if no data was provided to the backend, lists will be empty but the app should not crash.
-- [ ] CORS: set **`CORS_ORIGINS`** on Railway to your Vercel URL (e.g. `https://your-project.vercel.app`) so the frontend can call the API.
 
 ---
 
@@ -90,3 +92,14 @@ Push to the connected branch or trigger a deploy from the Vercel dashboard. The 
 - **Frontend:** `cd gui/frontend && npm run dev`. The Vite dev server proxies `/api` to `http://localhost:8000`; no `VITE_API_URL` needed for local dev.
 
 See `gui/frontend/.env.example` and `gui/backend/.env.example` for optional local env vars.
+
+---
+
+## 5. Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| **Railway build fails:** `COPY gui/backend/ ... not found` | Set **Root Directory** to **`gui/backend`** (not repo root). The root `Dockerfile` was renamed to `Dockerfile.repo` so only the backend Dockerfile is used. |
+| **Frontend shows "Failed to load"** on cards/rankings | Set **`VITE_API_URL`** in Vercel to your Railway API URL (e.g. `https://your-app.up.railway.app`), then redeploy the frontend. |
+| **API returns 403 or CORS errors in browser** | Set **`CORS_ORIGINS`** on Railway to your Vercel (or frontend) origin, e.g. `https://your-project.vercel.app`. |
+| **Backend starts but endpoints return empty** | Provide pipeline data via a volume + **`DATA_ROOT`**, or **`OUTPUT_DIR`**; see § 1.2. |
