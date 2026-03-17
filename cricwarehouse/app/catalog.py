@@ -4,8 +4,25 @@ import re
 from typing import Any
 
 from cricwarehouse.competitions import LABELS
+from cricwarehouse.teams import (
+    METRIC_COPY,
+    POOL_LABELS,
+    default_pool,
+    parse_comps,
+    wtc_match_sql,
+    wtc_params,
+)
 from cricwarehouse.app.db import connect, warehouse_ready
 from cricwarehouse.app.query import _people_match
+
+BOWL_CREDITED = (
+    "bowled",
+    "caught",
+    "caught and bowled",
+    "lbw",
+    "stumped",
+    "hit wicket",
+)
 
 
 def search(q: str) -> dict[str, Any]:
@@ -38,14 +55,20 @@ def search(q: str) -> dict[str, Any]:
 
 def _destinations(q: str) -> list[dict]:
     dest = [
-        {"id": "stats", "label": "Stats table", "hint": "Master batting and bowling, with percentiles"},
+        {"id": "stats", "label": "Stats table", "hint": "Master batting and bowling, with percentiles and WAR"},
         {"id": "wowy", "label": "WOWY", "hint": "With or without a player"},
-        {"id": "rankings", "label": "Rankings", "hint": "Runs, wickets, WAR in this warehouse"},
+        {"id": "best", "label": "Best T20", "hint": "Greatest innings and spells in this warehouse"},
     ]
     ql = q.lower()
     if ql:
         dest = [d for d in dest if ql in d["id"] or ql in d["label"].lower() or ql in d["hint"].lower()] or dest
     return dest
+
+
+def _attach_wtc(con, gender: str | None) -> None:
+    con.execute("CREATE TEMP TABLE wtc_teams (team VARCHAR)")
+    for t in wtc_params(gender):
+        con.execute("INSERT INTO wtc_teams VALUES (?)", [t])
 
 
 def master_stats(
@@ -55,25 +78,43 @@ def master_stats(
     min_inns: int = 5,
     role: str = "all",
     sort: str = "runs",
+    wtc: bool = False,
 ) -> dict[str, Any]:
     if not warehouse_ready():
         return {"rows": [], "scope": "Warehouse not built"}
     con = connect()
     try:
+        if wtc:
+            _attach_wtc(con, gender)
+        comps = parse_comps(comp)
         bat_w = ["b.innings_kind = 'regular'"]
         bowl_w = ["bl.innings_kind = 'regular'"]
         params: list[Any] = []
         bparams: list[Any] = []
-        if comp:
-            bat_w.append("m.competition = ?")
-            bowl_w.append("m.competition = ?")
-            params.append(comp)
-            bparams.append(comp)
+        if comps:
+            ph = ",".join(["?"] * len(comps))
+            bat_w.append(f"m.competition IN ({ph})")
+            bowl_w.append(f"m.competition IN ({ph})")
+            params.extend(comps)
+            bparams.extend(comps)
         if gender:
             bat_w.append("m.gender = ?")
             bowl_w.append("m.gender = ?")
             params.append(gender)
             bparams.append(gender)
+        if wtc:
+            bat_w.append(wtc_match_sql("m"))
+            bowl_w.append(wtc_match_sql("m"))
+        t20_comps = [c for c in (comps or ["t20i", "ipl", "wpl", "bbl", "wbbl"]) if c in ("t20i", "ipl", "wpl", "bbl", "wbbl")]
+        val_w = ["1=1"]
+        vparams: list[Any] = []
+        if t20_comps:
+            phv = ",".join(["?"] * len(t20_comps))
+            val_w.append(f"competition IN ({phv})")
+            vparams.extend(t20_comps)
+        if gender:
+            val_w.append("gender = ?")
+            vparams.append(gender)
         sql = f"""
         WITH bat AS (
           SELECT b.person_id,
@@ -101,6 +142,18 @@ def master_stats(
           WHERE {' AND '.join(bowl_w)}
           GROUP BY 1
         ),
+        val AS (
+          SELECT person_id,
+                 ROUND(SUM(war), 2) AS war,
+                 ROUND(SUM(rae_bat), 1) AS rae_bat,
+                 ROUND(SUM(rae_bowl), 1) AS rae_bowl,
+                 ROUND(SUM(wpa), 3) AS wpa,
+                 ROUND(SUM(pressure_impact), 1) AS pressure,
+                 COUNT(DISTINCT season) AS seasons
+          FROM metrics_t20
+          WHERE {' AND '.join(val_w)}
+          GROUP BY 1
+        ),
         joined AS (
           SELECT COALESCE(bat.person_id, bowl.person_id) AS person_id,
                  COALESCE(bat.matches, 0) AS matches,
@@ -123,22 +176,23 @@ def master_stats(
                CASE WHEN j.wickets > 0 THEN ROUND(j.bowl_runs * 1.0 / j.wickets, 1) END AS bowl_avg,
                CASE WHEN j.legal_balls > 0 THEN ROUND(j.bowl_runs * 6.0 / j.legal_balls, 2) END AS econ,
                CASE WHEN j.legal_balls > j.balls THEN 'bowl' ELSE 'bat' END AS primary_role,
+               v.war, v.rae_bat, v.rae_bowl, v.wpa, v.pressure, v.seasons,
+               CASE WHEN v.seasons > 0 THEN ROUND(v.war / v.seasons, 2) END AS war_per_season,
                ROUND(PERCENT_RANK() OVER (ORDER BY j.runs) * 100) AS runs_pct,
                ROUND(PERCENT_RANK() OVER (ORDER BY j.wickets) * 100) AS wickets_pct,
-               ROUND(PERCENT_RANK() OVER (
-                 ORDER BY CASE WHEN j.outs >= 8 THEN j.runs * 1.0 / j.outs END
-               ) * 100) AS avg_pct,
-               ROUND(PERCENT_RANK() OVER (
-                 ORDER BY CASE WHEN j.wickets >= 10 THEN j.bowl_runs * 1.0 / j.wickets END DESC
-               ) * 100) AS bowl_avg_pct
+               ROUND(PERCENT_RANK() OVER (ORDER BY v.war NULLS FIRST) * 100) AS war_pct
         FROM joined j
         JOIN people p ON p.person_id = j.person_id
+        LEFT JOIN val v ON v.person_id = j.person_id
         WHERE (j.inns >= ? OR j.wickets >= ?)
         """
         floor = max(int(min_inns), 1)
-        recs = con.execute(sql, params + bparams + [floor, floor]).fetchdf()
+        try:
+            recs = con.execute(sql, params + bparams + vparams + [floor, floor]).fetchdf()
+        except Exception:
+            recs = con.execute(sql.replace("LEFT JOIN val v ON v.person_id = j.person_id", "").replace("v.war, v.rae_bat, v.rae_bowl, v.wpa, v.pressure, v.seasons,", "NULL AS war, NULL AS rae_bat, NULL AS rae_bowl, NULL AS wpa, NULL AS pressure, NULL AS seasons,"), params + bparams + [floor, floor]).fetchdf()
         if recs.empty:
-            return {"rows": [], "scope": _scope(comp, gender, 0)}
+            return {"rows": [], "scope": _scope(comp, gender, 0, wtc)}
         rows = recs.to_dict("records")
         if role == "bowl":
             rows = [r for r in rows if r.get("primary_role") == "bowl" or (r.get("wickets") or 0) >= floor]
@@ -152,6 +206,12 @@ def master_stats(
             "bowl_avg": "bowl_avg",
             "econ": "econ",
             "balls": "balls",
+            "war": "war",
+            "war_per_season": "war_per_season",
+            "rae_bat": "rae_bat",
+            "rae_bowl": "rae_bowl",
+            "wpa": "wpa",
+            "pressure": "pressure",
         }.get(sort, "runs")
         reverse = key not in {"bowl_avg", "econ"}
         rows.sort(key=lambda r: (r.get(key) is not None, r.get(key) or 0), reverse=reverse)
@@ -162,7 +222,7 @@ def master_stats(
             r["overs"] = f"{overs // 6}.{overs % 6}" if overs else None
         return {
             "rows": _jsonable(rows),
-            "scope": _scope(comp, gender, len(rows)),
+            "scope": _scope(comp, gender, len(rows), wtc),
         }
     finally:
         con.close()
@@ -265,6 +325,19 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
         if gender:
             where.append("m.gender = ?")
             params.append(gender)
+        first = con.execute(
+            f"""
+            SELECT MIN(m.start_date)
+            FROM matches m
+            JOIN xi x ON x.match_id = m.match_id
+            WHERE x.person_id = ? AND x.team ILIKE ?
+              AND {' AND '.join(where)}
+            """,
+            [pid, f"%{team}%"] + params,
+        ).fetchone()[0]
+        if first:
+            where.append("m.start_date >= ?")
+            params.append(first)
         matches = con.execute(
             f"""
             SELECT m.match_id, m.start_date, m.team_home, m.team_away, m.winner, m.competition,
@@ -323,8 +396,13 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
             "team": team,
             "people": people,
             "rows": rows,
-            "scope": f"{team} · {person['display_name']} · in this warehouse",
-            "caption": "On/off for the side. Small samples stay noisy — this is a split, not RAPM.",
+            "scope": f"{team} · {person['display_name']} · from {first[:10] if first else '—'} · in this warehouse",
+            "available_from": first,
+            "caption": (
+                f"Only matches on or after {person['display_name']}'s first XI for {team}"
+                + (f" ({first[:10]})" if first else "")
+                + ". Small samples stay noisy — this is a split, not RAPM."
+            ),
         }
     finally:
         con.close()
@@ -364,12 +442,251 @@ def teams(q: str = "") -> list[str]:
         con.close()
 
 
-def _scope(comp, gender, n) -> str:
+def career_value(person_id: str, *, pool: str | None = None, gender: str | None = None) -> dict[str, Any]:
+    if not warehouse_ready():
+        return {"ok": False, "metrics": []}
+    con = connect()
+    try:
+        g = gender
+        if not g:
+            row = con.execute(
+                "SELECT gender FROM metrics_t20 WHERE person_id = ? LIMIT 1", [person_id]
+            ).fetchone()
+            g = row[0] if row else None
+        pool = pool or default_pool(g)
+        comps = parse_comps(pool) or list(POOL_COMPS_FALLBACK)
+        ph = ",".join(["?"] * len(comps))
+        recs = con.execute(
+            f"""
+            SELECT person_id,
+                   ROUND(SUM(war), 2) AS war,
+                   ROUND(SUM(rae_bat), 1) AS rae_bat,
+                   ROUND(SUM(rae_bowl), 1) AS rae_bowl,
+                   ROUND(SUM(wpa), 3) AS wpa,
+                   ROUND(SUM(pressure_impact), 1) AS pressure,
+                   COUNT(DISTINCT season) AS seasons,
+                   SUM(balls_bat) AS balls_bat,
+                   SUM(balls_bowl) AS balls_bowl
+            FROM metrics_t20
+            WHERE competition IN ({ph}) AND gender = ?
+            GROUP BY 1
+            HAVING SUM(balls_bat) + SUM(balls_bowl) >= 60
+            """,
+            comps + [g],
+        ).fetchdf()
+        if recs.empty:
+            return {
+                "ok": True,
+                "pool": pool,
+                "pool_label": POOL_LABELS.get(pool, pool),
+                "metrics": [],
+                "copy": METRIC_COPY,
+            }
+        recs["war_per_season"] = recs.apply(
+            lambda r: round(float(r["war"] or 0) / max(int(r["seasons"] or 1), 1), 2), axis=1
+        )
+        n = len(recs)
+        ranks = {}
+        for col, higher in (
+            ("war", True),
+            ("war_per_season", True),
+            ("rae_bat", True),
+            ("rae_bowl", True),
+            ("wpa", True),
+            ("pressure", True),
+        ):
+            recs[f"{col}_rank"] = recs[col].rank(ascending=not higher, method="min", na_option="bottom")
+        mine = recs[recs["person_id"] == person_id]
+        if mine.empty:
+            return {
+                "ok": True,
+                "pool": pool,
+                "pool_label": POOL_LABELS.get(pool, pool),
+                "metrics": [],
+                "n": n,
+                "copy": METRIC_COPY,
+            }
+        r = mine.iloc[0].to_dict()
+        metrics = []
+        for key, label in (
+            ("war", "WAR"),
+            ("war_per_season", "WAR / season"),
+            ("rae_bat", "RAE bat"),
+            ("rae_bowl", "RAE bowl"),
+            ("wpa", "WPA"),
+            ("pressure", "Pressure"),
+        ):
+            rank = int(r.get(f"{key}_rank") or 0)
+            metrics.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "value": _jsonable([{"v": r.get(key)}])[0]["v"],
+                    "rank": rank,
+                    "of": n,
+                    "pct": round(100 * (n - rank) / max(n - 1, 1)) if n > 1 else 100,
+                    "copy": METRIC_COPY.get(key, ""),
+                }
+            )
+        return {
+            "ok": True,
+            "pool": pool,
+            "pool_label": POOL_LABELS.get(pool, pool),
+            "seasons": int(r.get("seasons") or 0),
+            "balls_bat": int(r.get("balls_bat") or 0),
+            "balls_bowl": int(r.get("balls_bowl") or 0),
+            "n": n,
+            "metrics": metrics,
+            "copy": METRIC_COPY,
+        }
+    except Exception:
+        return {"ok": True, "pool": pool or "t20i_ipl", "metrics": [], "copy": METRIC_COPY}
+    finally:
+        con.close()
+
+
+POOL_COMPS_FALLBACK = ("t20i", "ipl")
+
+
+def matchups(person_id: str, *, wtc: bool = False) -> dict[str, Any]:
+    if not warehouse_ready():
+        return {"as_batter": [], "as_bowler": []}
+    con = connect()
+    try:
+        if wtc:
+            _attach_wtc(con, None)
+        wtc_f = f"AND {wtc_match_sql('m')}" if wtc else ""
+        kinds = ",".join(f"'{k}'" for k in BOWL_CREDITED)
+        vs_bowl = con.execute(
+            f"""
+            SELECT m.competition,
+                   p.display_name AS opponent, p.slug AS opp_slug, d.bowler AS opp_id,
+                   SUM(CASE WHEN d.striker IS NOT NULL AND NOT d.is_wide THEN 1 ELSE 0 END) AS balls,
+                   SUM(CASE WHEN d.striker IS NOT NULL THEN d.runs_batter ELSE 0 END) AS runs,
+                   SUM(CASE WHEN d.player_out = d.striker AND d.wicket_kind IN ({kinds}) THEN 1 ELSE 0 END) AS dismissals
+            FROM deliveries d
+            JOIN matches m ON m.match_id = d.match_id
+            JOIN people p ON p.person_id = d.bowler
+            WHERE d.striker = ? AND d.innings_kind = 'regular' AND d.bowler IS NOT NULL {wtc_f}
+            GROUP BY 1,2,3,4
+            HAVING SUM(CASE WHEN d.striker IS NOT NULL AND NOT d.is_wide THEN 1 ELSE 0 END) >= 12
+            ORDER BY m.competition, balls DESC
+            """,
+            [person_id],
+        ).fetchdf()
+        vs_bat = con.execute(
+            f"""
+            SELECT m.competition,
+                   p.display_name AS opponent, p.slug AS opp_slug, d.striker AS opp_id,
+                   SUM(CASE WHEN d.is_legal THEN 1 ELSE 0 END) AS balls,
+                   SUM(d.runs_batter + CASE WHEN d.extra_type IN ('wides','noballs') THEN d.runs_extras ELSE 0 END) AS runs,
+                   SUM(CASE WHEN d.player_out = d.striker AND d.wicket_kind IN ({kinds}) THEN 1 ELSE 0 END) AS dismissals
+            FROM deliveries d
+            JOIN matches m ON m.match_id = d.match_id
+            JOIN people p ON p.person_id = d.striker
+            WHERE d.bowler = ? AND d.innings_kind = 'regular' AND d.striker IS NOT NULL {wtc_f}
+            GROUP BY 1,2,3,4
+            HAVING SUM(CASE WHEN d.is_legal THEN 1 ELSE 0 END) >= 12
+            ORDER BY m.competition, balls DESC
+            """,
+            [person_id],
+        ).fetchdf()
+        def pack(df, as_bowl: bool):
+            if df is None or df.empty:
+                return []
+            rows = df.to_dict("records")
+            out = []
+            for r in rows:
+                balls = int(r.get("balls") or 0)
+                runs = int(r.get("runs") or 0)
+                dsm = int(r.get("dismissals") or 0)
+                item = {
+                    "competition": r.get("competition"),
+                    "opponent": r.get("opponent"),
+                    "opp_slug": r.get("opp_slug"),
+                    "balls": balls,
+                    "runs": runs,
+                    "dismissals": dsm,
+                }
+                if as_bowl:
+                    item["avg"] = round(runs / dsm, 1) if dsm else None
+                    item["econ"] = round(runs * 6 / balls, 2) if balls else None
+                    item["line"] = f"{dsm}/{runs} off {balls // 6}.{balls % 6}"
+                else:
+                    item["sr"] = round(runs * 100 / balls, 1) if balls else None
+                    item["avg"] = round(runs / dsm, 1) if dsm else None
+                    item["line"] = f"{runs} off {balls}" + (f" ({dsm} out)" if dsm else "")
+                out.append(item)
+            return _jsonable(out)
+        return {"as_batter": pack(vs_bowl, False), "as_bowler": pack(vs_bat, True)}
+    finally:
+        con.close()
+
+
+def list_performances(
+    *,
+    person_id: str | None = None,
+    discipline: str | None = None,
+    comp: str | None = None,
+    gender: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    if not warehouse_ready():
+        return {"rows": [], "scope": "Warehouse not built"}
+    con = connect()
+    try:
+        where = ["1=1"]
+        params: list[Any] = []
+        if person_id:
+            where.append("pf.person_id = ?")
+            params.append(person_id)
+        if discipline in {"bat", "bowl"}:
+            where.append("pf.discipline = ?")
+            params.append(discipline)
+        comps = parse_comps(comp)
+        if comps:
+            ph = ",".join(["?"] * len(comps))
+            where.append(f"pf.competition IN ({ph})")
+            params.extend(comps)
+        if gender:
+            where.append("pf.gender = ?")
+            params.append(gender)
+        recs = con.execute(
+            f"""
+            SELECT pf.*, p.display_name, p.slug,
+                   CASE WHEN pf.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+                   m.venue, m.winner, m.result_method, m.start_date
+            FROM performances_t20 pf
+            JOIN people p ON p.person_id = pf.person_id
+            JOIN matches m ON m.match_id = pf.match_id
+            WHERE {' AND '.join(where)}
+            ORDER BY pf.score DESC
+            LIMIT ?
+            """,
+            params + [int(limit)],
+        ).fetchdf()
+        rows = recs.to_dict("records") if not recs.empty else []
+        for r in rows:
+            r["player"] = r.get("display_name")
+            r["result"] = "Won" if r.get("winner") == r.get("team") else ("Lost" if r.get("winner") else "—")
+        return {
+            "rows": _jsonable(rows),
+            "caption": "Scores are percentiles within each competition’s history. Composite of NRC, WPA, and pressure — not raw runs added.",
+        }
+    except Exception:
+        return {"rows": [], "caption": "Rebuild T20 metrics to score performances."}
+    finally:
+        con.close()
+
+
+def _scope(comp, gender, n, wtc=False) -> str:
     bits = [f"{n:,} players" if n != 1 else "1 player"]
     if comp:
-        bits.append(LABELS.get(comp, comp))
+        bits.append(POOL_LABELS.get(comp, LABELS.get(comp, comp)))
     if gender:
         bits.append("Men" if gender == "male" else "Women")
+    if wtc:
+        bits.append("WTC sides")
     bits.append("in this warehouse")
     return " · ".join(bits)
 

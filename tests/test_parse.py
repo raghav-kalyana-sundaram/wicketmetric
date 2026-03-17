@@ -63,3 +63,12 @@ def test_odi_is_in_scope():
     assert classify_match({"match_type": "ODM", "team_type": "international"}) == "odi"
     assert classify_match({"match_type": "ODI", "team_type": "club"}) is None
     assert classify_match({"match_type": "ODM", "team_type": "domestic"}, "ODM") is None
+
+
+def test_wtc_pool_and_comps():
+    from cricwarehouse.teams import WTC_TEAMS, default_pool, parse_comps, wtc_params
+
+    assert "India" in WTC_TEAMS
+    assert "Afghanistan" not in wtc_params("male")
+    assert default_pool("male") == "t20i_ipl"
+    assert parse_comps("t20i_ipl") == ["t20i", "ipl"]

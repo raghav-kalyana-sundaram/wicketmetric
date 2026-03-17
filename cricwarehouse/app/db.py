@@ -20,6 +20,7 @@ TABLES = (
     "playoffs",
     "team_strength",
     "metrics_t20",
+    "performances_t20",
     "super_over_stats",
     "model_meta",
 )
@@ -60,6 +61,12 @@ CREATE OR REPLACE VIEW v_metrics_t20 AS
   SELECT mt.*, p.display_name, p.unique_name, p.slug
   FROM metrics_t20 mt
   JOIN people p ON p.person_id = mt.person_id;
+CREATE OR REPLACE VIEW v_performances_t20 AS
+  SELECT pf.*, p.display_name, p.unique_name, p.slug, m.start_date, m.venue,
+         m.winner, m.result_method, m.team_home, m.team_away
+  FROM performances_t20 pf
+  JOIN people p ON p.person_id = pf.person_id
+  JOIN matches m ON m.match_id = pf.match_id;
 CREATE OR REPLACE VIEW v_super_over_stats AS
   SELECT s.*, p.display_name, p.unique_name
   FROM super_over_stats s
@@ -78,6 +85,7 @@ DOCUMENTED_VIEWS = [
     "v_standings",
     "v_playoffs",
     "v_metrics_t20",
+    "v_performances_t20",
     "v_super_over_stats",
 ]
 

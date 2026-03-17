@@ -17,6 +17,7 @@ PRESSURE_K = 1.0
 DLS_CONFIDENCE_THRESHOLD = 0.25
 REPLACEMENT_PERCENTILE = 20
 DEFAULT_WEIGHTS = {"rae": 0.45, "wpa": 0.35, "consistency": 0.20}
+PERF_WEIGHTS = {"nrc": 0.55, "wpa": 0.35, "press": 0.10}
 CONSISTENCY_MIN_INNINGS = 5
 CONSISTENCY_MIN_BALLS = 100
 LEAGUE_QUAL_BALLS = 60
@@ -74,7 +75,7 @@ def rebuild_metrics() -> None:
         """
         SELECT d.*, m.competition, m.gender, m.season, m.start_date,
                m.winner, m.result_method, m.scheduled_overs, m.revised_target,
-               m.revised_overs, m.team_home, m.team_away, m.balls_per_over
+               m.revised_overs, m.team_home, m.team_away, m.balls_per_over, m.venue
         FROM deliveries d
         JOIN matches m ON m.match_id = d.match_id
         WHERE m.competition IN ('t20i','ipl','wpl','bbl','wbbl')
@@ -159,11 +160,11 @@ def rebuild_metrics() -> None:
     balls["xr"] = balls["xr_base"] * (1.0 + 0.15 * (balls["opp_bowl_rating"] - 1500.0) / 400.0)
     balls["xr"] = balls["xr"].clip(lower=0.05, upper=3.5)
 
-    charged = balls["runs_batter"] + np.where(
+    balls["charged"] = balls["runs_batter"] + np.where(
         balls["extra_type"].isin(["wides", "noballs"]), balls["runs_extras"], 0
     )
     balls["rae_bat_ball"] = np.where(balls["striker"].notna() & ~balls["is_wide"], balls["runs_batter"] - balls["xr"], 0.0)
-    balls["rae_bowl_ball"] = np.where(balls["bowler"].notna(), balls["xr"] - charged, 0.0)
+    balls["rae_bowl_ball"] = np.where(balls["bowler"].notna(), balls["xr"] - balls["charged"], 0.0)
 
     # WPA
     balls = _attach_wpa(balls)
@@ -181,14 +182,17 @@ def rebuild_metrics() -> None:
     death_p = np.where((balls["innings"] == 1) & (balls["over"] >= 16), 0.6, 0.0)
     balls["pressure"] = np.where(balls["innings"] == 2, chase_p, death_p)
     balls["pressure_impact"] = balls["rae_bat_ball"] * (1 + PRESSURE_K * balls["pressure"])
+    balls["pressure_bowl"] = balls["rae_bowl_ball"] * (1 + PRESSURE_K * balls["pressure"])
 
     # Aggregate player-season-competition
     metrics = _aggregate(balls)
     rpw = _fit_runs_per_win(t20, balls)
     metrics = _apply_war(metrics, rpw)
     write_parquet("metrics_t20", metrics)
+    perfs = _score_performances(balls, rpw)
+    write_parquet("performances_t20", perfs)
     _write_meta(rpw)
-    _log(f"metrics_t20 rows: {len(metrics):,}  model_version={MODEL_VERSION}")
+    _log(f"metrics_t20 rows: {len(metrics):,}  performances: {len(perfs):,}  model_version={MODEL_VERSION}")
 
 
 def _elo(t20) -> list[dict]:
@@ -541,6 +545,213 @@ def _apply_war(metrics: list[dict], rpw: dict[str, float]) -> list[dict]:
         r["war"] = round((rar_bat + rar_bowl) / denom, 2)
         r["runs_per_win"] = denom
     return metrics
+
+
+BOWL_CREDITED = {"bowled", "caught", "caught and bowled", "lbw", "stumped", "hit wicket"}
+RETIRED = {"retired hurt", "retired not out", "absent hurt", "absent ill"}
+
+
+def _score_performances(balls: pd.DataFrame, rpw: dict[str, float]) -> list[dict]:
+    if balls.empty:
+        return []
+    df = balls.copy()
+    sched_balls = (df["scheduled_overs"].fillna(20) * df["balls_per_over"].fillna(6)).astype(float)
+    df["inn_final"] = df.groupby(["match_id", "innings"], sort=False)["runs_total"].transform("sum")
+    df["rem_runs"] = (df["inn_final"] - df["runs_before"]).clip(lower=0)
+    df["balls_left"] = (sched_balls - df["legal_before"]).clip(lower=1)
+    df["bl_bucket"] = (df["balls_left"] // 6).clip(0, 20).astype(int)
+    df["wkts_b"] = df["wkts_before"].clip(0, 9).fillna(0).astype(int)
+    re_tbl = (
+        df.groupby(["competition", "gender", "bl_bucket", "wkts_b"], dropna=False)["rem_runs"]
+        .mean()
+        .rename("re_now")
+        .reset_index()
+    )
+    df = df.merge(re_tbl, on=["competition", "gender", "bl_bucket", "wkts_b"], how="left")
+    nxt = re_tbl.rename(columns={"wkts_b": "wkts_next", "re_now": "re_next"})
+    df["wkts_next"] = (df["wkts_b"] + 1).clip(0, 9)
+    df = df.merge(nxt, on=["competition", "gender", "bl_bucket", "wkts_next"], how="left")
+    df["re_now"] = df["re_now"].fillna(df["rem_runs"].median() if len(df) else 20)
+    df["re_next"] = df["re_next"].fillna(0)
+    df["wkt_value"] = (df["re_now"] - df["re_next"]).clip(lower=0, upper=40)
+
+    bat_agg = {
+        "rae_bat_ball": "sum",
+        "wpa_ball": "sum",
+        "pressure_impact": "sum",
+        "runs_batter": "sum",
+        "is_legal": "count",
+        "competition": "first",
+        "gender": "first",
+        "season": "first",
+        "start_date": "first",
+        "winner": "first",
+        "result_method": "first",
+        "venue": "first",
+        "batting_team": "first",
+        "bowling_team": "first",
+    }
+    faced = df["striker"].notna() & ~df["is_wide"].fillna(False)
+    bat = (
+        df.loc[faced]
+        .groupby(["match_id", "innings", "striker"], dropna=False)
+        .agg(bat_agg)
+        .reset_index()
+        .rename(columns={
+            "striker": "person_id",
+            "rae_bat_ball": "nrc",
+            "wpa_ball": "wpa",
+            "pressure_impact": "press",
+            "runs_batter": "runs",
+            "is_legal": "balls",
+        })
+    )
+    out_mask = df["player_out"].notna() & ~df["wicket_kind"].isin(RETIRED)
+    debit = (
+        df.loc[out_mask]
+        .groupby(["match_id", "innings", "player_out"], dropna=False)["wkt_value"]
+        .sum()
+        .rename("debit")
+        .reset_index()
+        .rename(columns={"player_out": "person_id"})
+    )
+    if not bat.empty:
+        bat = bat.merge(debit, on=["match_id", "innings", "person_id"], how="left")
+        bat["nrc"] = bat["nrc"] - bat["debit"].fillna(0)
+        bat["not_out"] = bat["debit"].fillna(0) <= 0
+        bat["discipline"] = "bat"
+        bat["team"] = bat["batting_team"]
+        bat["wickets"] = 0
+
+    bowl_agg = {
+        "rae_bowl_ball": "sum",
+        "wpa_ball": "sum",
+        "pressure_bowl": "sum",
+        "charged": "sum",
+        "is_legal": "sum",
+        "competition": "first",
+        "gender": "first",
+        "season": "first",
+        "start_date": "first",
+        "winner": "first",
+        "result_method": "first",
+        "venue": "first",
+        "batting_team": "first",
+        "bowling_team": "first",
+    }
+    bowled = df["bowler"].notna()
+    bowl = (
+        df.loc[bowled]
+        .groupby(["match_id", "innings", "bowler"], dropna=False)
+        .agg(bowl_agg)
+        .reset_index()
+        .rename(columns={
+            "bowler": "person_id",
+            "rae_bowl_ball": "nrc",
+            "wpa_ball": "wpa",
+            "pressure_bowl": "press",
+            "charged": "runs",
+            "is_legal": "balls",
+        })
+    )
+    cred_mask = df["wicket_kind"].isin(BOWL_CREDITED) & df["bowler"].notna()
+    credit = (
+        df.loc[cred_mask]
+        .groupby(["match_id", "innings", "bowler"], dropna=False)["wkt_value"]
+        .sum()
+        .rename("credit")
+        .reset_index()
+        .rename(columns={"bowler": "person_id"})
+    )
+    wk_n = (
+        df.loc[cred_mask]
+        .groupby(["match_id", "innings", "bowler"], dropna=False)
+        .size()
+        .rename("wickets")
+        .reset_index()
+        .rename(columns={"bowler": "person_id"})
+    )
+    if not bowl.empty:
+        bowl = bowl.merge(credit, on=["match_id", "innings", "person_id"], how="left")
+        bowl = bowl.merge(wk_n, on=["match_id", "innings", "person_id"], how="left")
+        bowl["nrc"] = bowl["nrc"] + bowl["credit"].fillna(0)
+        bowl["wpa"] = -bowl["wpa"]
+        bowl["wickets"] = bowl["wickets"].fillna(0).astype(int)
+        bowl["discipline"] = "bowl"
+        bowl["team"] = bowl["bowling_team"]
+        bowl["not_out"] = False
+
+    frames = [x for x in (bat, bowl) if x is not None and not x.empty]
+    if not frames:
+        return []
+    allp = pd.concat(frames, ignore_index=True)
+    allp["person_id"] = allp["person_id"].astype(str)
+    allp = allp[allp["person_id"].notna() & (allp["person_id"] != "nan")]
+    allp["rpw"] = allp["competition"].map(lambda c: rpw.get(c, FALLBACK_RPW.get(c, 20.0)))
+    allp["wpa_runs"] = allp["wpa"] * allp["rpw"]
+    allp["dls"] = allp["result_method"] == "dls"
+
+    allp["blend"] = np.nan
+    allp["score"] = 50.0
+    for _, gix in allp.groupby(["competition", "gender", "discipline"], sort=False).groups.items():
+        g = allp.loc[gix]
+        def _z(s):
+            sd = float(s.std() or 0)
+            return (s - s.mean()) / (sd if sd > 1e-6 else 1.0)
+        blend = PERF_WEIGHTS["nrc"] * _z(g["nrc"]) + PERF_WEIGHTS["wpa"] * _z(g["wpa_runs"]) + PERF_WEIGHTS["press"] * _z(g["press"])
+        allp.loc[gix, "blend"] = blend
+        allp.loc[gix, "score"] = blend.rank(method="average", pct=True) * 100
+
+    rows = []
+    for r in allp.itertuples(index=False):
+        pid = r.person_id
+        if not pid or pid == "nan":
+            continue
+        balls_n = int(_safe_int(r.balls))
+        runs_n = int(_safe_int(r.runs))
+        wk = int(_safe_int(getattr(r, "wickets", 0)))
+        if r.discipline == "bat":
+            no = bool(getattr(r, "not_out", False))
+            line = f"{runs_n}{'*' if no else ''} off {balls_n}"
+        else:
+            ov = f"{balls_n // 6}.{balls_n % 6}"
+            line = f"{wk}-{runs_n} off {ov}"
+        rows.append(
+            {
+                "match_id": r.match_id,
+                "person_id": pid,
+                "innings": int(_safe_int(r.innings)),
+                "discipline": r.discipline,
+                "competition": r.competition,
+                "gender": r.gender,
+                "season": str(r.season),
+                "team": r.team,
+                "nrc": round(float(r.nrc or 0), 2),
+                "wpa": round(float(r.wpa or 0), 4),
+                "wpa_runs": round(float(r.wpa_runs or 0), 2),
+                "press": round(float(r.press or 0), 2),
+                "score": round(float(r.score or 50), 1),
+                "balls": balls_n,
+                "runs": runs_n,
+                "wickets": wk,
+                "not_out": bool(getattr(r, "not_out", False)),
+                "line": line,
+                "confidence": "dls_affected" if r.dls else "normal",
+                "model_version": MODEL_VERSION,
+            }
+        )
+    return rows
+
+
+def _safe_int(v) -> int:
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return 0
+    try:
+        if pd.isna(v):
+            return 0
+    except Exception:
+        pass
+    return int(v)
 
 
 def _mu_sd(vals: list[float]) -> tuple[float, float]:

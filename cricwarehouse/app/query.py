@@ -215,8 +215,9 @@ def execute(raw: str) -> dict[str, Any]:
         and parsed.bare_player
         and not any(k in parsed.tokens for k in ("runs", "out", "dismissed_by", "notout", "opposition", "opp", "venue", "year", "years", "from", "to"))
     )
-    if only_name and dest_key in {"stats", "wowy", "rankings", "metrics", "war", "build", "docs"}:
-        return {"ok": True, "kind": "goto_page", "hash": "/metrics" if dest_key == "war" else f"/{dest_key}"}
+    if only_name and dest_key in {"stats", "wowy", "rankings", "metrics", "war", "build", "docs", "best"}:
+        dest = {"rankings": "/stats", "war": "/metrics"}.get(dest_key, f"/{dest_key}")
+        return {"ok": True, "kind": "goto_page", "hash": dest}
     con = connect()
     try:
         if only_name:

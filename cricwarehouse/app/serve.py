@@ -120,9 +120,21 @@ def create_app() -> FastAPI:
         gender: str | None = None,
         min_inns: int = 5,
         role: str = "all",
-        sort: str = "runs",
+        sort: str = "war",
+        wtc: bool = False,
     ):
-        return catalog.master_stats(comp=comp or None, gender=gender or None, min_inns=min_inns, role=role, sort=sort)
+        return catalog.master_stats(
+            comp=comp or None, gender=gender or None, min_inns=min_inns, role=role, sort=sort, wtc=wtc
+        )
+
+    @app.get("/api/best")
+    def api_best(
+        discipline: str | None = None,
+        comp: str | None = None,
+        gender: str | None = None,
+        limit: int = 50,
+    ):
+        return catalog.list_performances(discipline=discipline, comp=comp, gender=gender, limit=limit)
 
     @app.get("/api/rankings")
     def api_rankings(
@@ -323,6 +335,9 @@ def create_app() -> FastAPI:
             bat_balls = int(sum(int(s.get("balls") or 0) for s in summary))
             bowl_balls = int(sum(int(s.get("legal_balls") or 0) for s in bowl))
             primary_role = "bowl" if bowl_balls > bat_balls else "bat"
+            value = catalog.career_value(pid)
+            perfs = catalog.list_performances(person_id=pid, limit=40)
+            h2h = catalog.matchups(pid)
             return {
                 "person": p,
                 "primary_role": primary_role,
@@ -346,9 +361,28 @@ def create_app() -> FastAPI:
                     "stumpings": int(field[2] or 0),
                 },
                 "metrics": _clean_list(metrics),
+                "value": value,
+                "performances": perfs,
+                "matchups": h2h,
                 "pairs": _clean_list(pairs),
                 "super_over": _clean_list(so),
             }
+        finally:
+            con.close()
+
+    @app.get("/api/player/{key}/value")
+    def api_player_value(key: str, pool: str | None = None):
+        if not warehouse_ready():
+            raise HTTPException(400, "Warehouse not built yet.")
+        con = connect()
+        try:
+            person = con.execute(
+                "SELECT person_id FROM people WHERE person_id = ? OR slug = ? LIMIT 1",
+                [key, key],
+            ).fetchone()
+            if not person:
+                raise HTTPException(404, "Player not found")
+            return catalog.career_value(person[0], pool=pool)
         finally:
             con.close()
 
