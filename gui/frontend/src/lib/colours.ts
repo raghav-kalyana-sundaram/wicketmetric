@@ -12,7 +12,11 @@
  *   const cls = gradeToClass('A+');        // "grade-a-plus"
  */
 
-import type { Grade } from '@/api/types';
+import type { Grade } from "@/api/types";
+import {
+  matchupEdgeScore,
+  matchupEdgeLabel as matchupEdgeTier,
+} from "@/lib/format";
 
 // ── Score range → colour mapping ─────────────────────────────────
 
@@ -36,74 +40,74 @@ export const SCORE_BANDS: readonly ScoreBand[] = [
   {
     min: 95,
     max: 100,
-    grade: 'S',
-    colour: '#FFD700',
-    label: 'S — Elite',
-    cssKey: 's',
-    bgColour: 'rgba(255, 215, 0, 0.20)',
+    grade: "S",
+    colour: "#FFD700",
+    label: "S — Elite",
+    cssKey: "s",
+    bgColour: "rgba(255, 215, 0, 0.20)",
   },
   {
     min: 85,
     max: 94.99,
-    grade: 'A+',
-    colour: '#10B981',
-    label: 'A+ — Exceptional',
-    cssKey: 'a-plus',
-    bgColour: 'rgba(16, 185, 129, 0.20)',
+    grade: "A+",
+    colour: "#10B981",
+    label: "A+ — Exceptional",
+    cssKey: "a-plus",
+    bgColour: "rgba(16, 185, 129, 0.20)",
   },
   {
     min: 75,
     max: 84.99,
-    grade: 'A',
-    colour: '#22C55E',
-    label: 'A — Excellent',
-    cssKey: 'a',
-    bgColour: 'rgba(34, 197, 94, 0.20)',
+    grade: "A",
+    colour: "#22C55E",
+    label: "A — Excellent",
+    cssKey: "a",
+    bgColour: "rgba(34, 197, 94, 0.20)",
   },
   {
     min: 60,
     max: 74.99,
-    grade: 'B+',
-    colour: '#06B6D4',
-    label: 'B+ — Very Good',
-    cssKey: 'b-plus',
-    bgColour: 'rgba(6, 182, 212, 0.20)',
+    grade: "B+",
+    colour: "#06B6D4",
+    label: "B+ — Very Good",
+    cssKey: "b-plus",
+    bgColour: "rgba(6, 182, 212, 0.20)",
   },
   {
     min: 45,
     max: 59.99,
-    grade: 'B',
-    colour: '#3B82F6',
-    label: 'B — Good',
-    cssKey: 'b',
-    bgColour: 'rgba(59, 130, 246, 0.20)',
+    grade: "B",
+    colour: "#3B82F6",
+    label: "B — Good",
+    cssKey: "b",
+    bgColour: "rgba(59, 130, 246, 0.20)",
   },
   {
     min: 30,
     max: 44.99,
-    grade: 'C+',
-    colour: '#F59E0B',
-    label: 'C+ — Average',
-    cssKey: 'c-plus',
-    bgColour: 'rgba(245, 158, 11, 0.20)',
+    grade: "C+",
+    colour: "#F59E0B",
+    label: "C+ — Average",
+    cssKey: "c-plus",
+    bgColour: "rgba(245, 158, 11, 0.20)",
   },
   {
     min: 15,
     max: 29.99,
-    grade: 'C',
-    colour: '#F97316',
-    label: 'C — Below Average',
-    cssKey: 'c',
-    bgColour: 'rgba(249, 115, 22, 0.20)',
+    grade: "C",
+    colour: "#F97316",
+    label: "C — Below Average",
+    cssKey: "c",
+    bgColour: "rgba(249, 115, 22, 0.20)",
   },
   {
     min: 0,
     max: 14.99,
-    grade: 'D',
-    colour: '#EF4444',
-    label: 'D — Poor',
-    cssKey: 'd',
-    bgColour: 'rgba(239, 68, 68, 0.20)',
+    grade: "D",
+    colour: "#EF4444",
+    label: "D — Poor",
+    cssKey: "d",
+    bgColour: "rgba(239, 68, 68, 0.20)",
   },
 ] as const;
 
@@ -116,28 +120,28 @@ for (const band of SCORE_BANDS) {
 
 // Normalised key variants (handle various API formats)
 const GRADE_ALIASES: Record<string, Grade> = {
-  S: 'S',
-  s: 'S',
-  'A+': 'A+',
-  'a+': 'A+',
-  A_PLUS: 'A+',
-  a_plus: 'A+',
-  A: 'A',
-  a: 'A',
-  'B+': 'B+',
-  'b+': 'B+',
-  B_PLUS: 'B+',
-  b_plus: 'B+',
-  B: 'B',
-  b: 'B',
-  'C+': 'C+',
-  'c+': 'C+',
-  C_PLUS: 'C+',
-  c_plus: 'C+',
-  C: 'C',
-  c: 'C',
-  D: 'D',
-  d: 'D',
+  S: "S",
+  s: "S",
+  "A+": "A+",
+  "a+": "A+",
+  A_PLUS: "A+",
+  a_plus: "A+",
+  A: "A",
+  a: "A",
+  "B+": "B+",
+  "b+": "B+",
+  B_PLUS: "B+",
+  b_plus: "B+",
+  B: "B",
+  b: "B",
+  "C+": "C+",
+  "c+": "C+",
+  C_PLUS: "C+",
+  c_plus: "C+",
+  C: "C",
+  c: "C",
+  D: "D",
+  d: "D",
 };
 
 // ── Public API ───────────────────────────────────────────────────
@@ -214,8 +218,8 @@ export function scoreToCssKey(score: number | null | undefined): string {
  */
 export function gradeToColour(grade: string | null | undefined): string {
   if (!grade) return SCORE_BANDS[SCORE_BANDS.length - 1].colour;
-  const normalised = GRADE_ALIASES[grade.trim()] ?? 'D';
-  return GRADE_TO_BAND.get(normalised)?.colour ?? '#EF4444';
+  const normalised = GRADE_ALIASES[grade.trim()] ?? "D";
+  return GRADE_TO_BAND.get(normalised)?.colour ?? "#EF4444";
 }
 
 /**
@@ -223,8 +227,8 @@ export function gradeToColour(grade: string | null | undefined): string {
  */
 export function gradeToBgColour(grade: string | null | undefined): string {
   if (!grade) return SCORE_BANDS[SCORE_BANDS.length - 1].bgColour;
-  const normalised = GRADE_ALIASES[grade.trim()] ?? 'D';
-  return GRADE_TO_BAND.get(normalised)?.bgColour ?? 'rgba(239, 68, 68, 0.20)';
+  const normalised = GRADE_ALIASES[grade.trim()] ?? "D";
+  return GRADE_TO_BAND.get(normalised)?.bgColour ?? "rgba(239, 68, 68, 0.20)";
 }
 
 /**
@@ -235,10 +239,10 @@ export function gradeToBgColour(grade: string | null | undefined): string {
  *   gradeToClass('S')   // "grade-s"
  */
 export function gradeToClass(grade: string | null | undefined): string {
-  if (!grade) return 'grade-d';
-  const normalised = GRADE_ALIASES[grade.trim()] ?? 'D';
+  if (!grade) return "grade-d";
+  const normalised = GRADE_ALIASES[grade.trim()] ?? "D";
   const band = GRADE_TO_BAND.get(normalised);
-  return band ? `grade-${band.cssKey}` : 'grade-d';
+  return band ? `grade-${band.cssKey}` : "grade-d";
 }
 
 /**
@@ -248,9 +252,9 @@ export function gradeToClass(grade: string | null | undefined): string {
  *   gradeToLabel('A+')  // "A+ — Exceptional"
  */
 export function gradeToLabel(grade: string | null | undefined): string {
-  if (!grade) return 'D — Poor';
-  const normalised = GRADE_ALIASES[grade.trim()] ?? 'D';
-  return GRADE_TO_BAND.get(normalised)?.label ?? 'D — Poor';
+  if (!grade) return "D — Poor";
+  const normalised = GRADE_ALIASES[grade.trim()] ?? "D";
+  return GRADE_TO_BAND.get(normalised)?.label ?? "D — Poor";
 }
 
 // ── Chart palette ────────────────────────────────────────────────
@@ -260,10 +264,10 @@ export function gradeToLabel(grade: string | null | undefined): string {
  * Supports up to 4 players (the compare page max).
  */
 export const CHART_COLOURS = [
-  '#3B82F6', // Blue
-  '#F59E0B', // Amber
-  '#10B981', // Emerald
-  '#EF4444', // Red
+  "#3B82F6", // Blue
+  "#F59E0B", // Amber
+  "#10B981", // Emerald
+  "#EF4444", // Red
 ] as const;
 
 /**
@@ -288,11 +292,11 @@ export function chartColourAlpha(index: number, alpha: number = 0.25): string {
 // ── Cricket-specific semantic colours ────────────────────────────
 
 export const CRICKET_COLOURS = {
-  dot: '#64748B',
-  single: '#3B82F6',
-  boundary: '#22C55E',
-  six: '#FFD700',
-  wicket: '#EF4444',
+  dot: "#64748B",
+  single: "#3B82F6",
+  boundary: "#22C55E",
+  six: "#FFD700",
+  wicket: "#EF4444",
 } as const;
 
 /**
@@ -312,33 +316,22 @@ export function deliveryColour(
 // ── Dominance gauge colour ───────────────────────────────────────
 
 /**
- * Get a colour for a dominance index value (-50 to +50 range).
- * Negative = bowler dominates (red), Positive = batter dominates (green).
+ * Get a colour for matchup edge.
+ * Red = bowler edge, grey = even, green = batter edge.
  */
 export function dominanceColour(value: number | null | undefined): string {
-  if (value == null || isNaN(value)) return '#64748B'; // neutral grey
-
-  // Clamp to reasonable range
-  const clamped = Math.max(-50, Math.min(50, value));
-
-  if (clamped < -15) return '#EF4444'; // strong bowler (red)
-  if (clamped < -5) return '#F97316'; // slight bowler (orange)
-  if (clamped < 5) return '#64748B'; // neutral (grey)
-  if (clamped < 15) return '#22C55E'; // slight batter (green)
-  return '#10B981'; // strong batter (emerald)
+  const score = matchupEdgeScore(value);
+  if (score == null) return "#64748B";
+  if (score < 36) return "#EF4444";
+  if (score < 45) return "#F97316";
+  if (score < 56) return "#64748B";
+  if (score < 65) return "#22C55E";
+  return "#10B981";
 }
 
 /**
  * Get a text description for a dominance index value.
  */
 export function dominanceLabel(value: number | null | undefined): string {
-  if (value == null || isNaN(value)) return 'No data';
-
-  const clamped = Math.max(-50, Math.min(50, value));
-
-  if (clamped < -15) return 'Bowler dominates';
-  if (clamped < -5) return 'Slight bowler edge';
-  if (clamped < 5) return 'Even contest';
-  if (clamped < 15) return 'Slight batter edge';
-  return 'Batter dominates';
+  return matchupEdgeTier(value);
 }

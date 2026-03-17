@@ -76,6 +76,7 @@ class PlayerSummary(BaseModel):
     score_3_label: str = "control"
     is_provisional: bool = True
     overall_score: float | None = None
+    metrics: dict[str, float | None] = {}
 
 
 class PhaseSplit(BaseModel):

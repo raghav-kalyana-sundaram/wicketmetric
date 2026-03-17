@@ -806,6 +806,49 @@ async function compareTeams(
   );
 }
 
+// ── Scorecards ───────────────────────────────────────────────────
+
+/** Search scorecards by date range, team, or player. */
+async function searchScorecards(
+  params?: {
+    date_from?: string | null;
+    date_to?: string | null;
+    team?: string | null;
+    player_id?: string | null;
+    limit?: number;
+  },
+  signal?: AbortSignal,
+): Promise<Array<Record<string, unknown>>> {
+  const body = await fetchJson<unknown>(
+    "/api/scorecards/search",
+    {
+      date_from: params?.date_from,
+      date_to: params?.date_to,
+      team: params?.team,
+      player_id: params?.player_id,
+      limit: params?.limit ?? 500,
+    },
+    { signal },
+  );
+  if (Array.isArray(body)) return body as Array<Record<string, unknown>>;
+  if (body && typeof body === "object" && "results" in body && Array.isArray((body as { results: unknown }).results)) {
+    return (body as { results: Array<Record<string, unknown>> }).results;
+  }
+  return [];
+}
+
+/** Get full scorecard for a match (ball-by-ball data can be large; 60s timeout). */
+async function getScorecard(
+  matchId: string,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  return fetchJson(
+    `/api/scorecards/${encodeURIComponent(matchId)}`,
+    undefined,
+    { signal, timeoutMs: 60_000 },
+  );
+}
+
 // ── Exported API object ──────────────────────────────────────────
 
 /**
@@ -881,6 +924,10 @@ export const api = {
 
   // Eras
   getEras,
+
+  // Scorecards
+  searchScorecards,
+  getScorecard,
 
   // Team Builder
   analyseTeam,

@@ -1,0 +1,6 @@
+/* Scorecards page dark-mode legibility tweaks. */
+
+.scorecards-page table tbody tr:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+

@@ -16,6 +16,25 @@
     scroll-behavior: smooth;
   }
 
+  :root {
+    /* 8-point rhythm */
+    --space-1: 0.5rem; /* 8 */
+    --space-2: 1rem; /* 16 */
+    --space-3: 1.5rem; /* 24 */
+    --space-4: 2rem; /* 32 */
+    --space-5: 3rem; /* 48 */
+    --space-6: 4rem; /* 64 */
+
+    /* Unified radius */
+    --radius-sm: 0.5rem;
+    --radius-md: 0.75rem;
+    --radius-lg: 1rem;
+
+    /* Elevation */
+    --elevation-1: 0 1px 2px rgb(2 6 23 / 0.18);
+    --elevation-2: 0 8px 20px rgb(2 6 23 / 0.22);
+  }
+
   body {
     @apply bg-background text-text-primary font-sans;
     min-height: 100vh;
@@ -36,6 +55,154 @@
   /* ── Light mode overrides ─────────────────────────────────── */
   html:not(.dark) body {
     @apply bg-background-light text-text-primary-light;
+  }
+
+  /* Remap shared utility tokens so light mode stays readable */
+  html:not(.dark) .text-text-primary {
+    color: #121926;
+  }
+
+  html:not(.dark) .text-text-secondary {
+    color: #4d5b70;
+  }
+
+  html:not(.dark) .text-text-muted {
+    color: #7a889a;
+  }
+
+  html:not(.dark) .text-primary {
+    color: #2f5fae;
+  }
+
+  html:not(.dark) .bg-primary {
+    background-color: #2f5fae;
+  }
+
+  html:not(.dark) .hover\:text-primary:hover {
+    color: #2f5fae;
+  }
+
+  html:not(.dark) .hover\:bg-primary-hover:hover {
+    background-color: #274f93;
+  }
+
+  html:not(.dark) .bg-background {
+    background-color: #eef1f5;
+  }
+
+  html:not(.dark) .bg-background\/90 {
+    background-color: rgb(238 241 245 / 0.9);
+  }
+
+  html:not(.dark) .bg-background\/80 {
+    background-color: rgb(238 241 245 / 0.8);
+  }
+
+  html:not(.dark) .bg-surface {
+    background-color: #f7f9fc;
+  }
+
+  html:not(.dark) .bg-surface-elevated {
+    background-color: #e3e8ef;
+  }
+
+  html:not(.dark) .bg-surface-elevated\/50 {
+    background-color: rgb(227 232 239 / 0.5);
+  }
+
+  html:not(.dark) .bg-surface-elevated\/60 {
+    background-color: rgb(227 232 239 / 0.6);
+  }
+
+  html:not(.dark) .border-surface-elevated {
+    border-color: #d2dae5;
+  }
+
+  html:not(.dark) .border-surface-elevated\/50 {
+    border-color: rgb(210 218 229 / 0.5);
+  }
+
+  html:not(.dark) .border-surface-elevated\/60 {
+    border-color: rgb(210 218 229 / 0.6);
+  }
+
+  html:not(.dark) .border-surface-elevated\/70 {
+    border-color: rgb(210 218 229 / 0.7);
+  }
+
+  /* ── Player profile hero: light background + high-contrast text ── */
+  html:not(.dark) .player-profile-hero {
+    background: linear-gradient(to right, #f7f9fc 0%, #eef1f5 100%) !important;
+    border: 1px solid #d2dae5;
+  }
+
+  html:not(.dark) .player-profile-hero .text-text-primary,
+  html:not(.dark) .player-profile-hero h1 {
+    color: #0f172a;
+  }
+
+  html:not(.dark) .player-profile-hero .text-text-secondary {
+    color: #334155;
+  }
+
+  html:not(.dark) .player-profile-hero .text-text-muted {
+    color: #475569;
+  }
+
+  html:not(.dark) .player-profile-hero .archetype-badge {
+    background-color: #e2e8f0;
+    color: #1e293b;
+  }
+
+  html:not(.dark) .player-profile-hero .provisional-badge {
+    background-color: #fef3c7;
+    color: #b45309;
+  }
+
+  /* ── Advanced Metrics tiles: readable labels and values in light mode ── */
+  html:not(.dark) .metric-tile {
+    background-color: #f1f5f9;
+    border: 1px solid #e2e8f0;
+  }
+
+  html:not(.dark) .metric-tile .metric-tile-label,
+  html:not(.dark) .metric-tile .metric-tile-suffix {
+    color: #334155;
+  }
+
+  html:not(.dark) .metric-tile .text-text-primary {
+    color: #0f172a;
+  }
+
+  /* ── Footer: light, cohesive bar in light mode ─────────────────── */
+  html:not(.dark) .app-footer {
+    background-color: #f1f5f9 !important;
+    border-top-color: #e2e8f0;
+  }
+
+  html:not(.dark) .app-footer .text-text-primary,
+  html:not(.dark) .app-footer .font-medium {
+    color: #0f172a;
+  }
+
+  html:not(.dark) .app-footer .text-text-secondary,
+  html:not(.dark) .app-footer-brand,
+  html:not(.dark) .app-footer-tagline,
+  html:not(.dark) .app-footer-links a {
+    color: #475569;
+  }
+
+  html:not(.dark) .app-footer-links a:hover {
+    color: #0f172a;
+  }
+
+  html:not(.dark) .app-footer .text-primary {
+    color: #2563eb;
+  }
+
+  html:not(.dark) .app-footer .text-text-muted,
+  html:not(.dark) .app-footer-data {
+    color: #64748b;
   }
 
   /* ── Focus ring for keyboard accessibility ────────────────── */
@@ -75,7 +242,7 @@
   }
 
   html:not(.dark) ::-webkit-scrollbar-thumb {
-    @apply bg-gray-300;
+    @apply bg-slate-400;
   }
 
   /* ── Typography defaults ──────────────────────────────────── */
@@ -100,7 +267,7 @@
 @layer components {
   /* ── Card ──────────────────────────────────────────────────── */
   .card {
-    @apply rounded-card bg-surface p-4 shadow-card transition-shadow duration-200;
+    @apply rounded-xl bg-surface p-4 shadow-card transition-shadow duration-200;
   }
 
   .card:hover {
@@ -108,7 +275,7 @@
   }
 
   html:not(.dark) .card {
-    @apply bg-surface-light border border-gray-200;
+    @apply border border-slate-200 bg-surface-light;
   }
 
   /* ── Score bar ────────────────────────────────────────────── */
@@ -159,7 +326,7 @@
 
   /* Light mode grade badge variants */
   html:not(.dark) .grade-s {
-    @apply bg-yellow-100 text-yellow-800;
+    @apply bg-amber-100 text-amber-800;
   }
   html:not(.dark) .grade-a-plus {
     @apply bg-emerald-100 text-emerald-800;
@@ -189,7 +356,7 @@
   }
 
   html:not(.dark) .archetype-badge {
-    @apply bg-gray-100 text-gray-700;
+    @apply bg-slate-100 text-slate-700;
   }
 
   /* ── Provisional badge ────────────────────────────────────── */
@@ -221,7 +388,7 @@
   }
 
   .dominance-gauge-pointer {
-    @apply absolute top-0 h-full w-1 -translate-x-1/2 rounded bg-white shadow-md;
+    @apply absolute top-0 h-full w-1 -translate-x-1/2 rounded bg-text-primary shadow-md;
   }
 
   /* ── Sortable table ───────────────────────────────────────── */
@@ -241,20 +408,31 @@
     @apply border-b border-surface-elevated/50 px-3 py-2 text-body;
   }
 
+  .sortable-table th.text-right,
+  .sortable-table td.text-right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sortable-table th.text-center,
+  .sortable-table td.text-center {
+    text-align: center;
+  }
+
   .sortable-table tr:hover td {
     @apply bg-surface-elevated/30;
   }
 
   html:not(.dark) .sortable-table th {
-    @apply border-gray-200 text-gray-600;
+    @apply border-slate-200 text-slate-600;
   }
 
   html:not(.dark) .sortable-table td {
-    @apply border-gray-100;
+    @apply border-slate-100;
   }
 
   html:not(.dark) .sortable-table tr:hover td {
-    @apply bg-gray-50;
+    @apply bg-slate-100/70;
   }
 
   /* ── Filter bar ───────────────────────────────────────────── */
@@ -264,7 +442,7 @@
   }
 
   html:not(.dark) .filter-select {
-    @apply border-gray-300 bg-white text-gray-900;
+    @apply border-slate-300 bg-slate-50 text-slate-900;
   }
 
   .filter-input {
@@ -274,12 +452,12 @@
   }
 
   html:not(.dark) .filter-input {
-    @apply border-gray-300 bg-white text-gray-900 placeholder:text-gray-400;
+    @apply border-slate-300 bg-slate-50 text-slate-900 placeholder:text-slate-500;
   }
 
   /* ── Buttons ──────────────────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors;
     @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
@@ -293,7 +471,7 @@
   }
 
   html:not(.dark) .btn-secondary {
-    @apply bg-gray-100 text-gray-900 hover:bg-gray-200;
+    @apply bg-slate-100 text-slate-900 hover:bg-slate-200;
   }
 
   .btn-ghost {
@@ -305,11 +483,62 @@
   }
 
   .btn-sm {
-    @apply px-3 py-1.5 text-xs;
+    @apply h-9 px-3 text-xs;
   }
 
   .btn-lg {
-    @apply px-6 py-3 text-base;
+    @apply h-12 px-6 text-base;
+  }
+
+  /* ── Page scaffolding ─────────────────────────────────────── */
+  .app-page {
+    @apply mx-auto w-full max-w-7xl;
+    @apply px-4 sm:px-6 lg:px-8;
+    @apply py-6 md:py-8;
+  }
+
+  .page-stack {
+    @apply space-y-6 md:space-y-8;
+  }
+
+  .page-header {
+    @apply flex flex-col gap-2 md:gap-3;
+  }
+
+  .page-title {
+    @apply text-h2 text-text-primary;
+  }
+
+  .page-subtitle {
+    @apply text-sm md:text-body text-text-secondary max-w-3xl;
+  }
+
+  .section-card {
+    @apply rounded-xl border border-surface-elevated bg-surface shadow-sm;
+  }
+
+  .section-card-body {
+    @apply p-4 md:p-6;
+  }
+
+  .section-title {
+    @apply text-sm font-semibold uppercase tracking-wide text-text-muted;
+  }
+
+  .form-grid-4 {
+    @apply grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .state-loading {
+    @apply rounded-xl border border-surface-elevated bg-surface p-6 text-sm text-text-secondary;
+  }
+
+  .state-empty {
+    @apply rounded-xl border border-surface-elevated bg-surface p-6 text-sm text-text-secondary;
+  }
+
+  .state-error {
+    @apply rounded-xl border border-danger/50 bg-danger/10 p-4 text-sm text-danger-light;
   }
 
   /* ── Pagination ───────────────────────────────────────────── */
@@ -328,7 +557,7 @@
   }
 
   html:not(.dark) .autocomplete-dropdown {
-    @apply border-gray-200 bg-white;
+    @apply border-slate-200 bg-surface-light;
   }
 
   .autocomplete-item {
@@ -342,7 +571,7 @@
 
   html:not(.dark) .autocomplete-item:hover,
   html:not(.dark) .autocomplete-item.highlighted {
-    @apply bg-gray-50;
+    @apply bg-slate-100/70;
   }
 
   /* ── Skeleton loading placeholders ────────────────────────── */
@@ -398,7 +627,7 @@
 @layer utilities {
   /* ── Score colour utilities (applied dynamically) ──────── */
   .score-color-s {
-    color: #ffd700;
+    color: #c89b3c;
   }
   .score-color-a-plus {
     color: #10b981;
@@ -423,7 +652,7 @@
   }
 
   .score-bg-s {
-    background-color: #ffd700;
+    background-color: #c89b3c;
   }
   .score-bg-a-plus {
     background-color: #10b981;
@@ -466,16 +695,7 @@
   }
 
   html:not(.dark) .sticky-col-first {
-    @apply bg-white;
-  }
-
-  /* ── Glow effect for elite players ────────────────────── */
-  .glow-elite {
-    @apply shadow-glow;
-  }
-
-  .glow-gold-elite {
-    @apply shadow-glow-gold;
+    @apply bg-slate-50;
   }
 
   /* ── Hide scrollbar but keep scroll functionality ─────── */

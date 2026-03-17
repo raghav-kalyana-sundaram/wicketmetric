@@ -44,8 +44,8 @@ export const FORMAT_LABELS: Record<Format, string> = {
 
 /** Icons/emoji for each format. */
 export const FORMAT_ICONS: Record<Format, string> = {
-  t20i: "🌏",
-  ipl: "🏆",
+  t20i: "T",
+  ipl: "I",
 };
 
 /** All valid format values. */

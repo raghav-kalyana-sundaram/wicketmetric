@@ -26,6 +26,7 @@ export interface PlayerSummary {
   score_3_label: string;
   is_provisional: boolean;
   overall_score: number | null;
+  metrics?: Record<string, number | null>;
 }
 
 // ── Phase Split ──────────────────────────────────────────────────

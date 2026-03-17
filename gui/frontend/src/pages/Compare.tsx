@@ -53,7 +53,6 @@ import {
   fmtScore,
   fmtInt,
   fmtSR,
-  fmtSigned,
   fmtAvg,
   fmtEcon,
   fmtWAR,
@@ -61,6 +60,10 @@ import {
   countryFlag,
   fmtDate,
   fmtPhase,
+  pressureScore,
+  fmtPressureScore,
+  fmtMatchupEdge,
+  matchupEdgeScore,
 } from "@/lib/format";
 import type {
   PlayerSummary,
@@ -126,7 +129,7 @@ function getRadarValue(
       case "war":
         return Math.min(100, Math.max(0, (profile.war_batting ?? 0) * 20));
       case "clutch":
-        return Math.min(100, Math.max(0, 50 + (profile.clutch_index ?? 0) * 2));
+        return pressureScore(profile.clutch_index, "bat") ?? 0;
       case "chase":
         return Math.min(
           100,
@@ -146,10 +149,7 @@ function getRadarValue(
       case "war":
         return Math.min(100, Math.max(0, (profile.war_bowling ?? 0) * 20));
       case "clutch":
-        return Math.min(
-          100,
-          Math.max(0, 50 + (profile.clutch_index_bowl ?? 0) * 2),
-        );
+        return pressureScore(profile.clutch_index_bowl, "bowl") ?? 0;
       case "dot_pct":
         return Math.min(100, (profile.career_dot_pct ?? 0) * 2.5);
       default:
@@ -241,10 +241,12 @@ function buildBatterStatRows(batters: BatterProfile[]): StatRow[] {
       higherIsBetter: true,
     },
     {
-      label: "Clutch Index",
+      label: "Pressure Score",
       metricKey: "clutch_index",
-      values: batters.map((b) => fmtSigned(b.clutch_index)),
-      rawValues: batters.map((b) => b.clutch_index),
+      values: batters.map(
+        (b) => `${fmtPressureScore(b.clutch_index, "bat")}/100`,
+      ),
+      rawValues: batters.map((b) => pressureScore(b.clutch_index, "bat")),
       higherIsBetter: true,
     },
     {
@@ -262,10 +264,10 @@ function buildBatterStatRows(batters: BatterProfile[]): StatRow[] {
       higherIsBetter: true,
     },
     {
-      label: "Avg Dominance",
+      label: "Avg Matchup Edge",
       metricKey: "dominance_index",
-      values: batters.map((b) => fmtSigned(b.avg_dominance)),
-      rawValues: batters.map((b) => b.avg_dominance),
+      values: batters.map((b) => `${fmtMatchupEdge(b.avg_dominance)}/100`),
+      rawValues: batters.map((b) => matchupEdgeScore(b.avg_dominance)),
       higherIsBetter: true,
     },
   ];
@@ -339,6 +341,22 @@ function buildBowlerStatRows(bowlers: BowlerProfile[]): StatRow[] {
       metricKey: "dot_pct",
       values: bowlers.map((b) => fmtPct(b.career_dot_pct)),
       rawValues: bowlers.map((b) => b.career_dot_pct),
+      higherIsBetter: true,
+    },
+    {
+      label: "Pressure Score",
+      metricKey: "clutch_index_bowl",
+      values: bowlers.map(
+        (b) => `${fmtPressureScore(b.clutch_index_bowl, "bowl")}/100`,
+      ),
+      rawValues: bowlers.map((b) => pressureScore(b.clutch_index_bowl, "bowl")),
+      higherIsBetter: true,
+    },
+    {
+      label: "Avg Matchup Edge",
+      metricKey: "dominance_index",
+      values: bowlers.map((b) => `${fmtMatchupEdge(b.avg_dominance_bowl)}/100`),
+      rawValues: bowlers.map((b) => matchupEdgeScore(b.avg_dominance_bowl)),
       higherIsBetter: true,
     },
     {
@@ -735,11 +753,11 @@ export default function Compare() {
   const canCompare = playerIds.length >= MIN_PLAYERS;
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="app-page page-stack animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-h1 text-text-primary">Compare Players</h1>
-        <p className="mt-1 text-sm text-text-secondary">
+      <div className="page-header">
+        <h1 className="page-title">Compare Players</h1>
+        <p className="page-subtitle">
           Select 2–4 players to compare side-by-side. The URL is shareable.
         </p>
       </div>
@@ -842,8 +860,7 @@ export default function Compare() {
 
       {/* Empty state */}
       {!canCompare && !compareLoading && (
-        <div className="card flex flex-col items-center justify-center py-16 text-center">
-          <div className="text-5xl mb-4">⚖️</div>
+        <div className="state-empty flex flex-col items-center justify-center py-16 text-center">
           <h2 className="text-h3 text-text-primary mb-2">
             Select Players to Compare
           </h2>
@@ -856,7 +873,7 @@ export default function Compare() {
 
       {/* Comparison Content */}
       {compareData && canCompare && allProfiles.length >= MIN_PLAYERS && (
-        <div className="space-y-6">
+        <div className="app-page page-stack">
           {/* ── Role toggle ───────────────────────────────── */}
           {hasBatters && hasBowlers && (
             <div className="flex items-center gap-2">
@@ -874,8 +891,8 @@ export default function Compare() {
                   {mode === "auto"
                     ? "Auto"
                     : mode === "bat"
-                      ? "🏏 Batters"
-                      : "🎳 Bowlers"}
+                      ? "Batters"
+                      : "Bowlers"}
                 </button>
               ))}
             </div>
@@ -1006,7 +1023,7 @@ export default function Compare() {
                       <tr>
                         <td className="text-text-secondary">Role</td>
                         {allProfiles.map((p) => (
-                          <td key={p.id}>
+                          <td key={p.id} className="text-right">
                             {isBatterProfile(p) ? "Batter" : "Bowler"}
                           </td>
                         ))}
@@ -1014,7 +1031,7 @@ export default function Compare() {
                       <tr>
                         <td className="text-text-secondary">Grade</td>
                         {allProfiles.map((p) => (
-                          <td key={p.id}>
+                          <td key={p.id} className="text-right">
                             <GradeBadge grade={p.overall_grade} size="sm" />
                           </td>
                         ))}
@@ -1022,15 +1039,17 @@ export default function Compare() {
                       <tr>
                         <td className="text-text-secondary">Archetype</td>
                         {allProfiles.map((p) => (
-                          <td key={p.id}>{p.archetype}</td>
+                          <td key={p.id} className="text-right">
+                            {p.archetype}
+                          </td>
                         ))}
                       </tr>
                       <tr>
                         <td className="text-text-secondary">Overall Score</td>
                         {allProfiles.map((p) => (
-                          <td key={p.id}>
+                          <td key={p.id} className="text-right">
                             <span
-                              className="font-score"
+                              className="font-score tabular-nums"
                               style={{
                                 color: scoreToColour(p.overall_score),
                               }}
@@ -1190,8 +1209,12 @@ export default function Compare() {
                           sharedMatchupsData as SharedMatchupsResponse
                         ).batter_ids.map((bid) => (
                           <>
-                            <th key={`${bid}-balls`}>Balls / SR</th>
-                            <th key={`${bid}-dom`}>Dom.</th>
+                            <th key={`${bid}-balls`} className="text-right">
+                              Balls / SR
+                            </th>
+                            <th key={`${bid}-dom`} className="text-right">
+                              Edge
+                            </th>
                           </>
                         ))}
                       </tr>
@@ -1218,13 +1241,13 @@ export default function Compare() {
                                 <>
                                   <td
                                     key={`${bid}-stats`}
-                                    className="text-text-muted"
+                                    className="text-right text-text-muted"
                                   >
                                     —
                                   </td>
                                   <td
                                     key={`${bid}-dom`}
-                                    className="text-text-muted"
+                                    className="text-right text-text-muted"
                                   >
                                     —
                                   </td>
@@ -1235,11 +1258,11 @@ export default function Compare() {
                               <>
                                 <td
                                   key={`${bid}-stats`}
-                                  className="font-score tabular-nums"
+                                  className="text-right font-score tabular-nums"
                                 >
                                   {entry.balls}b / {fmtSR(entry.sr)}
                                 </td>
-                                <td key={`${bid}-dom`}>
+                                <td key={`${bid}-dom`} className="text-right">
                                   <span
                                     className="font-score tabular-nums"
                                     style={{
@@ -1248,7 +1271,9 @@ export default function Compare() {
                                       ),
                                     }}
                                   >
-                                    {fmtSigned(entry.dominance_index)}
+                                    {entry.dominance_index != null
+                                      ? `${fmtMatchupEdge(entry.dominance_index)}/100`
+                                      : "—"}
                                   </span>
                                 </td>
                               </>
@@ -1286,7 +1311,7 @@ function StatTable({ players, rows, colourMap, allProfiles }: StatTableProps) {
             {players.map((p) => {
               const globalIdx = allProfiles.findIndex((ap) => ap.id === p.id);
               return (
-                <th key={p.id}>
+                <th key={p.id} className="text-right">
                   <span
                     style={{
                       color: colourMap.get(p.id) ?? chartColour(globalIdx),
@@ -1325,7 +1350,7 @@ function StatTable({ players, rows, colourMap, allProfiles }: StatTableProps) {
                   return (
                     <td
                       key={vi}
-                      className={`font-score tabular-nums ${
+                      className={`text-right font-score tabular-nums ${
                         isWinner
                           ? "font-bold text-text-primary"
                           : "text-text-secondary"

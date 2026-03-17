@@ -264,10 +264,13 @@ export default function SearchPage() {
   // ── Render ─────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
+    <div className="app-page page-stack">
       {/* ── Search Header ────────────────────────────────────── */}
-      <div>
-        <h1 className="text-h2 text-text-primary mb-4">Player Search</h1>
+      <div className="page-header">
+        <h1 className="page-title">Player Search</h1>
+        <p className="page-subtitle">
+          Search players by name with advanced filters for role, country, archetype, and sample size.
+        </p>
 
         {/* Search input row */}
         <form onSubmit={handleSearchSubmit} className="flex gap-2">
@@ -565,7 +568,7 @@ export default function SearchPage() {
               }}
               className="btn-secondary btn-sm"
             >
-              🏏 Browse Batters
+              Browse Batters
             </button>
             <button
               onClick={() => {
@@ -574,7 +577,7 @@ export default function SearchPage() {
               }}
               className="btn-secondary btn-sm"
             >
-              🎳 Browse Bowlers
+              Browse Bowlers
             </button>
           </div>
         </div>
@@ -583,7 +586,7 @@ export default function SearchPage() {
       {/* ── No Results State ──────────────────────────────────── */}
       {searchEnabled && !isLoading && !error && totalResults === 0 && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4">🤔</div>
+          <div className="mb-4 text-2xl font-semibold text-text-muted">No Results</div>
           <h2 className="text-h3 text-text-primary mb-2">No players found</h2>
           <p className="text-sm text-text-secondary max-w-md mx-auto mb-4">
             {urlQuery ? (

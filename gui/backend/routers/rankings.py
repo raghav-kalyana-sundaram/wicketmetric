@@ -71,6 +71,17 @@ def _safe_str(v: Any, default: str = "") -> str:
     return s
 
 
+def _metric_map(row: Any, metric_keys: set[str]) -> dict[str, float | None]:
+    """Extract leaderboard-sortable metrics into a compact metric map."""
+    metrics: dict[str, float | None] = {}
+    for key in metric_keys:
+        if hasattr(row, 'index') and key not in row.index:
+            continue
+        value = row.get(key) if hasattr(row, 'get') else getattr(row, key, None)
+        metrics[key] = _safe_float(value)
+    return metrics
+
+
 # ── Valid sort columns per role ───────────────────────────────────
 
 BATTING_SORT_COLUMNS = {
@@ -286,6 +297,7 @@ def _bat_row_to_summary(row: Any) -> PlayerSummary:
             if hasattr(row, "get")
             else getattr(row, "overall_score", None)
         ),
+        metrics=_metric_map(row, BATTING_SORT_COLUMNS),
     )
 
 
@@ -361,6 +373,7 @@ def _bowl_row_to_summary(row: Any) -> PlayerSummary:
             if hasattr(row, "get")
             else getattr(row, "overall_score", None)
         ),
+        metrics=_metric_map(row, BOWLING_SORT_COLUMNS),
     )
 
 

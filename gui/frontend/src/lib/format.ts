@@ -27,7 +27,7 @@
 export function fmt(
   value: number | null | undefined,
   decimals: number = 1,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
   return value.toFixed(decimals);
@@ -42,10 +42,10 @@ export function fmt(
  */
 export function fmtInt(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
-  return Math.round(value).toLocaleString('en-US');
+  return Math.round(value).toLocaleString("en-US");
 }
 
 /**
@@ -56,7 +56,7 @@ export function fmtInt(
  */
 export function fmtIntRaw(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
   return String(Math.round(value));
@@ -81,11 +81,112 @@ export function fmtPct(
   value: number | null | undefined,
   decimals: number = 1,
   isRatio: boolean = false,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
-  if (value == null || isNaN(value) || !isFinite(value)) return fallback;
-  const pct = isRatio ? value * 100 : value;
+  const pct = toPercentValue(value, isRatio);
+  if (pct == null) return fallback;
   return `${pct.toFixed(decimals)}%`;
+}
+
+/**
+ * Convert a numeric value into a display percentage.
+ *
+ * If ``isRatio`` is false and the absolute value is in [0, 1],
+ * we still treat it as a ratio to avoid showing tiny percentages
+ * from ratio-backed fields.
+ */
+export function toPercentValue(
+  value: number | null | undefined,
+  isRatio: boolean = false,
+): number | null {
+  if (value == null || isNaN(value) || !isFinite(value)) return null;
+  if (isRatio || Math.abs(value) <= 1) return value * 100;
+  return value;
+}
+
+// ── Matchup edge / pressure score formatting ────────────────────
+
+const MATCHUP_EDGE_MULTIPLIER = 6;
+const PRESSURE_BAT_SCALE = 2.5;
+const PRESSURE_BOWL_SCALE = 0.35;
+
+/**
+ * Convert raw dominance index into a user-facing 0–100 matchup edge score.
+ *
+ * 0   = heavy bowler edge
+ * 50  = even contest
+ * 100 = heavy batter edge
+ */
+export function matchupEdgeScore(
+  value: number | null | undefined,
+): number | null {
+  if (value == null || isNaN(value) || !isFinite(value)) return null;
+  return Math.max(0, Math.min(100, 50 + value * MATCHUP_EDGE_MULTIPLIER));
+}
+
+/**
+ * Human-readable matchup edge tier label.
+ */
+export function matchupEdgeLabel(value: number | null | undefined): string {
+  const score = matchupEdgeScore(value);
+  if (score == null) return "No data";
+  if (score >= 80) return "Heavy batter edge";
+  if (score >= 65) return "Batter edge";
+  if (score >= 56) return "Slight batter edge";
+  if (score >= 45) return "Even contest";
+  if (score >= 36) return "Slight bowler edge";
+  if (score >= 21) return "Bowler edge";
+  return "Heavy bowler edge";
+}
+
+export function fmtMatchupEdge(
+  value: number | null | undefined,
+  fallback: string = "—",
+): string {
+  const score = matchupEdgeScore(value);
+  if (score == null) return fallback;
+  return String(Math.round(score));
+}
+
+export type PressureRole = "bat" | "bowl";
+
+/**
+ * Convert raw clutch index into a user-facing 0–100 pressure score.
+ *
+ * Uses role-specific scaling because batting and bowling clutch ranges differ.
+ */
+export function pressureScore(
+  value: number | null | undefined,
+  role: PressureRole = "bat",
+): number | null {
+  if (value == null || isNaN(value) || !isFinite(value)) return null;
+  const scale = role === "bowl" ? PRESSURE_BOWL_SCALE : PRESSURE_BAT_SCALE;
+  const score = 50 + 45 * Math.tanh(value / scale);
+  return Math.max(0, Math.min(100, score));
+}
+
+export function pressureLabel(
+  value: number | null | undefined,
+  role: PressureRole = "bat",
+): string {
+  const score = pressureScore(value, role);
+  if (score == null) return "No data";
+  if (score >= 80) return "Elite under pressure";
+  if (score >= 65) return "Strong under pressure";
+  if (score >= 56) return "Reliable under pressure";
+  if (score >= 45) return "Neutral under pressure";
+  if (score >= 36) return "Below par under pressure";
+  return "Struggles under pressure";
+}
+
+export function fmtPressureScore(
+  value: number | null | undefined,
+  role: PressureRole = "bat",
+  fallback: string = "—",
+): string {
+  const score = pressureScore(value, role);
+  if (score == null) return fallback;
+  return String(Math.round(score));
 }
 
 // ── Score formatting ─────────────────────────────────────────────
@@ -100,7 +201,7 @@ export function fmtPct(
  */
 export function fmtScore(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
   return value.toFixed(1);
@@ -115,7 +216,7 @@ export function fmtScore(
  */
 export function fmtScoreCompact(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
   return String(Math.round(value));
@@ -132,7 +233,7 @@ export function fmtScoreCompact(
  */
 export function fmtSR(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   return fmt(value, 1, fallback);
 }
@@ -146,7 +247,7 @@ export function fmtSR(
  */
 export function fmtEcon(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   return fmt(value, 2, fallback);
 }
@@ -160,7 +261,7 @@ export function fmtEcon(
  */
 export function fmtAvg(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   return fmt(value, 1, fallback);
 }
@@ -180,10 +281,10 @@ export function fmtAvg(
 export function fmtSigned(
   value: number | null | undefined,
   decimals: number = 1,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
-  const prefix = value > 0 ? '+' : '';
+  const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(decimals)}`;
 }
 
@@ -196,11 +297,11 @@ export function fmtSigned(
  */
 export function fmtSignedInt(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
   const rounded = Math.round(value);
-  const prefix = rounded > 0 ? '+' : '';
+  const prefix = rounded > 0 ? "+" : "";
   return `${prefix}${rounded}`;
 }
 
@@ -215,7 +316,7 @@ export function fmtSignedInt(
  */
 export function fmtSimilarity(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   return fmt(value, 2, fallback);
 }
@@ -232,7 +333,7 @@ export function fmtSimilarity(
  */
 export function fmtOvers(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   return fmt(value, 1, fallback);
 }
@@ -249,7 +350,7 @@ export function fmtOvers(
  */
 export function fmtWAR(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   return fmt(value, 2, fallback);
 }
@@ -257,8 +358,18 @@ export function fmtWAR(
 // ── Date formatting ──────────────────────────────────────────────
 
 const MONTHS_SHORT = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 /**
@@ -271,7 +382,7 @@ const MONTHS_SHORT = [
  */
 export function fmtDate(
   value: string | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (!value) return fallback;
   try {
@@ -294,7 +405,7 @@ export function fmtDate(
  */
 export function fmtDateShort(
   value: string | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (!value) return fallback;
   try {
@@ -318,18 +429,18 @@ export function fmtDateShort(
 export function fmtDateRange(
   start: string | null | undefined,
   end: string | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (!start && !end) return fallback;
 
   const fmtMonthYear = (val: string | null | undefined): string => {
-    if (!val) return '?';
+    if (!val) return "?";
     try {
       const d = new Date(val);
-      if (isNaN(d.getTime())) return '?';
+      if (isNaN(d.getTime())) return "?";
       return `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     } catch {
-      return '?';
+      return "?";
     }
   };
 
@@ -343,67 +454,67 @@ export function fmtDateRange(
  * Falls back to the country name if no emoji is found.
  */
 const COUNTRY_FLAGS: Record<string, string> = {
-  'Afghanistan': '🇦🇫',
-  'Australia': '🇦🇺',
-  'Bangladesh': '🇧🇩',
-  'Canada': '🇨🇦',
-  'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
-  'Hong Kong': '🇭🇰',
-  'India': '🇮🇳',
-  'Ireland': '🇮🇪',
-  'Kenya': '🇰🇪',
-  'Namibia': '🇳🇦',
-  'Nepal': '🇳🇵',
-  'Netherlands': '🇳🇱',
-  'New Zealand': '🇳🇿',
-  'Oman': '🇴🇲',
-  'Pakistan': '🇵🇰',
-  'Papua New Guinea': '🇵🇬',
-  'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
-  'South Africa': '🇿🇦',
-  'Sri Lanka': '🇱🇰',
-  'U.A.E.': '🇦🇪',
-  'UAE': '🇦🇪',
-  'United Arab Emirates': '🇦🇪',
-  'U.S.A.': '🇺🇸',
-  'USA': '🇺🇸',
-  'United States of America': '🇺🇸',
-  'Uganda': '🇺🇬',
-  'West Indies': '🌴',
-  'Zimbabwe': '🇿🇼',
-  'Jersey': '🇯🇪',
-  'Bermuda': '🇧🇲',
-  'Italy': '🇮🇹',
-  'Germany': '🇩🇪',
-  'Singapore': '🇸🇬',
-  'Malaysia': '🇲🇾',
-  'Thailand': '🇹🇭',
-  'Bahrain': '🇧🇭',
-  'Kuwait': '🇰🇼',
-  'Maldives': '🇲🇻',
-  'Qatar': '🇶🇦',
-  'Saudi Arabia': '🇸🇦',
-  'Vanuatu': '🇻🇺',
-  'Philippines': '🇵🇭',
-  'Tanzania': '🇹🇿',
-  'Nigeria': '🇳🇬',
-  'Ghana': '🇬🇭',
-  'Rwanda': '🇷🇼',
-  'Botswana': '🇧🇼',
-  'Cameroon': '🇨🇲',
-  'Mozambique': '🇲🇿',
-  'Czech Republic': '🇨🇿',
-  'Austria': '🇦🇹',
-  'Romania': '🇷🇴',
-  'Denmark': '🇩🇰',
-  'Sweden': '🇸🇪',
-  'Norway': '🇳🇴',
-  'Finland': '🇫🇮',
-  'Portugal': '🇵🇹',
-  'Spain': '🇪🇸',
-  'France': '🇫🇷',
-  'Belgium': '🇧🇪',
-  'Luxembourg': '🇱🇺',
+  Afghanistan: "🇦🇫",
+  Australia: "🇦🇺",
+  Bangladesh: "🇧🇩",
+  Canada: "🇨🇦",
+  England: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+  "Hong Kong": "🇭🇰",
+  India: "🇮🇳",
+  Ireland: "🇮🇪",
+  Kenya: "🇰🇪",
+  Namibia: "🇳🇦",
+  Nepal: "🇳🇵",
+  Netherlands: "🇳🇱",
+  "New Zealand": "🇳🇿",
+  Oman: "🇴🇲",
+  Pakistan: "🇵🇰",
+  "Papua New Guinea": "🇵🇬",
+  Scotland: "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+  "South Africa": "🇿🇦",
+  "Sri Lanka": "🇱🇰",
+  "U.A.E.": "🇦🇪",
+  UAE: "🇦🇪",
+  "United Arab Emirates": "🇦🇪",
+  "U.S.A.": "🇺🇸",
+  USA: "🇺🇸",
+  "United States of America": "🇺🇸",
+  Uganda: "🇺🇬",
+  "West Indies": "🌴",
+  Zimbabwe: "🇿🇼",
+  Jersey: "🇯🇪",
+  Bermuda: "🇧🇲",
+  Italy: "🇮🇹",
+  Germany: "🇩🇪",
+  Singapore: "🇸🇬",
+  Malaysia: "🇲🇾",
+  Thailand: "🇹🇭",
+  Bahrain: "🇧🇭",
+  Kuwait: "🇰🇼",
+  Maldives: "🇲🇻",
+  Qatar: "🇶🇦",
+  "Saudi Arabia": "🇸🇦",
+  Vanuatu: "🇻🇺",
+  Philippines: "🇵🇭",
+  Tanzania: "🇹🇿",
+  Nigeria: "🇳🇬",
+  Ghana: "🇬🇭",
+  Rwanda: "🇷🇼",
+  Botswana: "🇧🇼",
+  Cameroon: "🇨🇲",
+  Mozambique: "🇲🇿",
+  "Czech Republic": "🇨🇿",
+  Austria: "🇦🇹",
+  Romania: "🇷🇴",
+  Denmark: "🇩🇰",
+  Sweden: "🇸🇪",
+  Norway: "🇳🇴",
+  Finland: "🇫🇮",
+  Portugal: "🇵🇹",
+  Spain: "🇪🇸",
+  France: "🇫🇷",
+  Belgium: "🇧🇪",
+  Luxembourg: "🇱🇺",
 };
 
 /**
@@ -415,8 +526,8 @@ const COUNTRY_FLAGS: Record<string, string> = {
  *   countryFlag('Unknown')      // ""
  */
 export function countryFlag(country: string | null | undefined): string {
-  if (!country) return '';
-  return COUNTRY_FLAGS[country] ?? '';
+  if (!country) return "";
+  return COUNTRY_FLAGS[country] ?? "";
 }
 
 /**
@@ -428,7 +539,7 @@ export function countryFlag(country: string | null | undefined): string {
  */
 export function fmtCountry(
   country: string | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (!country) return fallback;
   const flag = countryFlag(country);
@@ -439,34 +550,34 @@ export function fmtCountry(
  * Short country abbreviations for compact displays.
  */
 const COUNTRY_SHORT: Record<string, string> = {
-  'Afghanistan': 'AFG',
-  'Australia': 'AUS',
-  'Bangladesh': 'BAN',
-  'Canada': 'CAN',
-  'England': 'ENG',
-  'Hong Kong': 'HK',
-  'India': 'IND',
-  'Ireland': 'IRE',
-  'Kenya': 'KEN',
-  'Namibia': 'NAM',
-  'Nepal': 'NEP',
-  'Netherlands': 'NED',
-  'New Zealand': 'NZ',
-  'Oman': 'OMA',
-  'Pakistan': 'PAK',
-  'Papua New Guinea': 'PNG',
-  'Scotland': 'SCO',
-  'South Africa': 'SA',
-  'Sri Lanka': 'SL',
-  'U.A.E.': 'UAE',
-  'UAE': 'UAE',
-  'United Arab Emirates': 'UAE',
-  'U.S.A.': 'USA',
-  'USA': 'USA',
-  'United States of America': 'USA',
-  'Uganda': 'UGA',
-  'West Indies': 'WI',
-  'Zimbabwe': 'ZIM',
+  Afghanistan: "AFG",
+  Australia: "AUS",
+  Bangladesh: "BAN",
+  Canada: "CAN",
+  England: "ENG",
+  "Hong Kong": "HK",
+  India: "IND",
+  Ireland: "IRE",
+  Kenya: "KEN",
+  Namibia: "NAM",
+  Nepal: "NEP",
+  Netherlands: "NED",
+  "New Zealand": "NZ",
+  Oman: "OMA",
+  Pakistan: "PAK",
+  "Papua New Guinea": "PNG",
+  Scotland: "SCO",
+  "South Africa": "SA",
+  "Sri Lanka": "SL",
+  "U.A.E.": "UAE",
+  UAE: "UAE",
+  "United Arab Emirates": "UAE",
+  "U.S.A.": "USA",
+  USA: "USA",
+  "United States of America": "USA",
+  Uganda: "UGA",
+  "West Indies": "WI",
+  Zimbabwe: "ZIM",
 };
 
 /**
@@ -479,7 +590,7 @@ const COUNTRY_SHORT: Record<string, string> = {
  */
 export function countryShort(
   country: string | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (!country) return fallback;
   return COUNTRY_SHORT[country] ?? country;
@@ -495,16 +606,16 @@ export function countryShort(
  *   fmtRole('bowl')  // "Bowler"
  */
 export function fmtRole(role: string | null | undefined): string {
-  if (!role) return 'Unknown';
+  if (!role) return "Unknown";
   switch (role.toLowerCase()) {
-    case 'bat':
-      return 'Batter';
-    case 'bowl':
-      return 'Bowler';
-    case 'all-rounder':
-    case 'allrounder':
-    case 'all_rounder':
-      return 'All-Rounder';
+    case "bat":
+      return "Batter";
+    case "bowl":
+      return "Bowler";
+    case "all-rounder":
+    case "allrounder":
+    case "all_rounder":
+      return "All-Rounder";
     default:
       return role;
   }
@@ -522,10 +633,10 @@ export function metricLabels(role: string): {
   s2: string;
   s3: string;
 } {
-  if (role === 'bowl') {
-    return { s1: 'Accuracy', s2: 'Control', s3: 'Threat' };
+  if (role === "bowl") {
+    return { s1: "Accuracy", s2: "Control", s3: "Threat" };
   }
-  return { s1: 'Acceleration', s2: 'Power', s3: 'Control' };
+  return { s1: "Acceleration", s2: "Power", s3: "Control" };
 }
 
 /**
@@ -536,10 +647,10 @@ export function metricLabelsShort(role: string): {
   s2: string;
   s3: string;
 } {
-  if (role === 'bowl') {
-    return { s1: 'ACC', s2: 'CTL', s3: 'THR' };
+  if (role === "bowl") {
+    return { s1: "ACC", s2: "CTL", s3: "THR" };
   }
-  return { s1: 'ACL', s2: 'POW', s3: 'CTL' };
+  return { s1: "ACL", s2: "POW", s3: "CTL" };
 }
 
 // ── Ordinal formatting ───────────────────────────────────────────
@@ -555,7 +666,7 @@ export function metricLabelsShort(role: string): {
  *   ordinal(21)  // "21st"
  */
 export function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
+  const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
@@ -573,9 +684,9 @@ export function truncate(
   value: string | null | undefined,
   maxLength: number = 20,
 ): string {
-  if (!value) return '';
+  if (!value) return "";
   if (value.length <= maxLength) return value;
-  return value.slice(0, maxLength - 1) + '…';
+  return value.slice(0, maxLength - 1) + "…";
 }
 
 // ── Pluralisation ────────────────────────────────────────────────
@@ -608,7 +719,7 @@ export function plural(
  */
 export function fmtRank(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value)) return fallback;
   return `#${Math.round(value)}`;
@@ -626,7 +737,7 @@ export function fmtRank(
  */
 export function fmtPercentile(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
   const pctile = Math.round((1 - value) * 100);
@@ -644,16 +755,16 @@ export function fmtPercentile(
  *   fmtPhase('death')      // "Death"
  */
 export function fmtPhase(phase: string | null | undefined): string {
-  if (!phase) return '—';
+  if (!phase) return "—";
   switch (phase.toLowerCase()) {
-    case 'powerplay':
-    case 'pp':
-      return 'Powerplay';
-    case 'middle':
-    case 'mid':
-      return 'Middle';
-    case 'death':
-      return 'Death';
+    case "powerplay":
+    case "pp":
+      return "Powerplay";
+    case "middle":
+    case "mid":
+      return "Middle";
+    case "death":
+      return "Death";
     default:
       // Capitalise first letter
       return phase.charAt(0).toUpperCase() + phase.slice(1).toLowerCase();
@@ -673,11 +784,11 @@ export function fmtPhase(phase: string | null | undefined): string {
  */
 export function fmtCompact(
   value: number | null | undefined,
-  fallback: string = '—',
+  fallback: string = "—",
 ): string {
   if (value == null || isNaN(value) || !isFinite(value)) return fallback;
   const abs = Math.abs(value);
-  const sign = value < 0 ? '-' : '';
+  const sign = value < 0 ? "-" : "";
   if (abs >= 1_000_000) {
     return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
   }
@@ -703,7 +814,7 @@ export function buildQueryString(
 ): string {
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value != null && value !== '') {
+    if (value != null && value !== "") {
       searchParams.set(key, String(value));
     }
   }
@@ -731,7 +842,7 @@ export function parseBoolParam(
 ): boolean | undefined {
   if (!value) return undefined;
   const lower = value.toLowerCase().trim();
-  if (lower === 'true' || lower === '1' || lower === 'yes') return true;
-  if (lower === 'false' || lower === '0' || lower === 'no') return false;
+  if (lower === "true" || lower === "1" || lower === "yes") return true;
+  if (lower === "false" || lower === "0" || lower === "no") return false;
   return undefined;
 }

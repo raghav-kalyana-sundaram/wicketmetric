@@ -94,6 +94,13 @@ MIN_PHASE_BALLS: int = cfg("pipeline.min_phase_balls_bowling", default=6)
 PHASE_GROUPS_ENABLED: bool = cfg("bowling_phase_groups.enabled", default=True)
 MIN_PHASE_GROUP_SIZE: int = cfg("bowling_phase_groups.min_group_size", default=20)
 
+# Blend weight for within-group vs population z-scores (same rationale as
+# batting — see batting.py GROUP_ZSCORE_BLEND_ALPHA).
+# α = 1.0 → pure within-group (old behaviour, cross-group incomparable)
+# α = 0.0 → pure population (no phase adjustment at all)
+# α = 0.6 → 60% within-group + 40% population (recommended)
+PHASE_ZSCORE_BLEND_ALPHA: float = cfg("bowling_phase_groups.blend_alpha", default=0.6)
+
 # ---------------------------------------------------------------------------
 # Helper: ensure category columns are plain strings for groupby operations
 # ---------------------------------------------------------------------------
@@ -130,11 +137,22 @@ def _grouped_zscore_bowl(
     col: str,
     group_col: str = "phase_group",
     min_group_size: int = MIN_PHASE_GROUP_SIZE,
+    blend_alpha: float = PHASE_ZSCORE_BLEND_ALPHA,
 ) -> pd.Series:
     """
-    Z-score normalise a column within bowling phase groups.
+    Blended z-score: within-group + population, weighted by ``blend_alpha``.
 
-    Falls back to population-wide z-score for groups smaller than
+    Pure within-group z-scoring makes scores incomparable across phase
+    groups (e.g. a death bowler with economy 9 where death par is 10.5
+    would get a very different z-score than a PP bowler with economy 9
+    where PP par is 7.5, even though both are economy-9 bowlers).
+
+    The blend preserves the phase-aware comparison while keeping
+    cross-group scores on a comparable scale::
+
+        blended = α × within_group_z + (1 − α) × population_z
+
+    Falls back to pure population z-score for groups smaller than
     ``min_group_size``.
 
     Parameters
@@ -147,15 +165,19 @@ def _grouped_zscore_bowl(
         Column name containing group labels.
     min_group_size : int
         Minimum group size; smaller groups use population-wide z-score.
+    blend_alpha : float
+        Weight for within-group z-score.  0.0 = pure population,
+        1.0 = pure within-group (old behaviour).
 
     Returns
     -------
-    pd.Series of z-scored values, same index as career_df.
+    pd.Series of blended z-scored values, same index as career_df.
     """
     result = pd.Series(np.nan, index=career_df.index)
     values = career_df[col]
 
-    # Population-wide z-score as fallback
+    # Population-wide z-score (always computed — used as blend component
+    # and as fallback for small groups)
     pop_zscore = _zscore_series(values)
 
     group_sizes = career_df[group_col].value_counts()
@@ -163,7 +185,10 @@ def _grouped_zscore_bowl(
     for group_name, group_idx in career_df.groupby(group_col).groups.items():
         if group_sizes.get(group_name, 0) >= min_group_size:
             group_data = values.loc[group_idx]
-            result.loc[group_idx] = _zscore_series(group_data)
+            within_z = _zscore_series(group_data)
+            pop_z = pop_zscore.loc[group_idx]
+            # Blend: α × within-group + (1 − α) × population
+            result.loc[group_idx] = blend_alpha * within_z + (1.0 - blend_alpha) * pop_z
         else:
             # Fallback to population-wide z-score for small groups
             result.loc[group_idx] = pop_zscore.loc[group_idx]
@@ -302,14 +327,23 @@ THREAT_WEIGHTS: dict[str, float] = cfg(
 # is applied post-percentile to all three scores:
 #   factor = BOWL_VOLUME_BASE + (1 - BOWL_VOLUME_BASE) * clip(matches / BOWL_VOLUME_REF, 0, 1) ** BOWL_VOLUME_CURVE
 #
-# With defaults (base=0.80, ref=50, curve=0.6):
-#   10 matches → factor ~0.91
-#   20 matches → factor ~0.94
-#   30 matches → factor ~0.97
-#   50+ matches → factor 1.00
-BOWL_VOLUME_BASE: float = cfg("bowling_volume.base", default=0.80)
-BOWL_VOLUME_REF: float = cfg("bowling_volume.ref", default=50.0)
-BOWL_VOLUME_CURVE: float = cfg("bowling_volume.curve", default=0.6)
+# Players who exceed BOWL_VOLUME_REF get a beyond-reference bonus:
+#   beyond_bonus = BOWL_VOLUME_BEYOND_MAX * clip((matches - ref) / ref, 0, 1)
+#
+# With defaults (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+#   10 matches → factor ~0.79   (21% penalty)
+#   19 matches → factor ~0.83   (17% penalty)
+#   30 matches → factor ~0.86   (14% penalty)
+#   50 matches → factor ~0.91   ( 9% penalty)
+#   75 matches → factor ~0.96   ( 4% penalty)
+#   100 matches → factor 1.00   (no penalty)
+#   120 matches → factor 1.01   ( 1% bonus)
+#   150 matches → factor 1.03   ( 3% bonus)
+#   200+ matches → factor 1.06  ( 6% bonus, max)
+BOWL_VOLUME_BASE: float = cfg("bowling_volume.base", default=0.70)
+BOWL_VOLUME_REF: float = cfg("bowling_volume.ref", default=100.0)
+BOWL_VOLUME_CURVE: float = cfg("bowling_volume.curve", default=0.5)
+BOWL_VOLUME_BEYOND_MAX: float = cfg("bowling_volume.beyond_max", default=0.06)
 
 
 # ---------------------------------------------------------------------------
@@ -1012,11 +1046,21 @@ def apply_bowling_volume_scaling(bowl_careers: pd.DataFrame) -> pd.DataFrame:
 
         factor = BOWL_VOLUME_BASE + (1 - BOWL_VOLUME_BASE) * clip(matches / BOWL_VOLUME_REF, 0, 1) ** BOWL_VOLUME_CURVE
 
-    With defaults (base=0.80, ref=50, curve=0.6):
-        10 matches → factor ~0.91
-        20 matches → factor ~0.94
-        30 matches → factor ~0.97
-        50+ matches → factor 1.00
+    Players who exceed BOWL_VOLUME_REF get a beyond-reference bonus that
+    rewards sustained career volume::
+
+        beyond_bonus = BOWL_VOLUME_BEYOND_MAX * clip((matches - ref) / ref, 0, 1)
+
+    With defaults (base=0.70, ref=100, curve=0.5, beyond_max=0.06):
+        10 matches → factor ~0.79   (21% penalty)
+        19 matches → factor ~0.83   (17% penalty)
+        30 matches → factor ~0.86   (14% penalty)
+        50 matches → factor ~0.91   ( 9% penalty)
+        75 matches → factor ~0.96   ( 4% penalty)
+        100 matches → factor 1.00   (no penalty)
+        120 matches → factor 1.01   ( 1% bonus)
+        150 matches → factor 1.03   ( 3% bonus)
+        200+ matches → factor 1.06  ( 6% bonus, max)
 
     Parameters
     ----------
@@ -1032,6 +1076,16 @@ def apply_bowling_volume_scaling(bowl_careers: pd.DataFrame) -> pd.DataFrame:
     matches = df["matches"].fillna(0).astype(float)
     ratio = (matches / BOWL_VOLUME_REF).clip(lower=0.0, upper=1.0)
     factor = BOWL_VOLUME_BASE + (1.0 - BOWL_VOLUME_BASE) * (ratio**BOWL_VOLUME_CURVE)
+
+    # Beyond-reference bonus: players exceeding BOWL_VOLUME_REF get up to
+    # BOWL_VOLUME_BEYOND_MAX additional scaling (e.g. 6% at 2× the reference).
+    beyond_mask = matches > BOWL_VOLUME_REF
+    if beyond_mask.any():
+        extra_ratio = ((matches - BOWL_VOLUME_REF) / BOWL_VOLUME_REF).clip(
+            lower=0.0, upper=1.0
+        )
+        factor = factor + BOWL_VOLUME_BEYOND_MAX * extra_ratio
+
     df["volume_factor"] = factor
 
     for col in ["score_accuracy", "score_control", "score_threat"]:

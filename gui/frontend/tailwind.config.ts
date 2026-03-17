@@ -8,19 +8,19 @@ const config: Config = {
       colors: {
         // Dark mode palette (primary)
         background: {
-          DEFAULT: "#0F172A",
-          light: "#F8FAFC",
+          DEFAULT: "#06080C",
+          light: "#EEF1F5",
         },
         surface: {
-          DEFAULT: "#1E293B",
-          elevated: "#334155",
-          light: "#FFFFFF",
+          DEFAULT: "#0F141D",
+          elevated: "#1D2633",
+          light: "#F7F9FC",
         },
         primary: {
-          DEFAULT: "#3B82F6",
-          hover: "#2563EB",
-          light: "#60A5FA",
-          dark: "#1D4ED8",
+          DEFAULT: "#8AB4F8",
+          hover: "#78A6F0",
+          light: "#A9C7FA",
+          dark: "#5F8DE0",
         },
         accent: {
           DEFAULT: "#10B981",
@@ -38,14 +38,14 @@ const config: Config = {
           light: "#FCA5A5",
         },
         gold: {
-          DEFAULT: "#FFD700",
-          light: "#FFED4A",
-          dark: "#B8860B",
+          DEFAULT: "#C89B3C",
+          light: "#E0BC6D",
+          dark: "#8A6423",
         },
 
         // Score / grade colour mapping
         score: {
-          s: "#FFD700", // 95-100 — S grade (Gold)
+          s: "#C89B3C", // 95-100 — S grade (Gold)
           "a-plus": "#10B981", // 85-94  — A+ (Emerald)
           a: "#22C55E", // 75-84  — A  (Green)
           "b-plus": "#06B6D4", // 60-74  — B+ (Cyan)
@@ -58,16 +58,16 @@ const config: Config = {
         // Text colours
         text: {
           primary: {
-            DEFAULT: "#F8FAFC",
-            light: "#0F172A",
+            DEFAULT: "#E8EDF5",
+            light: "#121926",
           },
           secondary: {
-            DEFAULT: "#94A3B8",
-            light: "#475569",
+            DEFAULT: "#A2AEBD",
+            light: "#4D5B70",
           },
           muted: {
-            DEFAULT: "#64748B",
-            light: "#9CA3AF",
+            DEFAULT: "#75859A",
+            light: "#7A889A",
           },
         },
 
@@ -156,11 +156,9 @@ const config: Config = {
       },
 
       boxShadow: {
-        card: "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+        card: "0 1px 2px rgb(2 6 23 / 0.18)",
         "card-hover":
-          "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
-        glow: "0 0 15px rgb(59 130 246 / 0.5)",
-        "glow-gold": "0 0 15px rgb(255 215 0 / 0.5)",
+          "0 8px 20px rgb(2 6 23 / 0.22)",
       },
 
       spacing: {

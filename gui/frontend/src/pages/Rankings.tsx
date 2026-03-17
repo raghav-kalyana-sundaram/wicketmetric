@@ -32,6 +32,7 @@ import {
   GitCompare,
   Check,
   ChevronRight,
+  Columns3,
 } from "lucide-react";
 import GradeBadge from "@/components/GradeBadge";
 import { ScoreBarMini } from "@/components/ScoreBar";
@@ -42,14 +43,22 @@ import {
   useBowlingRankings,
   useCountries,
   useArchetypes,
+  useBattingSortColumns,
+  useBowlingSortColumns,
 } from "@/api/queries";
 import { scoreToColour } from "@/lib/colours";
 import {
+  fmt,
   fmtScore,
   fmtInt,
   fmtSR,
   fmtEcon,
   fmtAvg,
+  fmtPct,
+  fmtSigned,
+  fmtWAR,
+  fmtPressureScore,
+  fmtMatchupEdge,
   countryFlag,
   countryShort,
   parseIntParam,
@@ -64,6 +73,7 @@ interface ColumnDef {
   label: string;
   shortLabel?: string;
   sortKey?: string;
+  metricKey?: string;
   align?: "left" | "center" | "right";
   /** Width class (Tailwind). */
   width?: string;
@@ -73,9 +83,299 @@ interface ColumnDef {
   render: (player: PlayerSummary, rank: number) => React.ReactNode;
 }
 
+type MetricFormat =
+  | "score"
+  | "integer"
+  | "rate1"
+  | "rate2"
+  | "signed1"
+  | "signed2"
+  | "pressure_bat"
+  | "pressure_bowl"
+  | "matchup_edge"
+  | "percent_ratio"
+  | "percent"
+  | "war";
+
+interface MetricColumnConfig {
+  key: string;
+  label: string;
+  shortLabel?: string;
+  width?: string;
+  format: MetricFormat;
+}
+
+const DEFAULT_EXTRA_COLUMNS: Record<"bat" | "bowl", string[]> = {
+  bat: ["war_batting", "clutch_index", "chase_master_index"],
+  bowl: ["war_bowling", "clutch_index_bowl", "career_dot_pct"],
+};
+
+const METRIC_COLUMN_CONFIG: Record<string, MetricColumnConfig> = {
+  war_batting: {
+    key: "war_batting",
+    label: "WAR",
+    shortLabel: "WAR",
+    format: "war",
+  },
+  war_batting_rate: {
+    key: "war_batting_rate",
+    label: "WAR / 50",
+    shortLabel: "WAR/50",
+    format: "war",
+  },
+  clutch_index: {
+    key: "clutch_index",
+    label: "Pressure Score",
+    shortLabel: "Pressure",
+    format: "pressure_bat",
+  },
+  clutch_sr_delta: {
+    key: "clutch_sr_delta",
+    label: "Pressure SR",
+    shortLabel: "dSR",
+    format: "signed1",
+  },
+  chase_master_index: {
+    key: "chase_master_index",
+    label: "Chase",
+    shortLabel: "Chase",
+    format: "rate1",
+  },
+  chase_master_full: {
+    key: "chase_master_full",
+    label: "Chase+",
+    shortLabel: "Chase+",
+    format: "rate1",
+  },
+  flat_track_index: {
+    key: "flat_track_index",
+    label: "Flat Track",
+    shortLabel: "FTI",
+    format: "signed2",
+  },
+  venue_adjusted_composite: {
+    key: "venue_adjusted_composite",
+    label: "Venue Adj",
+    shortLabel: "Venue",
+    format: "score",
+  },
+  selfless_index: {
+    key: "selfless_index",
+    label: "Selfless",
+    shortLabel: "Self",
+    format: "rate1",
+  },
+  anchor_cost_ratio: {
+    key: "anchor_cost_ratio",
+    label: "Anchor Cost",
+    shortLabel: "Anchor",
+    format: "rate2",
+  },
+  avg_balls_to_par: {
+    key: "avg_balls_to_par",
+    label: "Balls vs Par",
+    shortLabel: "BvPar",
+    format: "signed1",
+  },
+  avg_dominance: {
+    key: "avg_dominance",
+    label: "Matchup Edge",
+    shortLabel: "Edge",
+    format: "matchup_edge",
+  },
+  pct_dominant: {
+    key: "pct_dominant",
+    label: "% Dominant",
+    shortLabel: "%Dom",
+    format: "percent_ratio",
+  },
+  matchup_consistency: {
+    key: "matchup_consistency",
+    label: "Matchup Cons.",
+    shortLabel: "Cons.",
+    format: "rate2",
+  },
+  peak_composite_batting: {
+    key: "peak_composite_batting",
+    label: "Peak Rating",
+    shortLabel: "Peak",
+    format: "score",
+  },
+  peak_window_composite: {
+    key: "peak_window_composite",
+    label: "Peak Window",
+    shortLabel: "Peak W",
+    format: "score",
+  },
+  war_bowling: {
+    key: "war_bowling",
+    label: "WAR",
+    shortLabel: "WAR",
+    format: "war",
+  },
+  war_bowling_rate: {
+    key: "war_bowling_rate",
+    label: "WAR / 50",
+    shortLabel: "WAR/50",
+    format: "war",
+  },
+  clutch_index_bowl: {
+    key: "clutch_index_bowl",
+    label: "Pressure Score",
+    shortLabel: "Pressure",
+    format: "pressure_bowl",
+  },
+  flat_track_index_bowl: {
+    key: "flat_track_index_bowl",
+    label: "Flat Track",
+    shortLabel: "FTI",
+    format: "signed2",
+  },
+  avg_dominance_bowl: {
+    key: "avg_dominance_bowl",
+    label: "Matchup Edge",
+    shortLabel: "Edge",
+    format: "matchup_edge",
+  },
+  pct_dominant_bowl: {
+    key: "pct_dominant_bowl",
+    label: "% Dominant",
+    shortLabel: "%Dom",
+    format: "percent_ratio",
+  },
+  bowled_lbw_pct: {
+    key: "bowled_lbw_pct",
+    label: "Bowled/LBW",
+    shortLabel: "B/LBW",
+    format: "percent_ratio",
+  },
+  career_dot_pct: {
+    key: "career_dot_pct",
+    label: "Dot %",
+    shortLabel: "Dot%",
+    format: "percent_ratio",
+  },
+  peak_composite_bowling: {
+    key: "peak_composite_bowling",
+    label: "Peak Rating",
+    shortLabel: "Peak",
+    format: "score",
+  },
+};
+
+const OPTIONAL_METRIC_KEYS: Record<"bat" | "bowl", string[]> = {
+  bat: [
+    "war_batting",
+    "war_batting_rate",
+    "clutch_index",
+    "clutch_sr_delta",
+    "chase_master_index",
+    "chase_master_full",
+    "flat_track_index",
+    "venue_adjusted_composite",
+    "selfless_index",
+    "anchor_cost_ratio",
+    "avg_balls_to_par",
+    "avg_dominance",
+    "pct_dominant",
+    "matchup_consistency",
+    "peak_composite_batting",
+    "peak_window_composite",
+  ],
+  bowl: [
+    "war_bowling",
+    "war_bowling_rate",
+    "clutch_index_bowl",
+    "career_dot_pct",
+    "bowled_lbw_pct",
+    "flat_track_index_bowl",
+    "avg_dominance_bowl",
+    "pct_dominant_bowl",
+    "peak_composite_bowling",
+    "peak_window_composite",
+  ],
+};
+
+function formatMetricValue(
+  value: number | null | undefined,
+  format: MetricFormat,
+): string {
+  switch (format) {
+    case "score":
+      return fmtScore(value);
+    case "integer":
+      return fmtInt(value);
+    case "rate1":
+      return fmt(value, 1);
+    case "rate2":
+      return fmt(value, 2);
+    case "signed1":
+      return fmtSigned(value, 1);
+    case "signed2":
+      return fmtSigned(value, 2);
+    case "pressure_bat":
+      return `${fmtPressureScore(value, "bat")}/100`;
+    case "pressure_bowl":
+      return `${fmtPressureScore(value, "bowl")}/100`;
+    case "matchup_edge":
+      return `${fmtMatchupEdge(value)}/100`;
+    case "percent_ratio":
+      return fmtPct(value, 1, true);
+    case "percent":
+      return fmtPct(value, 1);
+    case "war":
+      return fmtWAR(value);
+    default:
+      return fmt(value, 1);
+  }
+}
+
+function buildMetricColumn(config: MetricColumnConfig): ColumnDef {
+  return {
+    key: config.key,
+    label: config.label,
+    shortLabel: config.shortLabel,
+    sortKey: config.key,
+    metricKey: config.key,
+    width: config.width ?? "w-24",
+    align: "right",
+    render: (player) => (
+      <span className="font-score tabular-nums text-xs">
+        {formatMetricValue(player.metrics?.[config.key], config.format)}
+      </span>
+    ),
+  };
+}
+
+function parseExtraColumns(
+  raw: string | null,
+  role: "bat" | "bowl",
+  availableKeys: Set<string>,
+): string[] {
+  const requested =
+    raw == null
+      ? DEFAULT_EXTRA_COLUMNS[role]
+      : raw === "none"
+        ? []
+        : raw
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+
+  return requested.filter((key, index) => {
+    if (!availableKeys.has(key)) return false;
+    return requested.indexOf(key) === index;
+  });
+}
+
+function serialiseExtraColumns(keys: string[]): string | null {
+  return keys.length > 0 ? keys.join(",") : "none";
+}
+
 function getBattingColumns(
   compareIds: Set<string>,
   onCompareToggle: (player: PlayerSummary) => void,
+  selectedMetricColumns: ColumnDef[],
 ): ColumnDef[] {
   return [
     {
@@ -135,7 +435,7 @@ function getBattingColumns(
               className="text-[10px] text-warning shrink-0"
               title="Provisional"
             >
-              ⚠
+              Prov
             </span>
           )}
         </Link>
@@ -242,6 +542,7 @@ function getBattingColumns(
       align: "right",
       render: (player) => <ScoreBarMini value={player.score_3} width={40} />,
     },
+    ...selectedMetricColumns,
     {
       key: "overall",
       label: "Overall",
@@ -281,6 +582,7 @@ function getBattingColumns(
 function getBowlingColumns(
   compareIds: Set<string>,
   onCompareToggle: (player: PlayerSummary) => void,
+  selectedMetricColumns: ColumnDef[],
 ): ColumnDef[] {
   return [
     {
@@ -340,7 +642,7 @@ function getBowlingColumns(
               className="text-[10px] text-warning shrink-0"
               title="Provisional"
             >
-              ⚠
+              Prov
             </span>
           )}
         </Link>
@@ -447,6 +749,7 @@ function getBowlingColumns(
       align: "right",
       render: (player) => <ScoreBarMini value={player.score_3} width={40} />,
     },
+    ...selectedMetricColumns,
     {
       key: "overall",
       label: "Overall",
@@ -499,13 +802,33 @@ const SORT_LABEL_MAP: Record<string, string> = {
   score_threat: "Threat",
   career_sr: "Strike Rate",
   career_avg: "Average",
+  career_dot_pct: "Dot %",
   total_runs: "Runs / Wickets",
   innings_count: "Innings",
   war_batting: "WAR",
+  war_batting_rate: "WAR / 50",
   war_bowling: "WAR",
-  clutch_index: "Clutch Index",
+  war_bowling_rate: "WAR / 50",
+  clutch_index: "Pressure Score",
+  clutch_index_bowl: "Pressure Score",
+  clutch_sr_delta: "Pressure SR Delta",
   chase_master_index: "Chase Master",
+  chase_master_full: "Chase Master+",
   flat_track_index: "Flat Track Index",
+  flat_track_index_bowl: "Flat Track Index",
+  venue_adjusted_composite: "Venue-Adjusted Composite",
+  selfless_index: "Selfless Index",
+  anchor_cost_ratio: "Anchor Cost Ratio",
+  avg_balls_to_par: "Balls vs Par",
+  avg_dominance: "Matchup Edge",
+  avg_dominance_bowl: "Matchup Edge",
+  pct_dominant: "% Dominant",
+  pct_dominant_bowl: "% Dominant",
+  matchup_consistency: "Matchup Consistency",
+  bowled_lbw_pct: "Bowled/LBW %",
+  peak_composite_batting: "Peak Rating",
+  peak_composite_bowling: "Peak Rating",
+  peak_window_composite: "Peak Window Composite",
 };
 
 // ── Rankings Page Component ──────────────────────────────────────
@@ -539,11 +862,14 @@ export default function RankingsPage() {
       minInnings > 0,
     ),
   );
+  const [showColumns, setShowColumns] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
 
   // ── Reference data ─────────────────────────────────────────
   const { data: countries = [] } = useCountries();
   const { data: archetypesData } = useArchetypes();
+  const { data: battingSortColumns = [] } = useBattingSortColumns();
+  const { data: bowlingSortColumns = [] } = useBowlingSortColumns();
 
   const archetypeOptions = useMemo(() => {
     if (!archetypesData) return [];
@@ -553,6 +879,48 @@ export default function RankingsPage() {
 
   // ── Data fetching ──────────────────────────────────────────
   const isBowling = role === "bowl";
+  const roleKey: "bat" | "bowl" = isBowling ? "bowl" : "bat";
+  const availableSortColumns = isBowling
+    ? bowlingSortColumns
+    : battingSortColumns;
+  const availableMetricKeys = useMemo(
+    () =>
+      new Set(
+        OPTIONAL_METRIC_KEYS[roleKey].filter((key) =>
+          availableSortColumns.includes(key),
+        ),
+      ),
+    [availableSortColumns, roleKey],
+  );
+  const selectedMetricKeys = useMemo(
+    () =>
+      parseExtraColumns(searchParams.get("cols"), roleKey, availableMetricKeys),
+    [availableMetricKeys, roleKey, searchParams],
+  );
+  const availableMetricColumns = useMemo(
+    () =>
+      OPTIONAL_METRIC_KEYS[roleKey]
+        .filter((key) => availableMetricKeys.has(key))
+        .map((key) => METRIC_COLUMN_CONFIG[key])
+        .filter((config): config is MetricColumnConfig => Boolean(config)),
+    [availableMetricKeys, roleKey],
+  );
+  const selectedMetricColumns = useMemo(
+    () =>
+      selectedMetricKeys
+        .map((key) => METRIC_COLUMN_CONFIG[key])
+        .filter((config): config is MetricColumnConfig => Boolean(config))
+        .map(buildMetricColumn),
+    [selectedMetricKeys],
+  );
+  const sortSelectValue = useMemo(() => {
+    const quickSortKeys = new Set(
+      getQuickSortOptions(isBowling).map((opt) => opt.key),
+    );
+    if (quickSortKeys.has(sort)) return "";
+    if (availableSortColumns.includes(sort)) return sort;
+    return "";
+  }, [availableSortColumns, isBowling, sort]);
 
   const rankingsParams: Partial<LeaderboardParams> = {
     sort,
@@ -603,12 +971,19 @@ export default function RankingsPage() {
     (newRole: string) => {
       // Reset page, sort, and role-specific filters
       const newSort = DEFAULT_SORT[newRole] ?? "overall_score";
-      setSearchParams({
+      const next = new URLSearchParams({
         role: newRole,
         sort: newSort,
         order: "desc",
         per_page: String(perPage),
       });
+      const cols = serialiseExtraColumns(
+        DEFAULT_EXTRA_COLUMNS[
+          (newRole === "bowl" ? "bowl" : "bat") as "bat" | "bowl"
+        ],
+      );
+      if (cols) next.set("cols", cols);
+      setSearchParams(next);
       setCompareIds(new Set());
     },
     [perPage, setSearchParams],
@@ -668,13 +1043,30 @@ export default function RankingsPage() {
   }, [navigate, compareIds]);
 
   const handleClearFilters = useCallback(() => {
-    setSearchParams({
+    const next = new URLSearchParams({
       role,
       sort: DEFAULT_SORT[role] ?? "overall_score",
       order: "desc",
       per_page: String(perPage),
     });
-  }, [role, perPage, setSearchParams]);
+    const cols = serialiseExtraColumns(selectedMetricKeys);
+    if (cols) next.set("cols", cols);
+    setSearchParams(next);
+  }, [role, perPage, selectedMetricKeys, setSearchParams]);
+
+  const handleMetricToggle = useCallback(
+    (metricKey: string) => {
+      const nextSelected = selectedMetricKeys.includes(metricKey)
+        ? selectedMetricKeys.filter((key) => key !== metricKey)
+        : [...selectedMetricKeys, metricKey];
+
+      updateParams({
+        cols: serialiseExtraColumns(nextSelected),
+        page: "1",
+      });
+    },
+    [selectedMetricKeys, updateParams],
+  );
 
   // ── Active filter count ────────────────────────────────────
   const activeFilterCount = useMemo(() => {
@@ -698,9 +1090,17 @@ export default function RankingsPage() {
   const columns = useMemo(
     () =>
       isBowling
-        ? getBowlingColumns(compareIds, handleCompareToggle)
-        : getBattingColumns(compareIds, handleCompareToggle),
-    [isBowling, compareIds, handleCompareToggle],
+        ? getBowlingColumns(
+            compareIds,
+            handleCompareToggle,
+            selectedMetricColumns,
+          )
+        : getBattingColumns(
+            compareIds,
+            handleCompareToggle,
+            selectedMetricColumns,
+          ),
+    [isBowling, compareIds, handleCompareToggle, selectedMetricColumns],
   );
 
   // Compute the rank offset for the current page
@@ -708,13 +1108,13 @@ export default function RankingsPage() {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="app-page page-stack">
       {/* ── Page Header ──────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="page-header sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Trophy size={24} className="text-gold shrink-0" />
           <div>
-            <h1 className="text-h2 text-text-primary">Leaderboards</h1>
+            <h1 className="page-title">Leaderboards</h1>
             {sort && sort !== "overall_score" && (
               <p className="text-xs text-text-muted mt-0.5">
                 Sorted by {SORT_LABEL_MAP[sort] ?? sort}
@@ -734,7 +1134,7 @@ export default function RankingsPage() {
             }`}
             aria-pressed={!isBowling}
           >
-            🏏 Batting
+            Batting
           </button>
           <button
             onClick={() => handleRoleToggle("bowl")}
@@ -745,7 +1145,7 @@ export default function RankingsPage() {
             }`}
             aria-pressed={isBowling}
           >
-            🎳 Bowling
+            Bowling
           </button>
         </div>
       </div>
@@ -775,25 +1175,110 @@ export default function RankingsPage() {
                 ))}
             </button>
           ))}
+          {availableMetricColumns.length > 0 && (
+            <select
+              value={sortSelectValue}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                handleSort(e.target.value);
+              }}
+              className="filter-select h-8 min-w-[11rem] text-xs"
+              aria-label="Sort by another metric"
+            >
+              <option value="">More metrics…</option>
+              {availableMetricColumns.map((metric) => (
+                <option key={metric.key} value={metric.key}>
+                  {metric.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
-        {/* Filter toggle */}
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`btn-secondary btn-sm relative shrink-0 ${
-            showFilters ? "ring-2 ring-primary" : ""
-          }`}
-          aria-expanded={showFilters}
-        >
-          <SlidersHorizontal size={14} />
-          <span>Filters</span>
-          {activeFilterCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
-              {activeFilterCount}
-            </span>
+        <div className="flex items-center gap-2">
+          {availableMetricColumns.length > 0 && (
+            <button
+              onClick={() => setShowColumns(!showColumns)}
+              className={`btn-secondary btn-sm relative shrink-0 ${
+                showColumns ? "ring-2 ring-primary" : ""
+              }`}
+              aria-expanded={showColumns}
+            >
+              <Columns3 size={14} />
+              <span>Columns</span>
+              {selectedMetricKeys.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-primary px-1 text-white text-[10px] font-bold flex items-center justify-center">
+                  {selectedMetricKeys.length}
+                </span>
+              )}
+            </button>
           )}
-        </button>
+
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`btn-secondary btn-sm relative shrink-0 ${
+              showFilters ? "ring-2 ring-primary" : ""
+            }`}
+            aria-expanded={showFilters}
+          >
+            <SlidersHorizontal size={14} />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* ── Column Picker ────────────────────────────────────── */}
+      {showColumns && availableMetricColumns.length > 0 && (
+        <div className="card p-4 animate-slide-up">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm text-text-secondary">
+                <Columns3 size={14} />
+                <span>Optional stats</span>
+              </div>
+              <p className="text-xs text-text-muted mt-1">
+                Add advanced metrics to the leaderboard and sort them directly
+                from the table.
+              </p>
+            </div>
+            {selectedMetricKeys.length > 0 && (
+              <button
+                onClick={() => updateParams({ cols: null, page: "1" })}
+                className="text-xs text-primary hover:text-primary-hover transition-colors"
+              >
+                Reset columns
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            {availableMetricColumns.map((metric) => {
+              const isSelected = selectedMetricKeys.includes(metric.key);
+              return (
+                <button
+                  key={metric.key}
+                  onClick={() => handleMetricToggle(metric.key)}
+                  className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                    isSelected
+                      ? "border-primary bg-primary/10 text-text-primary"
+                      : "border-surface-elevated bg-surface-elevated/30 text-text-secondary hover:text-text-primary hover:border-primary/40"
+                  }`}
+                >
+                  <div className="font-medium">{metric.label}</div>
+                  <div className="text-[11px] text-text-muted mt-0.5">
+                    {metric.shortLabel ?? metric.label}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Filter Bar ───────────────────────────────────────── */}
       {showFilters && (
@@ -1072,7 +1557,7 @@ export default function RankingsPage() {
       {/* ── Empty State ──────────────────────────────────────── */}
       {!isLoading && !error && totalPlayers === 0 && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4">🏏</div>
+          <div className="text-2xl mb-4 font-semibold text-primary">No Results</div>
           <h2 className="text-h3 text-text-primary mb-2">
             No {isBowling ? "bowlers" : "batters"} found
           </h2>
@@ -1239,6 +1724,6 @@ function getQuickSortOptions(isBowling: boolean): QuickSortOption[] {
     { key: "career_sr", label: "Strike Rate", shortLabel: "SR" },
     { key: "total_runs", label: "Runs", shortLabel: "Runs" },
     { key: "war_batting", label: "WAR", shortLabel: "WAR" },
-    { key: "clutch_index", label: "Clutch", shortLabel: "Clutch" },
+    { key: "clutch_index", label: "Pressure Score", shortLabel: "Pressure" },
   ];
 }

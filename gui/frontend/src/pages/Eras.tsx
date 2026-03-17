@@ -506,8 +506,8 @@ export default function Eras() {
   // ── Error state ────────────────────────────────────────────
   if (error) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-16 text-center">
-        <div className="text-4xl mb-4">📊</div>
+      <div className="app-page py-16 text-center">
+        <div className="mb-4 text-2xl font-semibold text-text-muted">No Era Data</div>
         <h1 className="text-h2 text-text-primary mb-2">Era Data Unavailable</h1>
         <p className="text-sm text-text-secondary mb-6">
           Era baselines could not be loaded. This might mean the innings detail
@@ -523,8 +523,8 @@ export default function Eras() {
   // ── Empty state ────────────────────────────────────────────
   if (baselines.length === 0) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-16 text-center">
-        <div className="text-4xl mb-4">📊</div>
+      <div className="app-page py-16 text-center">
+        <div className="mb-4 text-2xl font-semibold text-text-muted">No Era Data</div>
         <h1 className="text-h2 text-text-primary mb-2">No Era Data</h1>
         <p className="text-sm text-text-secondary mb-6">
           No era baselines were computed. Ensure the pipeline has processed
@@ -538,14 +538,14 @@ export default function Eras() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+    <div className="app-page page-stack">
       {/* ── Page header ─────────────────────────────────────── */}
-      <div>
-        <h1 className="text-h1 text-text-primary flex items-center gap-2">
+      <div className="page-header">
+        <h1 className="page-title flex items-center gap-2">
           <Calendar size={24} className="text-primary" />
           Era Explorer
         </h1>
-        <p className="text-sm text-text-secondary mt-1 max-w-2xl">
+        <p className="page-subtitle max-w-2xl">
           How has T20I cricket evolved? Explore how par scoring rates, boundary
           frequencies, and dot ball percentages have changed over the years —
           and how era adjustments put historical performances in context.

@@ -151,7 +151,7 @@ export default function PlayerCard({
               </span>
             )}
             {player.is_provisional && (
-              <span className="provisional-badge text-[10px] px-1 py-0">⚠</span>
+              <span className="provisional-badge text-[10px] px-1 py-0">!</span>
             )}
           </div>
           <div className="flex items-center gap-2 text-xs text-text-muted">
@@ -214,7 +214,7 @@ export default function PlayerCard({
               </span>
             )}
             {player.is_provisional && (
-              <span className="provisional-badge text-[10px]">⚠ Prov</span>
+              <span className="provisional-badge text-[10px]">Prov</span>
             )}
           </div>
           <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
@@ -319,7 +319,7 @@ export default function PlayerCard({
             )}
             {player.is_provisional && (
               <span className="provisional-badge">
-                ⚠ Provisional ({player.innings_count} {isBowler(player) ? 'matches' : 'innings'})
+                Provisional ({player.innings_count} {isBowler(player) ? 'matches' : 'innings'})
               </span>
             )}
           </div>

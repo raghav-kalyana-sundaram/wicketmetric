@@ -44,7 +44,14 @@ import {
   useTopDominantMatchups,
 } from "@/api/queries";
 import { dominanceColour, dominanceLabel } from "@/lib/colours";
-import { fmtInt, fmtSR, fmtPct, fmtSigned, fmtPhase } from "@/lib/format";
+import {
+  fmtInt,
+  fmtSR,
+  fmtPct,
+  fmtPhase,
+  fmtMatchupEdge,
+  matchupEdgeScore,
+} from "@/lib/format";
 import type {
   PlayerSummary,
   HeadToHeadResponse,
@@ -56,7 +63,7 @@ import type {
 // ── Sort options for explorer ────────────────────────────────────
 
 const SORT_OPTIONS = [
-  { value: "dominance_index", label: "Dominance Index" },
+  { value: "dominance_index", label: "Matchup Edge" },
   { value: "balls_faced", label: "Balls Faced" },
   { value: "strike_rate", label: "Strike Rate" },
   { value: "dismissals", label: "Dismissals" },
@@ -73,10 +80,8 @@ interface DominanceGaugeProps {
 }
 
 function DominanceGauge({ value, size = "md" }: DominanceGaugeProps) {
-  const clamped =
-    value != null && isFinite(value) ? Math.max(-50, Math.min(50, value)) : 0;
-  // Convert from [-50, +50] to [0%, 100%] — 50% is neutral
-  const pct = ((clamped + 50) / 100) * 100;
+  const score = matchupEdgeScore(value);
+  const pct = score ?? 50;
   const colour = dominanceColour(value);
   const label = dominanceLabel(value);
 
@@ -86,8 +91,10 @@ function DominanceGauge({ value, size = "md" }: DominanceGaugeProps) {
     <div
       className="w-full"
       role="meter"
-      aria-valuenow={value ?? undefined}
-      aria-label={`Dominance index: ${label}`}
+      aria-valuenow={score ?? undefined}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={`Matchup edge score: ${label}`}
     >
       <div className={`dominance-gauge ${heightClass} relative`}>
         {/* Pointer */}
@@ -99,7 +106,7 @@ function DominanceGauge({ value, size = "md" }: DominanceGaugeProps) {
           className="font-score font-semibold text-xs"
           style={{ color: colour }}
         >
-          {value != null ? fmtSigned(value) : "—"} · {label}
+          {score != null ? `${fmtMatchupEdge(value)}/100` : "—"} · {label}
         </span>
         <span>Batter →</span>
       </div>
@@ -133,7 +140,7 @@ function PhaseBreakdown({ phases }: PhaseBreakdownProps) {
             <th className="text-right">SR</th>
             <th className="text-right">Dots</th>
             <th className="text-right">Wkts</th>
-            <th className="text-right">Dominance</th>
+            <th className="text-right">Edge</th>
           </tr>
         </thead>
         <tbody>
@@ -160,7 +167,9 @@ function PhaseBreakdown({ phases }: PhaseBreakdownProps) {
                   className="font-score tabular-nums"
                   style={{ color: dominanceColour(p.dominance_index) }}
                 >
-                  {fmtSigned(p.dominance_index)}
+                  {p.dominance_index != null
+                    ? `${fmtMatchupEdge(p.dominance_index)}/100`
+                    : "—"}
                 </span>
               </td>
             </tr>
@@ -242,7 +251,9 @@ function MatchupMiniList({
               className="font-score text-xs font-bold tabular-nums shrink-0"
               style={{ color: dominanceColour(m.dominance_index) }}
             >
-              {fmtSigned(m.dominance_index)}
+              {m.dominance_index != null
+                ? `${fmtMatchupEdge(m.dominance_index)}/100`
+                : "—"}
             </span>
           </div>
         ))}
@@ -259,7 +270,7 @@ interface HeadToHeadViewProps {
 
 function HeadToHeadView({ data }: HeadToHeadViewProps) {
   return (
-    <div className="space-y-6">
+    <div className="app-page page-stack">
       {/* Hero card */}
       <div
         className="card p-6 border-l-4"
@@ -299,8 +310,12 @@ function HeadToHeadView({ data }: HeadToHeadViewProps) {
           <StatBadge label="Dot %" value={fmtPct(data.dot_pct)} />
           <StatBadge label="Boundary %" value={fmtPct(data.boundary_pct)} />
           <StatBadge
-            label="Dominance"
-            value={fmtSigned(data.dominance_index)}
+            label="Matchup Edge"
+            value={
+              data.dominance_index != null
+                ? `${fmtMatchupEdge(data.dominance_index)}/100`
+                : "—"
+            }
             valueColour={dominanceColour(data.dominance_index)}
           />
         </div>
@@ -433,7 +448,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="app-page page-stack">
       {/* Player search + filters */}
       <div className="card p-4 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3">
@@ -533,7 +548,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
           </h2>
           <p className="text-sm text-text-secondary max-w-md">
             Search for any batter or bowler to explore their matchups. Sort by
-            dominance index, balls faced, strike rate, or dismissals.
+            matchup edge, balls faced, strike rate, or dismissals.
           </p>
         </div>
       )}
@@ -551,7 +566,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
 
       {/* Results */}
       {playerId && exploreData && (
-        <div className="space-y-6">
+        <div className="app-page page-stack">
           {/* Quick stats sidebar (bunnies / nemeses / dominant) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {role === "bat" && (
@@ -576,10 +591,10 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
                     About Matchups
                   </h3>
                   <p className="text-xs text-text-secondary leading-relaxed">
-                    <strong>Dominance Index</strong> measures who controls the
-                    matchup. Positive values favour the batter; negative favour
-                    the bowler. Sort ascending to find your nemeses, descending
-                    for targets.
+                    <strong>Matchup Edge</strong> is a 0-100 score showing who
+                    controls the matchup. Around 50 is even, higher favours the
+                    batter, and lower favours the bowler. Sort low for nemeses
+                    and high for targets.
                   </p>
                 </div>
               </>
@@ -600,8 +615,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
                   </h3>
                   <p className="text-xs text-text-secondary leading-relaxed">
                     <strong>Bunnies</strong> are batters this bowler dominates.
-                    The more negative the dominance index, the stronger the
-                    bowler's control over the matchup.
+                    Lower matchup edge scores mean stronger bowler control.
                   </p>
                 </div>
                 <div /> {/* Spacer for grid alignment */}
@@ -674,7 +688,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
                           onSort={toggleSort}
                         />
                         <SortableHeader
-                          label="Dominance"
+                          label="Edge"
                           column="dominance_index"
                           currentSort={sortBy}
                           currentOrder={order}
@@ -718,7 +732,9 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
                                 color: dominanceColour(m.dominance_index),
                               }}
                             >
-                              {fmtSigned(m.dominance_index)}
+                              {m.dominance_index != null
+                                ? `${fmtMatchupEdge(m.dominance_index)}/100`
+                                : "—"}
                             </span>
                           </td>
                         </tr>
@@ -844,16 +860,16 @@ export default function Matchups() {
   );
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="app-page page-stack animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-h1 text-text-primary flex items-center gap-3">
+      <div className="page-header">
+        <h1 className="page-title flex items-center gap-3">
           <Swords size={28} className="text-primary" />
           {isExplorer ? "Matchup Explorer" : "Head-to-Head Matchups"}
         </h1>
-        <p className="mt-1 text-sm text-text-secondary">
+        <p className="page-subtitle">
           {isExplorer
-            ? "Browse all matchups for any player. Sort by dominance, balls, strike rate, or dismissals."
+            ? "Browse all matchups for any player. Sort by matchup edge, balls, strike rate, or dismissals."
             : "Analyse the head-to-head record between any batter and bowler, or explore all matchups."}
         </p>
       </div>
@@ -888,7 +904,7 @@ export default function Matchups() {
 
       {/* H2H Mode */}
       {(activeTab === "h2h" || isExplorer) && activeTab === "h2h" && (
-        <div className="space-y-6">
+        <div className="app-page page-stack">
           {/* Selection */}
           <div className="card p-4">
             <div className="flex flex-col sm:flex-row items-center gap-3">

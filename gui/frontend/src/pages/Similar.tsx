@@ -493,7 +493,7 @@ export default function Similar() {
   const isBatter = isBatterProfile(profile);
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="app-page page-stack animate-fade-in">
       {/* Back link */}
       <Link
         to={`/player/${id}`}
@@ -504,13 +504,13 @@ export default function Similar() {
       </Link>
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="page-header sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-h1 text-text-primary flex items-center gap-3">
+          <h1 className="page-title flex items-center gap-3">
             <Users size={28} className="text-primary" />
             Similar Players
           </h1>
-          <p className="mt-1 text-sm text-text-secondary">
+          <p className="page-subtitle">
             Players ranked by statistical profile similarity (cosine) to{" "}
             <Link
               to={`/player/${id}`}

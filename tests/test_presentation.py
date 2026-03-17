@@ -4,6 +4,7 @@ Tests for the presentation layer (grades, overall scores, and archetypes).
 Covers:
 - Grade boundary mapping (score → letter grade)
 - Overall score computation (with superstar bonus)
+- Career production bonus (total runs → additive bonus)
 - Batting grades integration (add_batting_grades)
 - Bowling grades integration (add_bowling_grades)
 - Batting archetype assignment (assign_batting_archetypes)
@@ -19,6 +20,7 @@ from src.config import reset_to_defaults
 from src.presentation import (
     BATTING_ARCHETYPES,
     BOWLING_ARCHETYPES,
+    _career_production_bonus,
     _compute_overall_score,
     add_batting_grades,
     add_bowling_grades,
@@ -57,6 +59,7 @@ def sample_bat_careers() -> pd.DataFrame:
             "score_acceleration": [80.0, 90.0, 40.0, 10.0, 55.0, np.nan],
             "score_power": [75.0, 92.0, 35.0, 12.0, 50.0, np.nan],
             "score_control": [78.0, 50.0, 85.0, 8.0, 60.0, np.nan],
+            "total_runs": [4000.0, 700.0, 3500.0, 200.0, 1500.0, np.nan],
         }
     )
 
@@ -156,17 +159,17 @@ class TestComputeOverallScore:
         """One score above 85 → bonus pulls overall up."""
         # base = mean(95, 50, 50) = 65.0
         # bonus = max(10, 0, 0) = 10  (capped at single best dimension)
-        # overall = 65.0 + 0.10 * 10 = 66.0
+        # overall = 65.0 + 0.05 * 10 = 65.5
         result = _compute_overall_score([95.0, 50.0, 50.0])
-        assert result == pytest.approx(66.0, abs=0.01)
+        assert result == pytest.approx(65.5, abs=0.01)
 
     def test_multiple_superstar_dimensions(self):
         """Two scores above threshold → bonus capped at single best."""
         # base = mean(95, 90, 50) = 78.33
         # bonus = max(10, 5, 0) = 10  (capped at single best dimension)
-        # overall = 78.33 + 0.10 * 10 = 79.33
+        # overall = 78.33 + 0.05 * 10 = 78.83
         result = _compute_overall_score([95.0, 90.0, 50.0])
-        assert result == pytest.approx(79.33, abs=0.1)
+        assert result == pytest.approx(78.83, abs=0.1)
 
     def test_clipped_at_100(self):
         result = _compute_overall_score([99.0, 99.0, 99.0])
@@ -185,6 +188,45 @@ class TestComputeOverallScore:
         result = _compute_overall_score([80.0, np.nan, 60.0])
         # mean(80, 60) = 70, no bonus
         assert result == pytest.approx(70.0, abs=0.01)
+
+
+class TestCareerProductionBonus:
+    """Tests for the career production bonus (total runs → additive bonus)."""
+
+    def test_zero_runs_gives_zero(self):
+        assert _career_production_bonus(0.0) == 0.0
+
+    def test_negative_runs_gives_zero(self):
+        assert _career_production_bonus(-100.0) == 0.0
+
+    def test_nan_gives_zero(self):
+        assert _career_production_bonus(np.nan) == 0.0
+
+    def test_high_runs_gets_max(self):
+        """3000+ runs should give the full bonus (2.0 by default)."""
+        result = _career_production_bonus(4000.0)
+        assert result == pytest.approx(2.0, abs=0.01)
+
+    def test_ref_runs_gives_max(self):
+        """Exactly the reference run count gives the max bonus."""
+        result = _career_production_bonus(3000.0)
+        assert result == pytest.approx(2.0, abs=0.01)
+
+    def test_low_runs_gives_small_bonus(self):
+        """700 runs should give a small bonus."""
+        result = _career_production_bonus(700.0)
+        assert 0.0 < result < 1.0
+
+    def test_monotonically_increasing(self):
+        """More runs → higher bonus."""
+        values = [_career_production_bonus(r) for r in [100, 500, 1000, 2000, 3000]]
+        for i in range(len(values) - 1):
+            assert values[i] < values[i + 1]
+
+    def test_bonus_bounded(self):
+        """Bonus should never exceed RUNS_BONUS_MAX."""
+        result = _career_production_bonus(100_000.0)
+        assert result <= 2.0 + 0.001
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +299,205 @@ class TestAddBattingGrades:
         _ = add_batting_grades(sample_bat_careers)
         assert set(sample_bat_careers.columns) == original_cols
 
+    def test_career_production_bonus_increases_overall(self):
+        """Players with more total runs should have higher overall scores."""
+        df = pd.DataFrame(
+            {
+                "batter_id": ["high_vol", "low_vol"],
+                "batter": ["High Volume", "Low Volume"],
+                "score_acceleration": [80.0, 80.0],
+                "score_power": [80.0, 80.0],
+                "score_control": [80.0, 80.0],
+                "total_runs": [4000.0, 500.0],
+            }
+        )
+        result = add_batting_grades(df)
+        high = result[result["batter"] == "High Volume"].iloc[0]["overall_score"]
+        low = result[result["batter"] == "Low Volume"].iloc[0]["overall_score"]
+        assert high > low, (
+            f"High-volume player ({high}) should outscore low-volume ({low})"
+        )
+
+    def test_missing_total_runs_column_still_works(self):
+        """If total_runs column is absent, overall should still be computed."""
+        df = pd.DataFrame(
+            {
+                "batter_id": ["p1"],
+                "batter": ["Player"],
+                "score_acceleration": [70.0],
+                "score_power": [70.0],
+                "score_control": [70.0],
+            }
+        )
+        result = add_batting_grades(df)
+        assert "overall_score" in result.columns
+        assert result.iloc[0]["overall_score"] == pytest.approx(70.0, abs=0.1)
+
+    def test_nan_total_runs_no_bonus(self):
+        """NaN total_runs should not add any production bonus."""
+        df_with = pd.DataFrame(
+            {
+                "batter_id": ["p1"],
+                "batter": ["Player"],
+                "score_acceleration": [70.0],
+                "score_power": [70.0],
+                "score_control": [70.0],
+                "total_runs": [np.nan],
+            }
+        )
+        df_without = pd.DataFrame(
+            {
+                "batter_id": ["p1"],
+                "batter": ["Player"],
+                "score_acceleration": [70.0],
+                "score_power": [70.0],
+                "score_control": [70.0],
+            }
+        )
+        result_with = add_batting_grades(df_with)
+        result_without = add_batting_grades(df_without)
+        assert result_with.iloc[0]["overall_score"] == pytest.approx(
+            result_without.iloc[0]["overall_score"], abs=0.1
+        )
+
+    def test_finisher_below_high_volume_anchor(self):
+        """An explosive finisher with fewer runs should score below a
+        high-volume anchor with comparable dimension scores."""
+        df = pd.DataFrame(
+            {
+                "batter_id": ["anchor", "finisher"],
+                "batter": ["Anchor", "Finisher"],
+                # Anchor: slightly lower ACC/POW but huge volume
+                "score_acceleration": [80.0, 92.0],
+                "score_power": [75.0, 90.0],
+                "score_control": [90.0, 60.0],
+                "total_runs": [4000.0, 700.0],
+            }
+        )
+        result = add_batting_grades(df)
+        anchor = result[result["batter"] == "Anchor"].iloc[0]["overall_score"]
+        finisher = result[result["batter"] == "Finisher"].iloc[0]["overall_score"]
+        assert anchor > finisher, (
+            f"High-volume anchor ({anchor}) should outscore low-volume "
+            f"finisher ({finisher})"
+        )
+
+    def test_career_avg_bonus_increases_overall(self):
+        """Players with higher career avg should get a higher overall score,
+        all else being equal."""
+        df = pd.DataFrame(
+            {
+                "batter_id": ["high_avg", "low_avg"],
+                "batter": ["High Avg", "Low Avg"],
+                "score_acceleration": [80.0, 80.0],
+                "score_power": [80.0, 80.0],
+                "score_control": [80.0, 80.0],
+                "total_runs": [3000.0, 3000.0],
+                "career_avg": [40.0, 20.0],
+            }
+        )
+        result = add_batting_grades(df)
+        high = result[result["batter"] == "High Avg"].iloc[0]["overall_score"]
+        low = result[result["batter"] == "Low Avg"].iloc[0]["overall_score"]
+        assert high > low, f"High-avg player ({high}) should outscore low-avg ({low})"
+        # The gap should be meaningful (at least 2 points)
+        assert high - low >= 2.0, (
+            f"Avg bonus gap ({high - low:.1f}) should be >= 2.0 points"
+        )
+
+    def test_missing_career_avg_column_still_works(self):
+        """If career_avg column is absent, overall should still be computed."""
+        df = pd.DataFrame(
+            {
+                "batter_id": ["p1"],
+                "batter": ["Player"],
+                "score_acceleration": [70.0],
+                "score_power": [70.0],
+                "score_control": [70.0],
+            }
+        )
+        result = add_batting_grades(df)
+        assert "overall_score" in result.columns
+        # Without career_avg or total_runs, should just be the weighted mean
+        assert not np.isnan(result.iloc[0]["overall_score"])
+
+    def test_nan_career_avg_no_bonus(self):
+        """NaN career_avg should not add any average bonus."""
+        df_with_nan = pd.DataFrame(
+            {
+                "batter_id": ["p1"],
+                "batter": ["Player"],
+                "score_acceleration": [70.0],
+                "score_power": [70.0],
+                "score_control": [70.0],
+                "career_avg": [np.nan],
+            }
+        )
+        df_without = pd.DataFrame(
+            {
+                "batter_id": ["p1"],
+                "batter": ["Player"],
+                "score_acceleration": [70.0],
+                "score_power": [70.0],
+                "score_control": [70.0],
+            }
+        )
+        result_nan = add_batting_grades(df_with_nan)
+        result_no_col = add_batting_grades(df_without)
+        assert result_nan.iloc[0]["overall_score"] == pytest.approx(
+            result_no_col.iloc[0]["overall_score"], abs=0.1
+        )
+
+    def test_weighted_dimensions_control_favoured(self):
+        """With the default weights (ACC=0.35, POW=0.20, CTRL=0.45),
+        a player with elite Control but moderate Power should outscore
+        a player with elite Power but moderate Control, all else equal."""
+        df = pd.DataFrame(
+            {
+                "batter_id": ["controller", "power_hitter"],
+                "batter": ["Controller", "Power Hitter"],
+                # Controller: high Control, moderate Power
+                "score_acceleration": [85.0, 85.0],
+                "score_power": [70.0, 95.0],
+                "score_control": [100.0, 75.0],
+                "total_runs": [5000.0, 5000.0],
+                "career_avg": [38.0, 25.0],
+            }
+        )
+        result = add_batting_grades(df)
+        controller = result[result["batter"] == "Controller"].iloc[0]["overall_score"]
+        power_hitter = result[result["batter"] == "Power Hitter"].iloc[0][
+            "overall_score"
+        ]
+        assert controller > power_hitter, (
+            f"Controller ({controller}) should outscore Power Hitter "
+            f"({power_hitter}) due to Control weight + avg bonus"
+        )
+
+    def test_kohli_vs_rohit_scenario(self):
+        """Simulate the Kohli-vs-Rohit IPL scenario: Kohli has higher avg
+        and Control but lower Power.  With the weighted dimensions and
+        avg bonus, Kohli should be higher overall."""
+        df = pd.DataFrame(
+            {
+                "batter_id": ["kohli", "rohit"],
+                "batter": ["Kohli", "Rohit"],
+                "score_acceleration": [88.0, 87.0],
+                "score_power": [75.0, 96.0],
+                "score_control": [100.0, 87.0],
+                "total_runs": [8500.0, 7000.0],
+                "career_avg": [39.5, 30.0],
+            }
+        )
+        result = add_batting_grades(df)
+        kohli = result[result["batter"] == "Kohli"].iloc[0]["overall_score"]
+        rohit = result[result["batter"] == "Rohit"].iloc[0]["overall_score"]
+        assert kohli > rohit, f"Kohli ({kohli}) should outscore Rohit ({rohit})"
+        # The gap should be at least 3 points
+        assert kohli - rohit >= 3.0, (
+            f"Kohli-Rohit gap ({kohli - rohit:.1f}) should be >= 3.0 points"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests: add_bowling_grades
@@ -302,16 +543,43 @@ class TestAssignBattingArchetypes:
         assert "archetype" in result.columns
 
     def test_explosive_finisher_assigned(self):
-        """Player with ACC ≥ 85 and POW ≥ 85 → Explosive Finisher."""
+        """Player with ACC ≥ 85, POW ≥ 85, and modal_position ≥ 4 → Explosive Finisher."""
         df = pd.DataFrame(
             {
                 "score_acceleration": [90.0],
                 "score_power": [88.0],
                 "score_control": [40.0],
+                "modal_position": [5],
             }
         )
         result = assign_batting_archetypes(df)
         assert result.iloc[0]["archetype"] == "Explosive Finisher"
+
+    def test_explosive_opener_assigned(self):
+        """Player with ACC ≥ 85, POW ≥ 85, and modal_position ≤ 3 → Explosive Opener."""
+        df = pd.DataFrame(
+            {
+                "score_acceleration": [90.0],
+                "score_power": [88.0],
+                "score_control": [40.0],
+                "modal_position": [1],
+            }
+        )
+        result = assign_batting_archetypes(df)
+        assert result.iloc[0]["archetype"] == "Explosive Opener"
+
+    def test_explosive_finisher_not_assigned_to_opener(self):
+        """Top-order batter (position 1-3) with elite ACC+POW must NOT get Explosive Finisher."""
+        df = pd.DataFrame(
+            {
+                "score_acceleration": [95.0],
+                "score_power": [95.0],
+                "score_control": [90.0],
+                "modal_position": [2],
+            }
+        )
+        result = assign_batting_archetypes(df)
+        assert result.iloc[0]["archetype"] != "Explosive Finisher"
 
     def test_classic_anchor_assigned(self):
         """Player with CTRL ≥ 80 and ACC ≤ 55 → Classic Anchor."""
@@ -400,16 +668,31 @@ class TestAssignBattingArchetypes:
 
     def test_first_match_wins(self):
         """If multiple archetypes could match, the first in order wins.
-        Explosive Finisher (ACC ≥ 85, POW ≥ 85) comes before All-Round Elite."""
-        df = pd.DataFrame(
+        Explosive Opener (ACC ≥ 85, POW ≥ 85, pos ≤ 3) comes before All-Round Elite for openers.
+        Explosive Finisher (ACC ≥ 85, POW ≥ 85, pos ≥ 4) comes before All-Round Elite for middle-order."""
+        # Top-order player → Explosive Opener wins
+        df_opener = pd.DataFrame(
             {
                 "score_acceleration": [90.0],
                 "score_power": [90.0],
                 "score_control": [90.0],
+                "modal_position": [1],
             }
         )
-        result = assign_batting_archetypes(df)
-        assert result.iloc[0]["archetype"] == "Explosive Finisher"
+        result_opener = assign_batting_archetypes(df_opener)
+        assert result_opener.iloc[0]["archetype"] == "Explosive Opener"
+
+        # Middle-order player → Explosive Finisher wins
+        df_finisher = pd.DataFrame(
+            {
+                "score_acceleration": [90.0],
+                "score_power": [90.0],
+                "score_control": [90.0],
+                "modal_position": [5],
+            }
+        )
+        result_finisher = assign_batting_archetypes(df_finisher)
+        assert result_finisher.iloc[0]["archetype"] == "Explosive Finisher"
 
     def test_nan_scores_get_utility_player(self):
         """NaN scores should not match any archetype conditions."""

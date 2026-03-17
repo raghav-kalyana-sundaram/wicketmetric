@@ -1,0 +1,3 @@
+# Optional: used if Railway does not use railway.toml startCommand.
+# Ensure PORT is set by Railway (it is set automatically).
+web: uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
