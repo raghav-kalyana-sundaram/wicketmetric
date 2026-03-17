@@ -169,22 +169,15 @@ export default function Home() {
   }, [navigate, comparePlayer1, comparePlayer2]);
 
   return (
-    <div className="space-y-10 pb-8">
+    <div className="app-page page-stack">
       {/* ── Hero Section ────────────────────────────────────────── */}
-      <section className="relative py-12 sm:py-16 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8">
-        {/* Gradient background */}
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
-
-        <div className="relative max-w-2xl mx-auto text-center">
+      <section className="section-card section-card-body py-10 sm:py-12">
+        <div className="mx-auto max-w-3xl text-center">
           {/* Title */}
           <div className="mb-8">
-            <h1 className="text-h1 sm:text-4xl font-bold text-text-primary mb-3 flex items-center justify-center gap-3">
-              <span
-                role="img"
-                aria-hidden="true"
-                className="text-3xl sm:text-4xl"
-              >
-                🏏
+            <h1 className="mb-3 flex items-center justify-center gap-3 text-h1 font-bold text-text-primary sm:text-4xl">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                <BarChart3 size={20} />
               </span>
               <span>Cricket Metrics</span>
             </h1>
@@ -318,7 +311,7 @@ export default function Home() {
             {archetypes.bat && archetypes.bat.length > 0 && (
               <div className="mb-4">
                 <h3 className="text-xs text-text-muted uppercase tracking-wider mb-2">
-                  🏏 Batting Archetypes
+                  Batting Archetypes
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {archetypes.bat.map((arch) => (
@@ -339,7 +332,7 @@ export default function Home() {
             {archetypes.bowl && archetypes.bowl.length > 0 && (
               <div>
                 <h3 className="text-xs text-text-muted uppercase tracking-wider mb-2">
-                  🎳 Bowling Archetypes
+                  Bowling Archetypes
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {archetypes.bowl.map((arch) => (

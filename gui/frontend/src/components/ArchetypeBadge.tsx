@@ -27,33 +27,33 @@
 
 const ARCHETYPE_ICONS: Record<string, string> = {
   // Batting archetypes
-  Anchor: "🎯",
-  "Chase Master": "🏃",
-  "Explosive Finisher": "⚡",
-  "Explosive Opener": "💫",
-  "Power Hitter": "💥",
-  "Power Middle-Order": "🔱",
-  Accumulator: "📊",
-  "All-Phase": "🎨",
-  "Aggressive Opener": "🚀",
-  "Top-Order Anchor": "🎯",
-  "Middle-Order Finisher": "⚡",
-  Floater: "🔄",
+  Anchor: "A",
+  "Chase Master": "C",
+  "Explosive Finisher": "F",
+  "Explosive Opener": "O",
+  "Power Hitter": "P",
+  "Power Middle-Order": "M",
+  Accumulator: "U",
+  "All-Phase": "L",
+  "Aggressive Opener": "G",
+  "Top-Order Anchor": "T",
+  "Middle-Order Finisher": "N",
+  Floater: "R",
 
   // Bowling archetypes
-  "Wicket-Taker": "🎳",
-  "Economy Specialist": "🛡️",
-  "Death Specialist": "💀",
-  "Powerplay Specialist": "🔥",
-  "Spin Wizard": "🌀",
-  "New Ball Specialist": "🆕",
-  "Containing Bowler": "🧱",
-  "Strike Bowler": "⚔️",
-  "All-Round Bowler": "🎯",
+  "Wicket-Taker": "W",
+  "Economy Specialist": "E",
+  "Death Specialist": "D",
+  "Powerplay Specialist": "P",
+  "Spin Wizard": "S",
+  "New Ball Specialist": "N",
+  "Containing Bowler": "C",
+  "Strike Bowler": "K",
+  "All-Round Bowler": "B",
 
   // Generic / fallback
-  "All-Rounder": "🏏",
-  Unknown: "❓",
+  "All-Rounder": "R",
+  Unknown: "?",
 };
 
 /**
@@ -84,7 +84,7 @@ function archetypeIcon(archetype: string): string {
     }
   }
 
-  return "🏏"; // Default cricket bat icon
+  return "R";
 }
 
 // ── Archetype → colour mapping ───────────────────────────────────

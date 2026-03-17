@@ -11,6 +11,7 @@ gui/frontend/dist/
 # Data sources (raw JSON — too large for git)
 t20s_male_json/
 ipl_json/
+cricketdata/
 
 # IDE
 .vscode/
@@ -23,3 +24,13 @@ Thumbs.db
 
 # Legacy output dir
 output/
+output_t20i/
+output_ipl/
+
+# Environment (do not commit secrets)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test

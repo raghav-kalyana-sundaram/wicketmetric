@@ -435,7 +435,7 @@ function getBattingColumns(
               className="text-[10px] text-warning shrink-0"
               title="Provisional"
             >
-              ⚠
+              Prov
             </span>
           )}
         </Link>
@@ -642,7 +642,7 @@ function getBowlingColumns(
               className="text-[10px] text-warning shrink-0"
               title="Provisional"
             >
-              ⚠
+              Prov
             </span>
           )}
         </Link>
@@ -1108,13 +1108,13 @@ export default function RankingsPage() {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="app-page page-stack">
       {/* ── Page Header ──────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="page-header sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Trophy size={24} className="text-gold shrink-0" />
           <div>
-            <h1 className="text-h2 text-text-primary">Leaderboards</h1>
+            <h1 className="page-title">Leaderboards</h1>
             {sort && sort !== "overall_score" && (
               <p className="text-xs text-text-muted mt-0.5">
                 Sorted by {SORT_LABEL_MAP[sort] ?? sort}
@@ -1134,7 +1134,7 @@ export default function RankingsPage() {
             }`}
             aria-pressed={!isBowling}
           >
-            🏏 Batting
+            Batting
           </button>
           <button
             onClick={() => handleRoleToggle("bowl")}
@@ -1145,7 +1145,7 @@ export default function RankingsPage() {
             }`}
             aria-pressed={isBowling}
           >
-            🎳 Bowling
+            Bowling
           </button>
         </div>
       </div>
@@ -1557,7 +1557,7 @@ export default function RankingsPage() {
       {/* ── Empty State ──────────────────────────────────────── */}
       {!isLoading && !error && totalPlayers === 0 && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4">🏏</div>
+          <div className="text-2xl mb-4 font-semibold text-primary">No Results</div>
           <h2 className="text-h3 text-text-primary mb-2">
             No {isBowling ? "bowlers" : "batters"} found
           </h2>

@@ -35,6 +35,8 @@ import {
   BookOpen,
   Home,
   Trophy,
+  FileText,
+  ChevronDown,
 } from "lucide-react";
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -57,6 +59,21 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Compare", to: "/compare", icon: <GitCompare size={16} /> },
   { label: "Matchups", to: "/matchups", icon: <Swords size={16} /> },
   { label: "Team Builder", to: "/team-builder", icon: <Users size={16} /> },
+  { label: "Scorecards", to: "/scorecards", icon: <FileText size={16} /> },
+  { label: "Eras", to: "/eras", icon: <BarChart3 size={16} /> },
+  { label: "Venues", to: "/venues", icon: <MapPin size={16} /> },
+  { label: "Glossary", to: "/glossary", icon: <BookOpen size={16} /> },
+];
+
+const DESKTOP_PRIMARY_NAV: NavItem[] = [
+  { label: "Rankings", to: "/rankings", icon: <Trophy size={16} /> },
+  { label: "Compare", to: "/compare", icon: <GitCompare size={16} /> },
+  { label: "Matchups", to: "/matchups", icon: <Swords size={16} /> },
+  { label: "Scorecards", to: "/scorecards", icon: <FileText size={16} /> },
+];
+
+const DESKTOP_SECONDARY_NAV: NavItem[] = [
+  { label: "Team Builder", to: "/team-builder", icon: <Users size={16} /> },
   { label: "Eras", to: "/eras", icon: <BarChart3 size={16} /> },
   { label: "Venues", to: "/venues", icon: <MapPin size={16} /> },
   { label: "Glossary", to: "/glossary", icon: <BookOpen size={16} /> },
@@ -66,7 +83,7 @@ const NAV_ITEMS: NavItem[] = [
 
 function navLinkClasses({ isActive }: { isActive: boolean }): string {
   const base =
-    "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors";
+    "flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors";
   if (isActive) {
     return `${base} bg-primary/10 text-primary`;
   }
@@ -75,11 +92,16 @@ function navLinkClasses({ isActive }: { isActive: boolean }): string {
 
 function mobileNavLinkClasses({ isActive }: { isActive: boolean }): string {
   const base =
-    "flex items-center gap-3 px-4 py-3 rounded-lg text-base font-medium transition-colors w-full";
+    "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors";
   if (isActive) {
     return `${base} bg-primary/10 text-primary`;
   }
   return `${base} text-text-secondary hover:text-text-primary hover:bg-surface-elevated/50`;
+}
+
+function isPathActive(currentPath: string, targetPath: string): boolean {
+  if (targetPath === "/") return currentPath === "/";
+  return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`);
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -87,14 +109,17 @@ function mobileNavLinkClasses({ isActive }: { isActive: boolean }): string {
 export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showNavSearch, setShowNavSearch] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const navSearchRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
     setShowNavSearch(false);
+    setShowMoreMenu(false);
   }, [location.pathname]);
 
   // Close mobile menu on Escape
@@ -103,6 +128,7 @@ export default function Layout() {
       if (e.key === "Escape") {
         setMobileMenuOpen(false);
         setShowNavSearch(false);
+        setShowMoreMenu(false);
       }
     };
     document.addEventListener("keydown", handleEsc);
@@ -120,6 +146,20 @@ export default function Layout() {
       document.body.style.overflow = "";
     };
   }, [mobileMenuOpen]);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (
+        showMoreMenu &&
+        moreMenuRef.current &&
+        !moreMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [showMoreMenu]);
 
   // Handle player selection from nav search
   const handleNavSearchSelect = useCallback(
@@ -141,6 +181,33 @@ export default function Layout() {
 
   // Don't show the nav search on the home page (it has its own hero search)
   const isHomePage = location.pathname === "/";
+  const isMoreActive = DESKTOP_SECONDARY_NAV.some((item) =>
+    isPathActive(location.pathname, item.to)
+  );
+
+  // Route-level page title + description for shareability and polish
+  useEffect(() => {
+    const routeTitleMap: Array<[RegExp, string, string]> = [
+      [/^\/$/, "Cricket Metrics | Premium T20 Analytics", "Search, compare, and analyse T20I and IPL players with role-aware metrics, pressure scoring, and matchup intelligence."],
+      [/^\/search/, "Player Search | Cricket Metrics", "Find players instantly with filters for role, country, and archetype."],
+      [/^\/rankings/, "Rankings | Cricket Metrics", "Sortable batting and bowling leaderboards with advanced metrics and filters."],
+      [/^\/compare/, "Compare Players | Cricket Metrics", "Side-by-side player comparison with metric breakdowns and trend context."],
+      [/^\/matchups/, "Matchups | Cricket Metrics", "Head-to-head matchup intelligence for batters and bowlers."],
+      [/^\/team-builder/, "Team Builder | Cricket Metrics", "Build XIs and evaluate team balance with role-aware analysis."],
+      [/^\/scorecards/, "Scorecards | Cricket Metrics", "Match scorecards with batting, bowling, and innings context."],
+      [/^\/venues/, "Venues | Cricket Metrics", "Venue baselines, difficulty analysis, and player venue performance."],
+      [/^\/eras/, "Era Explorer | Cricket Metrics", "Track how T20 conditions evolve across years with era-adjusted context."],
+      [/^\/glossary/, "Glossary | Cricket Metrics", "Definitions and methodology behind every cricket metric used in the app."],
+    ];
+
+    const matched = routeTitleMap.find(([re]) => re.test(location.pathname));
+    const [_, title, description] = matched ?? routeTitleMap[0];
+    document.title = title;
+    const meta = document.querySelector('meta[name="description"]');
+    if (meta) {
+      meta.setAttribute("content", description);
+    }
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -150,31 +217,30 @@ export default function Layout() {
       </a>
 
       {/* ── Navigation Bar ──────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 border-b border-surface-elevated/50 bg-background/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-surface-elevated/70 bg-background/90 backdrop-blur-xl">
         {/* Light mode variant */}
         <div className="hidden" aria-hidden="true">
           {/* This div exists to ensure Tailwind generates the light-mode classes */}
         </div>
 
-        <div className="mx-auto max-w-8xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-14 items-center justify-between gap-4">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between gap-4">
             {/* Left: Logo + Desktop Nav */}
             <div className="flex items-center gap-1 sm:gap-6">
               {/* Logo */}
               <Link
                 to="/"
-                className="flex items-center gap-2 shrink-0 group"
+                className="group flex shrink-0 items-center gap-2"
                 aria-label="Cricket Metrics — Home"
               >
                 <span
-                  className="text-lg sm:text-xl"
-                  role="img"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/20 text-primary"
                   aria-hidden="true"
                 >
-                  🏏
+                  <BarChart3 size={14} />
                 </span>
-                <span className="font-bold text-text-primary text-sm sm:text-base group-hover:text-primary transition-colors">
-                  <span className="hidden xs:inline">Cricket </span>Metrics
+                <span className="text-sm font-semibold tracking-tight text-text-primary transition-colors group-hover:text-primary sm:text-base">
+                  Cricket Metrics
                 </span>
               </Link>
 
@@ -183,7 +249,7 @@ export default function Layout() {
                 className="hidden md:flex items-center gap-1"
                 aria-label="Main navigation"
               >
-                {NAV_ITEMS.filter((item) => !item.mobileOnly).map((item) => (
+                {DESKTOP_PRIMARY_NAV.map((item) => (
                   <NavLink
                     key={item.to}
                     to={item.to}
@@ -194,6 +260,47 @@ export default function Layout() {
                     <span>{item.label}</span>
                   </NavLink>
                 ))}
+
+                <div className="relative" ref={moreMenuRef}>
+                  <button
+                    type="button"
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                      isMoreActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-text-secondary hover:bg-surface-elevated/50 hover:text-text-primary"
+                    }`}
+                    onClick={() => setShowMoreMenu((prev) => !prev)}
+                    aria-expanded={showMoreMenu}
+                    aria-haspopup="menu"
+                    aria-label="More navigation items"
+                  >
+                    <span>More</span>
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform ${showMoreMenu ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {showMoreMenu && (
+                    <div
+                      role="menu"
+                      className="absolute left-0 top-full z-50 mt-2 w-48 rounded-xl border border-surface-elevated bg-surface p-1.5 shadow-card-hover"
+                    >
+                      {DESKTOP_SECONDARY_NAV.map((item) => (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          className={navLinkClasses}
+                          end
+                          onClick={() => setShowMoreMenu(false)}
+                        >
+                          {item.icon}
+                          <span>{item.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </nav>
             </div>
 
@@ -268,7 +375,7 @@ export default function Layout() {
           <>
             {/* Backdrop */}
             <div
-              className="fixed inset-0 top-14 bg-black/40 z-40 md:hidden"
+              className="fixed inset-0 top-16 z-40 bg-black/40 md:hidden"
               onClick={() => setMobileMenuOpen(false)}
               aria-hidden="true"
             />
@@ -276,7 +383,7 @@ export default function Layout() {
             {/* Menu panel */}
             <nav
               id="mobile-menu"
-              className="fixed inset-x-0 top-14 z-50 md:hidden bg-background border-b border-surface-elevated shadow-lg animate-slide-up"
+              className="fixed inset-x-0 top-16 z-50 border-b border-surface-elevated bg-background shadow-lg animate-slide-up md:hidden"
               aria-label="Mobile navigation"
             >
               <div className="px-4 py-4 space-y-1 max-h-[calc(100vh-3.5rem)] overflow-y-auto">
@@ -366,38 +473,48 @@ export default function Layout() {
       />
 
       {/* ── Main Content ────────────────────────────────────────── */}
-      <main
-        id="main-content"
-        className="flex-1 mx-auto w-full max-w-8xl px-4 sm:px-6 lg:px-8 py-6"
-      >
+      <main id="main-content" className="flex-1">
         <Outlet />
       </main>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <footer className="border-t border-surface-elevated/50 bg-background/50">
-        <div className="mx-auto max-w-8xl px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-text-muted">
-            <div className="flex items-center gap-2">
-              <span role="img" aria-hidden="true">
-                🏏
+      <footer className="app-footer border-t border-surface-elevated/70 bg-surface/80">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="app-footer-brand flex items-center gap-2 text-sm text-text-secondary">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-primary/15 text-primary">
+                <BarChart3 size={12} />
               </span>
-              <span>Cricket Metrics</span>
+              <span className="font-medium text-text-primary">Cricket Metrics</span>
               <span className="text-text-muted/50">·</span>
-              <span>T20 Player Intelligence</span>
+              <span className="app-footer-tagline">T20 Intelligence</span>
             </div>
-            <div className="flex items-center gap-4">
-              <Link
-                to="/glossary"
-                className="hover:text-text-primary transition-colors"
-              >
+
+            <nav className="app-footer-links flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text-secondary">
+              <Link to="/glossary" className="transition-colors hover:text-text-primary">
                 Methodology
               </Link>
-              <span className="text-text-muted/30">·</span>
-              <span className="text-xs">
-                Data: Cricsheet &middot; Ball-by-ball T20I &amp; IPL JSON
-              </span>
-            </div>
+              <a
+                href="https://github.com/raghav-kalyana-sundaram/wicketmetric"
+                target="_blank"
+                rel="noreferrer"
+                className="transition-colors hover:text-text-primary"
+              >
+                GitHub
+              </a>
+              <a
+                href="https://cricsheet.org/"
+                target="_blank"
+                rel="noreferrer"
+                className="transition-colors hover:text-text-primary"
+              >
+                Cricsheet
+              </a>
+            </nav>
           </div>
+          <p className="app-footer-data mt-2 text-xs text-text-muted">
+            Data source: Cricsheet ball-by-ball JSON (T20I and IPL).
+          </p>
         </div>
       </footer>
     </div>
@@ -464,7 +581,7 @@ export function PageError({
   return (
     <div className="flex items-center justify-center py-32">
       <div className="flex flex-col items-center gap-4 text-center max-w-md">
-        <div className="text-4xl">⚠️</div>
+        <div className="text-2xl text-danger">Error</div>
         <h2 className="text-h3 text-text-primary">{title}</h2>
         <p className="text-sm text-text-secondary">{message}</p>
         {onRetry && (
@@ -487,7 +604,7 @@ export function NotFound() {
   return (
     <div className="flex items-center justify-center py-32">
       <div className="flex flex-col items-center gap-4 text-center max-w-md">
-        <div className="text-6xl">🏏</div>
+        <div className="text-2xl font-semibold text-primary">404</div>
         <h1 className="text-h2 text-text-primary">Page Not Found</h1>
         <p className="text-sm text-text-secondary">
           The page you're looking for doesn't exist. It might have been removed

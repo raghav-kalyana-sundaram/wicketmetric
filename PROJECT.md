@@ -4,37 +4,119 @@
 > Replaces: `README.md`, `ARCHITECTURE.md`, `Version_1.0.md`, `version02.md`, `version03.md`, `documentation.md`, `gui.md`, `HOSTING.md`, `algorithm_update.md`
 >
 > **Current Version:** 2.0 (post v0.3 implementation)
-> **Status:** All 914 tests passing · Full pipeline operational for T20I + IPL
+> **Status:** Full pipeline operational for T20I + IPL
 > **Python:** 3.12+ · **Node:** 18+ · **Dependencies:** pandas, numpy, scipy, pyarrow, pyyaml, orjson
 
 ---
 
 ## Table of Contents
 
-1. [What This Project Does](#1-what-this-project-does)
-2. [Quick Start](#2-quick-start)
-3. [Repository Layout](#3-repository-layout)
-4. [Architecture & Data Flow](#4-architecture--data-flow)
-5. [Pipeline Modules](#5-pipeline-modules)
-6. [Metric Design](#6-metric-design)
-7. [Rating System](#7-rating-system)
-8. [Feature Inventory (18 Features)](#8-feature-inventory)
-9. [Configuration System](#9-configuration-system)
-10. [GUI — Backend (FastAPI)](#10-gui--backend-fastapi)
-11. [GUI — Frontend (React + TypeScript)](#11-gui--frontend-react--typescript)
-12. [API Reference](#12-api-reference)
-13. [Output Files](#13-output-files)
-14. [Testing](#14-testing)
-15. [Hosting & Deployment](#15-hosting--deployment)
-16. [Design Decisions](#16-design-decisions)
-17. [Glossary](#17-glossary)
-18. [Version History](#18-version-history)
-19. [Known Limitations](#19-known-limitations)
-20. [Roadmap (v3.0)](#20-roadmap-v30)
+1. [Product Vision](#1-product-vision)
+2. [What This Project Does](#2-what-this-project-does)
+3. [Quick Start](#3-quick-start)
+4. [Repository Layout](#4-repository-layout)
+5. [Architecture & Data Flow](#5-architecture--data-flow)
+6. [Pipeline Modules](#6-pipeline-modules)
+7. [Metric Design](#7-metric-design)
+8. [Rating System](#8-rating-system)
+9. [Feature Inventory (18 Features)](#9-feature-inventory)
+10. [Configuration System](#10-configuration-system)
+11. [GUI — Backend (FastAPI)](#11-gui--backend-fastapi)
+12. [GUI — Frontend (React + TypeScript)](#12-gui--frontend-react--typescript)
+13. [API Reference](#13-api-reference)
+14. [Output Files](#14-output-files)
+15. [Testing](#15-testing)
+16. [Hosting & Deployment](#16-hosting--deployment)
+17. [Design Decisions](#17-design-decisions)
+18. [Glossary](#18-glossary)
+19. [Version History](#19-version-history)
+20. [Known Limitations](#20-known-limitations)
+21. [Roadmap](#21-roadmap)
+22. [Product Specification](#22-product-specification)
 
 ---
 
-## 1. What This Project Does
+## 1. Product Vision
+
+### Product Distillation
+
+Cricket Metrics aims to be a **dark-mode analytical identity** cricket intelligence platform with:
+
+- **Dense leaderboards** — High information density, compact summary cards
+- **Compare flows** — Side-by-side player comparison with role-aware radars
+- **Matchup Analysis** — Head-to-head batter vs bowler, phase splits, dominance
+- **Team-builder Concept** — Visualize how good a hypothetical XI is
+- **Era and venue exploration** — Context across time and place
+- **Rich player profile surfaces** — Overview, splits, form, matchups, similar players
+- **Metric-driven storytelling** — Control, Acceleration, Threat, Power, Accuracy as narrative
+- **Easily accessible metrics** — “Control”, “Acceleration”, “Threat”, “Power”, “Accuracy”
+- **Overall Scores** — Single-number summaries with letter grades
+- **Player contribution** — Wins added over replacement, Clutch Score, Matchups
+- **Live scores** — Extra features to make viewing accessible; viewers should feel compelled to keep the app open even if watching the game
+- **Player tags** — “Death Specialist”, “Powerplay Enforcer” to identify roles
+- **Advanced Metrics** — WAR, Pressure Score, Avg Matchup Edge, Pressure Spells, Dominant, Flat Track Index
+- **Phase Splits** — Powerplay / middle / death breakdowns
+- **Form Tracker** — Rolling-window form time-series
+- **Sticky global navigation** — Always accessible
+- **Compact summary cards** — Glanceable before deep tables
+- **Page-level sub tabs** — “State of the world first, drill down second”
+- **Dashboards that feel live** — Even when not actually live
+- **Feature parity** — With espncricinfo (apart from cricinfo and articles)
+
+### Product Principles
+
+- **High information density is good, but visual randomness is bad**
+- **Everything should be independently testable** — No feature should require three unfinished systems to exist first
+- **Derived metrics should be precomputed** — Do not make the browser compute heavy cricket analytics on page load
+- **One page = one primary analytical job:**
+  - **Rankings:** discover
+  - **Compare:** contrast players
+  - **Matchups:** inspect batter vs bowler
+  - **Team builder:** construct and compare XI’s
+  - **Eras:** translate context (batting and bowling evolved over years)
+  - **Venues:** understand environment and past scores
+  - **Player profile:** explain a player and their history
+- **Every page needs both a quick insight layer and a deep exploration**
+
+### Engineering Principles
+
+1. Keep features vertical
+2. No premature drag-and-drop
+3. No giant client-side global state store unless pain appears
+4. Prefer server data fetching + client-only island for interactivity
+5. Use stable query contracts and typed transformations
+6. Keep chart data adapters separate from chart components
+7. Every metric should have: name, definition, display format, calculation owner, source tables, fallback behavior if data missing
+
+### Recommended Product Structure
+
+**Global routes:**
+- `/` — Home
+- `/rankings` — Leaderboards
+- `/compare` — Player comparison
+- `/matchups` — Head-to-head
+- `/team-builder` — XI construction
+- `/eras` — Era explorer
+- `/venues` — Venue analysis
+- `/players/[slug]` — Player profile
+- `/glossary` — Metric definitions
+
+**Persistent header:**
+- Brand
+- Format toggle: T20I / ODI / Test / IPL (later)
+- Global search
+- Theme controls
+- User actions (later)
+
+**Page-level subnav:**
+- **Rankings:** Batting / Bowling / All-Rounders
+- **Matchups:** Head-to-Head / Explorer
+- **Venues:** Venue List / Venue Detail / Trend
+- **Players:** Overview / Splits / Form / Matchups / Similar Players
+
+---
+
+## 2. What This Project Does
 
 Cricket Metrics is a production-grade T20 cricket analytics platform that transforms raw ball-by-ball Cricsheet JSON data into multi-dimensional player ratings, career profiles, and advanced statistical insights. It covers both **T20I** (international) and **IPL** (franchise) cricket.
 
@@ -45,13 +127,14 @@ Cricket Metrics is a production-grade T20 cricket analytics platform that transf
 - **TrueSkill-inspired Bayesian rating system** with uncertainty penalties
 - **18 analytical features** (clutch index, matchup shrinkage, WAR, form tracker, peak ratings, venue analysis, era adjustment, etc.)
 - **Full-stack web GUI** — interactive player profiles, rankings, head-to-head matchups, team builder, era explorer, venue analysis
-- **914 automated tests** across 14 test files with zero failures
+- **Scorecards module** — Per-match scorecards with ball-by-ball drill-down (built from deliveries; API and GUI page exist; pipeline integration pending)
+- **ESPN Cricinfo scraper** — Optional scraper for T20I / T20 / IPL match discovery and hydration (python-espncricinfo + Playwright)
 
 The platform processes every T20I and IPL match from Cricsheet data and produces per-player career profiles with percentile-based scores (0–100), letter grades (S/A+/A/B+/B/C+/C/D), role archetypes, and dozens of contextual metrics.
 
 ---
 
-## 2. Quick Start
+## 3. Quick Start
 
 ### Prerequisites
 
@@ -72,7 +155,7 @@ python src/main.py                          # reads t20s_male_json/ → output_t
 python src/main.py --data-dir ipl_json --output-dir output_ipl --format ipl
 
 # Run tests
-python -m pytest tests/ -v                  # ~25 seconds, 914 tests
+python -m pytest tests/ -v
 ```
 
 ### Start the GUI
@@ -99,53 +182,47 @@ docker compose up --build    # Backend on :8000, Frontend on :3000
 
 ---
 
-## 3. Repository Layout
+## 4. Repository Layout
 
 ```
 cricket_metrics/
 ├── PROJECT.md                  # ← This file (single source of truth)
 ├── config.yaml                 # All tuning constants
-├── requirements.txt            # Python dependencies (6 packages)
+├── requirements.txt            # Python dependencies
 ├── Dockerfile                  # Root-level backend Dockerfile for Railway
-├── .dockerignore               # Docker build context exclusions
+├── .dockerignore
 │
 ├── src/                        # Analytics pipeline (Python)
 │   ├── main.py                 # Pipeline orchestrator
 │   ├── parser.py               # Cricsheet JSON → flat deliveries DataFrame
 │   ├── context.py              # Match/innings context (par SR, par RR, phases)
 │   ├── config.py               # Config loader with deep merge & dot-notation
-│   ├── batting.py              # Batting: extraction, components, career aggregation (~2,800 lines)
-│   ├── bowling.py              # Bowling: extraction, components, career aggregation (~1,800 lines)
-│   ├── expected_value.py       # xR models, RVA, CABI, survival rates (~1,100 lines)
+│   ├── batting.py              # Batting: extraction, components, career aggregation
+│   ├── bowling.py              # Bowling: extraction, components, career aggregation
+│   ├── expected_value.py       # xR models, RVA, CABI, survival rates
 │   ├── rating.py               # Bayesian shrinkage, percentile scoring
-│   ├── presentation.py         # Grades, overall scores, archetypes
-│   ├── clutch.py               # Pressure tagging, clutch index (932 lines)
-│   ├── condition.py            # Condition-Dependence Index (770 lines)
-│   ├── era.py                  # Era baselines, cross-era normalisation (758 lines)
-│   ├── form_tracker.py         # Rolling-window form series (444 lines)
-│   ├── matchups.py             # Head-to-head analysis + Bayesian shrinkage (1,209 lines)
-│   ├── peak_ratings.py         # Peak vs current ratings (661 lines)
-│   ├── similarity.py           # Cosine-similarity player comparison (548 lines)
-│   ├── venue.py                # Venue difficulty, flat-track bully index (710 lines)
-│   ├── war.py                  # Positional WAR (595 lines)
-│   └── wpa.py                  # Win Probability Added (970 lines)
+│   ├── presentation.py         # Grades, archetypes, overall scores
+│   ├── clutch.py               # Pressure tagging, clutch index
+│   ├── condition.py            # Condition-Dependence Index
+│   ├── era.py                  # Era baselines, cross-era normalisation
+│   ├── form_tracker.py         # Rolling-window form series
+│   ├── matchups.py             # Head-to-head analysis + Bayesian shrinkage
+│   ├── peak_ratings.py         # Peak vs current ratings
+│   ├── similarity.py           # Cosine-similarity player comparison
+│   ├── venue.py                # Venue difficulty, flat-track bully index
+│   ├── war.py                  # Positional WAR
+│   ├── wpa.py                  # Win Probability Added
+│   ├── scorecards.py           # Per-match scorecards from deliveries (ball-by-ball drill-down)
+│   └── espncricinfo_scraper.py  # ESPN Cricinfo match discovery & hydration (T20I/T20/IPL)
 │
-├── tests/                      # 914 tests across 14 files
+├── tests/
 │   ├── conftest.py             # Shared synthetic fixtures
-│   ├── test_batting.py         # 193 tests
-│   ├── test_bowling.py         # 76 tests
-│   ├── test_config.py          # 73 tests
-│   ├── test_context.py         # 14 tests
-│   ├── test_presentation.py    # 49 tests
-│   ├── test_rating.py          # 38 tests
-│   ├── test_v02_phase2.py      # 37 tests (chase splits, anchor cost, selfless)
-│   ├── test_v02_phase3.py      # 69 tests (form, peak, similarity)
-│   ├── test_v02_phase3b.py     # 93 tests (venue, WAR, era)
-│   ├── test_v02_phase4.py      # 66 tests (clutch/pressure)
-│   ├── test_v02_phase5.py      # 81 tests (matchups, WPA)
-│   └── test_v02_phase6.py      # 94 tests (bowl splits, condition, matchup shrinkage)
+│   ├── test_*.py               # 14+ test files
+│   ├── scorecards/
+│   │   └── test_scorecards.py  # Scorecards module tests
+│   └── test_espncricinfo_scraper.py
 │
-├── gui/                        # Web GUI
+├── gui/
 │   ├── docker-compose.yml
 │   ├── backend/                # FastAPI Python backend
 │   │   ├── app.py              # App entry point & lifespan
@@ -153,42 +230,43 @@ cricket_metrics/
 │   │   ├── search_index.py     # Trigram fuzzy search
 │   │   ├── schemas.py          # Pydantic response models
 │   │   ├── export_static.py    # Static JSON export for GitHub Pages
-│   │   ├── requirements.txt
-│   │   ├── Dockerfile
 │   │   └── routers/
 │   │       ├── search.py       # /api/search, /api/autocomplete
-│   │       ├── player.py       # /api/player/:id (profile, form, innings, matchups, similar)
+│   │       ├── player.py       # /api/player/:id
 │   │       ├── rankings.py     # /api/rankings/bat, /api/rankings/bowl
 │   │       ├── compare.py      # /api/compare
 │   │       ├── matchups.py     # /api/matchups, /api/h2h
 │   │       ├── venues.py       # /api/venues
 │   │       ├── eras.py         # /api/eras
-│   │       └── team.py         # /api/team/analyse, /api/team/compare
+│   │       ├── team.py         # /api/team/analyse, /api/team/compare
+│   │       └── match_scorecards.py  # /api/scorecards/*
 │   │
 │   └── frontend/               # React + TypeScript (Vite)
 │       ├── src/
 │       │   ├── App.tsx         # Router + QueryClient + FormatProvider
 │       │   ├── api/            # client.ts, queries.ts, types.ts
 │       │   ├── components/     # Layout, PlayerAutocomplete, ScoreBar, GradeBadge, etc.
-│       │   ├── hooks/          # useDebounce, useTheme
+│       │   ├── hooks/         # useDebounce, useTheme
 │       │   ├── lib/            # colours.ts, format.ts
 │       │   ├── pages/          # Home, Search, PlayerProfile, Rankings, Compare,
-│       │   │                   # Matchups, TeamBuilder, Eras, Venues, Glossary, etc.
-│       │   └── styles/         # globals.css (Tailwind layers)
+│       │   │                   # Matchups, TeamBuilder, Eras, Venues, Glossary,
+│       │   │                   # Scorecards (page exists; route not yet in App.tsx)
+│       │   └── styles/         # globals.css, scorecards.css
 │       ├── vite.config.ts
 │       ├── tailwind.config.ts
 │       └── package.json
 │
-├── t20s_male_json/             # Cricsheet T20I source data (~3,000 match JSON files)
+├── cricketdata/                # cricketdata R package reference (placeholder)
+├── t20s_male_json/             # Cricsheet T20I source data
 ├── ipl_json/                   # Cricsheet IPL source data
-├── output_t20i/                # Pipeline output: T20I (4,049 batters, 3,006 bowlers)
-├── output_ipl/                 # Pipeline output: IPL (703 batters, 551 bowlers)
+├── output_t20i/                # Pipeline output: T20I
+├── output_ipl/                 # Pipeline output: IPL
 └── output/                     # Legacy output directory (fallback)
 ```
 
 ---
 
-## 4. Architecture & Data Flow
+## 5. Architecture & Data Flow
 
 ### Pipeline Flow
 
@@ -197,7 +275,7 @@ Cricsheet JSON files (t20s_male_json/ or ipl_json/)
         │
         ▼
    ┌─────────┐
-   │ parser  │ → deliveries DataFrame (one row per ball, ~721K rows for T20I)
+   │ parser  │ → deliveries DataFrame (one row per ball)
    └────┬────┘
         │
         ▼
@@ -245,19 +323,32 @@ Cricsheet JSON files (t20s_male_json/ or ipl_json/)
         └──────────┘
 ```
 
+### Scorecards (Separate from Main Pipeline)
+
+The scorecards module (`src/scorecards.py`) builds per-match JSON scorecards from the deliveries DataFrame. It is **not** currently invoked by `main.py`. To generate scorecards:
+
+```python
+from src.parser import parse_all_matches
+from src.scorecards import stream_write_scorecards
+
+df, _ = parse_all_matches("t20s_male_json")
+stream_write_scorecards(df, Path("output_t20i/scorecards"), include_deliveries=True)
+```
+
+The GUI backend expects scorecards in `output_dir/scorecards/*.json`. The Scorecards page exists (`gui/frontend/src/pages/Scorecards.tsx`) but is **not yet wired** into the App router or Layout nav.
+
 ### GUI Architecture
 
 ```
 ┌──────────────────────┐         ┌───────────────────────────────┐
-│  Frontend (React)    │  ──→    │  Backend (FastAPI + Python)    │
+│  Frontend (React)    │  ──→    │  Backend (FastAPI + Python)  │
 │  Static HTML/JS/CSS  │  /api/* │  Loads Parquet data into RAM   │
-│  ~5 MB built         │         │  ~360 MB memory at runtime     │
 └──────────────────────┘         └───────────────────────────────┘
                                           ▲
                                           │ reads at startup
                                  ┌────────┴───────────┐
-                                 │  output_t20i/ (32MB)│
-                                 │  output_ipl/  (13MB)│
+                                 │  output_t20i/      │
+                                 │  output_ipl/       │
                                  └────────────────────┘
 ```
 
@@ -266,900 +357,524 @@ Cricsheet JSON files (t20s_male_json/ or ipl_json/)
 | Concern | Detail |
 |---------|--------|
 | Backend language | Python 3.12+ (FastAPI + uvicorn) |
-| Frontend | Static files (React 18, Vite, TypeScript, Tailwind CSS) |
-| Database | **None** — all data is read from Parquet into memory at startup |
+| Frontend | React 18, Vite, TypeScript, Tailwind CSS |
+| Database | **None** — all data read from Parquet into memory at startup |
 | Data size on disk | ~45 MB total (T20I + IPL) |
 | Backend RAM | ~360 MB with both formats loaded |
-| Startup time | ~1–3 seconds |
 | API type | Read-only, stateless, no auth |
-
-### Design Principles
-
-1. **Pure functions:** Every analytical module takes DataFrames in and returns DataFrames out. No side effects, no global state mutation.
-2. **Config-driven:** All tuning constants live in `config.yaml` with hardcoded fallback defaults. Pipeline works out-of-the-box with zero configuration.
-3. **Graceful degradation:** Optional features (xR models, WPA, era adjustment) are toggled via config. When disabled or data is insufficient, the pipeline fills neutral values rather than crashing.
-4. **Context-adjusted everything:** Every metric is normalised against match-level par (par SR, par RR), venue difficulty, opposition quality, and era baselines.
 
 ---
 
-## 5. Pipeline Modules
+## 6. Pipeline Modules
 
 ### `parser.py` — Cricsheet JSON → Deliveries DataFrame
 
-Converts Cricsheet JSON match files into a flat DataFrame with one row per ball. Handles all T20 edge cases: super overs, DLS, abandoned matches, penalty runs.
+Converts Cricsheet JSON match files into a flat DataFrame with one row per ball. Handles T20 edge cases: super overs, DLS, abandoned matches, penalty runs.
 
 ### `context.py` — Match & Innings Context
 
-Computes match-level and innings-level normalisation metrics:
-- `match_par_sr` — Average strike rate across both innings (pitch/era normaliser)
-- `match_par_rr` — Average run rate
-- `match_boundary_rate` — Boundaries per legal ball
-- `match_dot_pct` — Dot ball percentage
-- Phase-specific par rates (powerplay, middle, death)
+Computes match-level and innings-level normalisation metrics: `match_par_sr`, `match_par_rr`, `match_boundary_rate`, `match_dot_pct`, phase-specific par rates.
 
-### `batting.py` (~2,800 lines) — Batting Analytics
+### `batting.py` — Batting Analytics
 
-**Innings Extraction:** One row per batter per match with raw stats, context columns (match_par_sr, opposition quality, ICC ranking weights, team quality), recency weights, selfless approach-zone SR, anchor cost (balls_to_par).
+**Innings Extraction:** One row per batter per match with raw stats, context columns, recency weights, selfless approach-zone SR, anchor cost.
 
-**Component Computation:** Transforms raw innings into 3 dimensions:
+**Component Computation:** 3 dimensions — Acceleration, Power, Control (see [Section 7](#7-metric-design)).
 
-| Dimension | Sub-Components (weight) |
-|-----------|------------------------|
-| **Acceleration** | overall_sr (0.15), sr_growth (0.12), death_sr (0.10), impact (0.13), runs_above_expected (0.25), leveraged_rva (0.25) |
-| **Power** | boundary_pct (0.12), six_rate (0.15), boundary_rate_vs_par (0.13), peak_phase_sr (0.10), finishing_burst (0.15), power_impact (0.10), cabi (0.25) |
-| **Control** | dot_pct_weighted (0.08), rotation (0.08), contribution (0.10), avg_proxy (0.22), dismissal_quality (0.10), scoring_consistency (0.14), survival_ratio (0.28) |
+**Career Aggregation:** Opposition-quality-weighted averaging → blended Z-score normalisation → weighted composite → gates → volume scaling.
 
-**Career Aggregation:** Opposition-quality-weighted averaging → blended Z-score normalisation (60% within position group + 40% population; see [Section 6](#blended-position-group-z-scores)) → weighted composite per dimension → multiplicative average quality gate → volume scaling (with beyond-reference bonus) → competition quality gate.
+### `bowling.py` — Bowling Analytics
 
-Also includes: `compute_chase_splits()` (setting vs chasing SR and avg).
+Mirror of batting with 3 dimensions: Accuracy, Control, Threat. Includes bowl first / bowl second splits.
 
-### `bowling.py` (~1,800 lines) — Bowling Analytics
-
-Mirror of batting with 3 dimensions:
-
-| Dimension | Sub-Components (weight) |
-|-----------|------------------------|
-| **Accuracy** | economy_vs_par (0.20), dot_pct (0.20), extras_penalty (0.15), boundary_penalty (0.15), run_yield_variance (0.30) |
-| **Control** | economy_vs_par (0.15), vs_others (0.22), entropy (0.10), phase_consistency (0.10), extras (0.08), extras_pct (0.05), bowling_rv (0.30) |
-| **Threat** | wickets (0.10), quality_wickets (0.10), sr (0.10), bowled_lbw (0.10), pressure (0.15), dots (0.15), wha (0.30) |
-
-Also includes: `compute_bowling_innings_splits()` (bowl first / bowl second index).
-
-### `expected_value.py` (~1,100 lines) — xR Framework
+### `expected_value.py` — xR Framework
 
 - `build_expected_value_models()` — GAM-approximated baseline run expectancies
 - `compute_context_adjusted_rva()` — Run Value Added per delivery
 - `compute_context_adjusted_boundary_index()` — CABI residuals
 - `compute_expected_survival_rates()` — Cox-inspired survival analysis
-- Win probability lookup tables for both innings
 
 ### `rating.py` — Bayesian Rating System
 
-TrueSkill-inspired hierarchical Bayesian rating (see [Section 7](#7-rating-system)).
+TrueSkill-inspired hierarchical Bayesian rating with shrinkage k, confidence bonus, percentile mapping, gates.
 
-### `presentation.py` — Grades, Archetypes, Overall Scores (Weighted)
+### `presentation.py` — Grades, Archetypes, Overall Scores
 
-**Grades:** Maps 0–100 scores to letter grades: S (95+), A+ (85+), A (75+), B+ (60+), B (45+), C+ (30+), C (15+), D (0+).
+**Grades:** S (95+), A+ (85+), A (75+), B+ (60+), B (45+), C+ (30+), C (15+), D (0+).
 
-**Overall Score:** Weighted mean of dimension scores with superstar bonus (capped at single best dimension, +5% weight per dimension ≥ 85) and a career production bonus (batting only) that adds up to 2 points based on total career runs (3000+ runs for full bonus). This ensures consistent high-volume producers rank above situational finishers with comparable per-ball metrics. Dimension z-scores use a blended approach (60% within-position-group + 40% population) to keep scores comparable across batting positions.
+**Overall Score:** Weighted mean of dimension scores + superstar bonus + career production bonus + career average bonus.
 
-**Batting Archetypes** (13 types, first-match-wins, up to 3 assigned):
+**Batting Archetypes (13):** Explosive Opener, Explosive Finisher, Power Hitter, Pinch Hitter, Aggressive Opener, Power Middle-Order, Classic Anchor, Power Anchor, All-Round Elite, Strike Rotator, Accumulator, Float, Utility Player.
 
-Archetypes are now **position-aware** — `_conditions_match()` supports `position_min` / `position_max` conditions that read the batter's `modal_position` (most frequent batting position, 1–11). This prevents top-order batters with elite ACC+POW from being labelled "Explosive Finisher" when they should be "Explosive Opener".
+**Bowling Archetypes (8):** Death Specialist, Powerplay Enforcer, Strike Bowler, Spin Restrictor, Economical, All-Round Threat, Restrictive Spinner, Enforcer.
 
-| Archetype | Key Condition(s) |
-|-----------|-----------------|
-| Explosive Opener | ACC ≥ 85, POW ≥ 85, position ≤ 3 |
-| Explosive Finisher | ACC ≥ 85, POW ≥ 85, position ≥ 4 |
-| Power Hitter | POW ≥ 85, CTRL ≤ 50 |
-| Pinch Hitter | ACC ≥ 85, CTRL ≤ 45 |
-| Aggressive Opener | ACC ≥ 80, POW ≥ 65, position ≤ 3 |
-| Power Middle-Order | ACC ≥ 80, POW ≥ 65, position ≥ 4 |
-| Classic Anchor | CTRL ≥ 80, ACC ≤ 55 |
-| Power Anchor | POW ≥ 75, CTRL ≥ 70 |
-| All-Round Elite | ACC ≥ 72, POW ≥ 68, CTRL ≥ 68 |
-| Strike Rotator | CTRL ≥ 75, POW ≤ 40 |
-| Accumulator | CTRL ≥ 70, ACC ≤ 50, POW ≤ 50 |
-| Float | ACC ≥ 60, POW ≥ 55, CTRL ≥ 60 |
-| Utility Player | *(fallback)* |
+### `scorecards.py` — Per-Match Scorecards
 
-**Bowling Archetypes** (8 types):
+- `build_scorecards(deliveries_df)` — Build scorecards keyed by `match_id`
+- `player_performances_from_scorecards(scorecards, player_id)` — Extract all match performances for a player
+- `scorecards_to_dataframe(scorecards)` — Flatten batting performances
+- `iter_scorecards(df)` — Yield per-match scorecards
+- `stream_write_scorecards(df, out_dir)` — Write one JSON file per match to disk
 
-| Archetype | Key Condition(s) |
-|-----------|-----------------|
-| Death Specialist | ACC ≥ 75, CTRL ≥ 75, THR ≥ 70 |
-| Powerplay Enforcer | THR ≥ 75, ACC ≥ 70 |
-| Strike Bowler | THR ≥ 80 |
-| Spin Restrictor | ACC ≥ 80, THR ≤ 55 |
-| Economical | ACC ≥ 78, CTRL ≥ 72, THR ≤ 55 |
-| All-Round Threat | ACC ≥ 70, CTRL ≥ 70, THR ≥ 70 |
-| Restrictive Spinner | ACC ≥ 75, THR ≤ 45 |
-| Enforcer | THR ≥ 72, ACC ≥ 55 |
+### `espncricinfo_scraper.py` — ESPN Cricinfo Scraper
 
-### `main.py` — Pipeline Orchestrator
-
-The `run_pipeline()` function runs 9 steps:
-
-| Step | Description |
-|------|-------------|
-| 1 | Parse Cricsheet JSON → deliveries DataFrame |
-| 2 | Build match/innings context |
-| 3 | Extract batting innings + compute components |
-| 4 | Extract bowling spells + compute components |
-| 5 | Aggregate careers + apply rating system |
-| 6 | Apply gates (avg quality, volume, competition) |
-| 7 | Compute all 18 features (clutch, chase splits, selfless, form, peak, similarity, venue, WAR, era, matchups, WPA, bowl splits, condition, matchup shrinkage) |
-| 8 | Presentation layer (grades, archetypes, overall scores) |
-| 9 | Export outputs (Parquet + CSV) |
+Optional scraper for T20I / T20 / IPL match discovery and hydration. Uses `python-espncricinfo` and Playwright. Supports date range, competition filtering, and caching.
 
 ---
 
-## 6. Metric Design
+## 7. Metric Design
 
-### Why Three Dimensions Instead of One?
+### Three Dimensions
 
-A single number loses too much information. Batters have different roles (anchor vs finisher vs power hitter), and bowlers have different styles (economical vs wicket-taking vs pressure). Three dimensions capture these archetypes:
-
-| Batting Example | ACC | POW | CTRL |
-|-----------------|-----|-----|------|
-| Explosive finisher (Maxwell) | High | High | Medium |
-| Anchor (Kohli) | Medium | Medium | High |
-| Balanced (Buttler) | High | High | High |
-| Low-average slogger | Medium (gated) | Medium (gated) | Low |
-
-| Bowling Example | ACC | CTRL | THR |
-|-----------------|-----|------|-----|
-| Death specialist (Bumrah) | High | Very High | High |
-| Spin restrictor (Narine) | High | High | Medium |
-| Strike bowler (Rabada) | Medium | Medium | Very High |
+| Batting | ACC | POW | CTRL |
+|---------|-----|-----|------|
+| Bowling | ACC | CTRL | THR |
 
 ### Blended Position-Group Z-Scores
 
-Z-scores for all dimension components are computed using a **weighted blend** of within-group (position or phase) and population-wide z-scores:
-
-    blended = α × within_group_z + (1 − α) × population_z     α = 0.6
-
-Pure within-group z-scoring (α = 1.0) made scores incomparable across position groups — a top-order batter who was average *for an opener* on boundary% scored near zero on Power while a middle-order batter with identical raw stats scored in the 90s (e.g. V Kohli IPL Power = 28.8 vs RG Sharma Power = 95.6 despite similar raw boundary rates). The blend preserves role-aware comparison while ensuring cross-group comparability. Configurable via `batting_position_groups.blend_alpha` and `bowling_phase_groups.blend_alpha` in `config.yaml`.
+`blended = 0.6 × within_group_z + 0.4 × population_z` — preserves role-aware comparison while keeping cross-group scores comparable.
 
 ### Context Normalisation
 
-- **SR vs par** uses a ratio (`SR / match_par_sr`), not a difference
-- **Phase-specific par**: Death batting is compared to death par, not overall match par
-- **Economy vs par** for bowlers uses `economy / match_par_rr`
-
-### Z-Score Normalisation
-
-Before compositing, every sub-component is z-score normalised using the blended approach described above (see [Blended Position-Group Z-Scores](#blended-position-group-z-scores)). Missing values are filled with 0 (population average).
+- SR vs par uses ratio (`SR / match_par_sr`), not difference
+- Phase-specific par for death vs overall
+- Economy vs par for bowlers
 
 ### Five-Layer Opposition Weighting
 
-Innings are weighted during career aggregation:
-
-```
-innings_weight = opp_bowling_quality × opp_team_quality × icc_ranking_weight
-                 × match_quality_weight × recency_weight
-```
-
-1. **Opposition bowling quality**: Average bowler strength faced → up to 1.30× weight for elite attacks
-2. **Team quality**: Iterative PageRank-style index from win rates → up to 1.25× weight
-3. **ICC ranking weight**: `floor + (ceiling − floor) × (rating/max_rating)^curve` — India → ~1.35, Oman → ~0.87, Unranked → ~0.51
-4. **Match quality weight**: Average of both teams' ICC ratings (symmetric) — India vs Australia → ~1.19, Uganda vs PNG → ~0.92
-5. **Recency**: `2^(−days_since / half_life)` with 545-day (~1.5 year) half-life and 0.03 floor
-
-Combined effect: recent innings against a top team with a strong attack in a high-quality match → ~1.59 weight; associate vs associate → ~0.54 weight.
+`innings_weight = opp_bowling_quality × opp_team_quality × icc_ranking_weight × match_quality_weight × recency_weight`
 
 ### Post-Percentile Gates
 
-After the rating system produces 0–100 scores, three multiplicative gates adjust final scores:
-
-1. **Average Quality Gate** (batting only): Penalises low-average sloggers — reduces ACC/POW scores for batters with sub-par career averages (gate base 0.55, ref avg 25)
-2. **Volume Scaling**: Penalises small sample sizes and rewards high-volume players. Base floor 0.70, reference 100 innings, curve 0.5. Players exceeding the reference get a beyond-reference bonus up to 6% (see [Volume scaling table](#7-rating-system) in Section 7)
-3. **Competition Quality Gate**: Directly scales down scores based on career-average opponent ICC rating — players facing mostly weak opposition lose 10–30%, top-nation players lose ≤3%
+1. Average Quality Gate (batting only)
+2. Volume Scaling (with beyond-reference bonus)
+3. Competition Quality Gate
 
 ---
 
-## 7. Rating System
-
-Converts raw z-score composites to displayed 0–100 scores. Applied identically to batting and bowling.
+## 8. Rating System
 
 ```
-raw composite (z-score, unbounded)
-  │
-  ▼  Step 1: Bayesian shrinkage
-adjusted = (n × raw + k × pop_mean) / (n + k)     k=12 bat, k=10 bowl
-  │
-  ▼  Step 2: Confidence bonus
-adjusted × (1 + 0.03 × ln(1+n) / ln(1+100))
-  │
-  ▼  Step 3: Percentile mapping → 0–100 score
-  │
-  ▼  Step 4: Average quality gate (batting only)
-  │
-  ▼  Step 5: Volume scaling (with beyond-reference bonus)
-  │
-  ▼  Step 6: Competition quality gate
-  │
-  ▼  Step 7: Overall score (weighted dimensions + superstar bonus
-             + career production bonus + career avg bonus)
-  │
-  ▼
-FINAL DISPLAYED SCORE (0–100)
+raw composite (z-score)
+  → Bayesian shrinkage
+  → Confidence bonus
+  → Percentile mapping → 0–100
+  → Average quality gate (batting only)
+  → Volume scaling
+  → Competition quality gate
+  → Overall score (weighted dimensions + bonuses)
+  → FINAL DISPLAYED SCORE (0–100)
 ```
 
-**Shrinkage by sample size:**
+**Overall score (batting):** `weighted_mean(ACC, POW, CTRL) + superstar_bonus + runs_bonus + avg_bonus`
 
-| Innings | Own Data | Population Mean |
-|---------|----------|----------------|
-| 1 | 8% | 92% |
-| 5 | 29% | 71% |
-| 12 | 50% | 50% |
-| 25 | 68% | 32% |
-| 50 | 81% | 19% |
-| 100 | 89% | 11% |
-
-**Volume scaling (post-percentile):**
-
-Applied to all three dimension scores. Uses a base floor + power curve up to the reference innings, then a linear beyond-reference bonus for high-volume players:
-
-| Innings | Factor | Effect |
-|---------|--------|--------|
-| 10 | ~0.79 | 21% penalty |
-| 19 | ~0.83 | 17% penalty |
-| 30 | ~0.86 | 14% penalty |
-| 50 | ~0.91 | 9% penalty |
-| 75 | ~0.96 | 4% penalty |
-| 100 | 1.00 | no penalty |
-| 120 | ~1.01 | 1% bonus |
-| 150 | ~1.03 | 3% bonus |
-| 200+ | 1.06 | 6% bonus (max) |
-
-**Overall score (batting):**
-
-The overall score combines the three dimension scores with **non-equal weights** and three additive bonuses:
-
-    overall = weighted_mean(ACC, POW, CTRL) + superstar_bonus + runs_bonus + avg_bonus
-
-**Dimension weights** (configurable via `presentation.bat_weight_*`):
-
-| Dimension | Weight | Rationale |
-|-----------|--------|-----------|
-| Acceleration | 0.35 | Scoring rate and xR value |
-| Power | 0.20 | Boundary-hitting ability (lowest weight — raw six-hitting can inflate scores for lower-average batters) |
-| Control | 0.45 | Survival, consistency, batting average (highest weight — not getting out is the single most important T20 skill) |
-
-Control gets the highest weight because every ball survived is a ball available to score. This directly addresses cases where a high-Power, low-average batter (e.g. Rohit avg 30, SR 132) would otherwise outscore a high-average batter with similar SR (e.g. Kohli avg 40, SR 133) under equal weights.
-
-**Additive bonuses:**
-
-- **Superstar bonus** (weight 0.05): if any dimension exceeds 85, the single best dimension's excess is added at 5% weight.
-- **Career production bonus** (max 2.0 points): additive bonus based on total career runs — `bonus = 2.0 × clip(runs / 3000, 0, 1)^0.8`. Players with 3000+ runs get the full 2-point bonus; a 700-run finisher gets ~0.6 points.
-- **Career average bonus** (max 5.0 points): additive bonus based on career batting average — `bonus = 5.0 × clip(avg / 38, 0, 1)^2.5`. The super-linear curve (exponent 2.5) ensures the reward accelerates for elite averages: averaging 30 earns ~2.75 points while averaging 38+ earns the full 5.0 points.
-
-| Career Avg | Avg Bonus | Career Runs | Runs Bonus |
-|------------|-----------|-------------|------------|
-| 15 | ~0.49 | 500 | ~0.42 |
-| 20 | ~1.00 | 1000 | ~0.72 |
-| 25 | ~1.76 | 1500 | ~0.99 |
-| 30 | ~2.75 | 2000 | ~1.24 |
-| 35 | ~4.07 | 3000+ | 2.00 |
-| 38+ | 5.00 | | |
+- Dimension weights: ACC 0.35, POW 0.20, CTRL 0.45
+- Career production bonus: up to 2 points (3000+ runs)
+- Career average bonus: up to 5 points (avg 38+)
 
 ---
 
-## 8. Feature Inventory
+## 9. Feature Inventory
 
 | # | Feature | Module | Description |
 |---|---------|--------|-------------|
-| 1 | Grades | `presentation.py` | S/A+/A/B+/B/C+/C/D letter grades from 0–100 scores |
-| 2 | Archetypes | `presentation.py` | 11 batting + 8 bowling archetypes (up to 3 per player) |
-| 3 | Clutch Index | `clutch.py` | Delivery-level pressure tagging; composite performance delta under pressure vs normal |
-| 4 | Head-to-Head Matchups | `matchups.py` | Batter × bowler matchup aggregation with dominance index and phase breakdowns |
-| 5 | Peak vs Current | `peak_ratings.py` | Recency-free career aggregate + sliding 2-year window peak |
+| 1 | Grades | `presentation.py` | S/A+/A/B+/B/C+/C/D letter grades |
+| 2 | Archetypes | `presentation.py` | 13 batting + 8 bowling archetypes |
+| 3 | Clutch Index | `clutch.py` | Performance delta under pressure |
+| 4 | Head-to-Head Matchups | `matchups.py` | Batter × bowler with dominance index |
+| 5 | Peak vs Current | `peak_ratings.py` | Recency-free career + sliding 2-year peak |
 | 6 | Chase Master Index | `batting.py` | Setting vs chasing SR and avg splits |
-| 7 | Similarity Engine | `similarity.py` | Cosine similarity on z-normalised career component vectors |
-| 8 | Selfless Index | `batting.py` | Milestone approach-zone SR (40–49, 90–99) — selfless vs stat-padder |
+| 7 | Similarity Engine | `similarity.py` | Cosine similarity on career component vectors |
+| 8 | Selfless Index | `batting.py` | Milestone approach-zone SR |
 | 9 | Venue Difficulty | `venue.py` | Per-venue baselines + flat-track bully index |
-| 10 | Win Probability Added | `wpa.py` | Empirical WP models + per-delivery WPA scoring (disabled by default) |
-| 11 | Anchor Cost | `batting.py` | Balls-to-par: deliveries before cumulative SR reaches match par |
-| 12 | Wicket Quality | `bowling.py` | Position-weighted wickets (top-order worth ~1.5× tailenders) |
-| 13 | Form Tracker | `form_tracker.py` | Rolling-window batting/bowling form time-series |
-| 14 | Positional WAR | `war.py` | Value above replacement within position/phase group |
-| 15 | Era Adjustment | `era.py` | Cross-era normalisation with rolling 3-year windows (disabled by default) |
+| 10 | Win Probability Added | `wpa.py` | Empirical WP models (disabled by default) |
+| 11 | Anchor Cost | `batting.py` | Balls-to-par |
+| 12 | Wicket Quality | `bowling.py` | Position-weighted wickets |
+| 13 | Form Tracker | `form_tracker.py` | Rolling-window form time-series |
+| 14 | Positional WAR | `war.py` | Value above replacement |
+| 15 | Era Adjustment | `era.py` | Cross-era normalisation (disabled by default) |
 | 16 | Bowl Splits | `bowling.py` | Bowl first / bowl second index |
-| 17 | Condition Dependence | `condition.py` | Flat-track bully / tough-track star detection via Pearson correlation |
-| 18 | Matchup Shrinkage | `matchups.py` | Bayesian Empirical Bayes shrinkage of sparse matchup data toward archetype baselines |
+| 17 | Condition Dependence | `condition.py` | Flat-track bully detection |
+| 18 | Matchup Shrinkage | `matchups.py` | Bayesian Empirical Bayes shrinkage |
 
 ---
 
-## 9. Configuration System
+## 10. Configuration System
 
 ### How It Works
 
-1. `src/config.py` defines `_DEFAULTS` — the complete set of hardcoded defaults
+1. `src/config.py` defines `_DEFAULTS`
 2. `config.yaml` provides user overrides (optional)
-3. `_deep_merge(_DEFAULTS, yaml_overrides)` produces the final config
+3. `_deep_merge(_DEFAULTS, yaml_overrides)` produces final config
 4. `cfg("dotted.key.path")` provides module-level singleton access
-
-**Important:** For weight dicts (which must sum to 1.0), you must provide ALL keys in your YAML override because merge adds your values on top of default keys.
 
 ### Key Config Sections
 
-> **v3.0 additions** are marked with ★ below.
-
-
-| Section | Purpose |
-|---------|---------|
-| `pipeline.*` | Min innings/overs thresholds |
-| `rating.*` | Shrinkage k, confidence alpha |
-| `batting_acceleration_weights` | ACC dimension weights (6 keys, sum=1.0) |
-| `batting_power_weights` | POW dimension weights (7 keys, sum=1.0) |
-| `batting_control_weights` | CTRL dimension weights (7 keys, sum=1.0) |
-| `bowling_accuracy_weights` | ACC dimension weights (5 keys, sum=1.0) |
-| `bowling_control_weights` | CTRL dimension weights (7 keys, sum=1.0) |
-| `bowling_threat_weights` | THR dimension weights (7 keys, sum=1.0) |
-| `batting_avg_quality.*` | Average quality gate parameters |
-| `batting_volume.*` | Volume scaling (base, ref, curve, beyond_max) |
-| `bowling_volume.*` | Bowling volume scaling (same structure) |
-| `batting_position_groups.*` | Position-group z-scoring (enabled, min_group_size, blend_alpha) |
-| `bowling_phase_groups.*` | Phase-group z-scoring (enabled, min_group_size, blend_alpha) |
-| `presentation.runs_bonus_*` | Career production bonus (max, ref, curve) |
-| `icc_ranking.*` | Per-team ICC rating values and curve parameters |
-| `match_quality.*` | Symmetric match quality weighting |
-| `recency.*` | Time-decay half-life (default 545 days) |
-| `clutch.*` | Pressure thresholds |
-| `matchups.*` | Min balls, top-K bunnies/dominant |
-| `form_tracker.*` | Window sizes (default 8 bat, 10 bowl) |
-| `war.*` | Replacement percentile (default 25th) |
-| `wpa.*` | WPA model parameters (disabled by default) |
-| `era_adjustment.*` | Era normalisation (disabled by default) |
-| `condition_dependence.*` | CDI parameters |
-| `matchup_shrinkage.*` | Bayesian shrinkage balls (default 30) |
-
-**★ Batting dimension weights** (`presentation.bat_weight_*`): Non-equal weights for the overall score — ACC 0.35, POW 0.20, CTRL 0.45. Configurable to rebalance how much Power vs Control matters.
-
-**★ Career average bonus** (`presentation.avg_bonus_*`): Additive bonus on overall score for elite batting averages — max 5.0 points at avg 38+, super-linear curve (exponent 2.5).
-
-### Common Recipes
-
-**Tune a metric weight:**
-1. Edit `config.yaml` (e.g., `bowling_control_weights.vs_others: 0.40`)
-2. Ensure weights sum to 1.0
-3. Re-run: `python src/main.py`
-
-**Change recency half-life:**
-```yaml
-recency:
-  enabled: true
-  half_life_days: 365   # 1 year instead of 1.5
-  min_weight: 0.03
-```
-
-**Add a player alias (deduplication):**
-```yaml
-player_aliases:
-  "secondary_registry_id": "canonical_registry_id"
-player_name_overrides:
-  "canonical_registry_id": "Preferred Display Name"
-```
+`pipeline.*`, `rating.*`, `batting_*_weights`, `bowling_*_weights`, `batting_avg_quality.*`, `batting_volume.*`, `bowling_volume.*`, `batting_position_groups.*`, `bowling_phase_groups.*`, `presentation.*`, `icc_ranking.*`, `match_quality.*`, `recency.*`, `clutch.*`, `matchups.*`, `form_tracker.*`, `war.*`, `wpa.*`, `era_adjustment.*`, `condition_dependence.*`, `matchup_shrinkage.*`
 
 ---
 
-## 10. GUI — Backend (FastAPI)
+## 11. GUI — Backend (FastAPI)
 
 ### Data Loading
 
-`data_loader.py` implements `MultiDataStore` — auto-discovers `output_t20i/` and `output_ipl/` directories at startup. Each format gets its own `DataStore` with all DataFrames loaded into memory. The `?format=` query parameter selects which dataset to query.
+`data_loader.py` implements `MultiDataStore` — auto-discovers `output_t20i/` and `output_ipl/` at startup. Each format gets its own `DataStore` with all DataFrames loaded into memory. The `?format=` query parameter selects which dataset to query.
 
-### DataFrames Loaded at Startup
+### Routers
 
-| Variable | Source File | Rows (T20I) | Key Columns |
-|----------|-----------|-------------|-------------|
-| `bat_careers` | `batting_careers_full.parquet` | ~4K | scores, grades, archetype(s), peak ratings, WAR, clutch, chase splits, etc. |
-| `bowl_careers` | `bowling_careers_full.parquet` | ~3K | scores, grades, archetype(s), peak ratings, WAR, clutch, etc. |
-| `bat_innings` | `batting_innings_detail.parquet` | ~51K | per-innings stats with all component columns |
-| `bowl_spells` | `bowling_spells_detail.parquet` | ~38K | per-spell stats |
-| `bat_form` | `batting_form_series.parquet` | ~150K | rolling window form series |
-| `bowl_form` | `bowling_form_series.parquet` | ~100K | rolling window form series |
-| `bat_sim` | `batting_similarities.parquet` | ~40K | top-K similar batters |
-| `bowl_sim` | `bowling_similarities.parquet` | ~25K | top-K similar bowlers |
-| `matchups` | `matchups.parquet` | variable | batter × bowler matchup stats + dominance |
-| `matchups_phase` | `matchups_by_phase.parquet` | variable | phase-level matchups |
-| `venue` | `venue_baselines.parquet` | ~200 | per-venue difficulty scores |
+| Router | Prefix | Description |
+|--------|--------|-------------|
+| search | /api | Search, autocomplete, countries, archetypes |
+| player | /api | Player profile, innings, spells, form, matchups, similar |
+| rankings | /api | Batting/bowling leaderboards |
+| compare | /api | Side-by-side comparison |
+| matchups | /api | Head-to-head, explore, bunnies, nemeses |
+| venues | /api | Venue list, detail, flat-track index |
+| eras | /api | Era baselines |
+| team | /api | Team analyse, compare, auto-fill |
+| match_scorecards | /api | Scorecards search, get by match_id, player performances |
 
-### Search Index
+### Scorecards API
 
-Trigram-based fuzzy matching built at startup from all player names. Supports exact substring, fuzzy matching ("Bumra" → "JJ Bumrah"), and country-filtered search.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/scorecards/available` | List all match IDs with scorecards |
+| GET | `/api/scorecards/{match_id}` | Full scorecard JSON |
+| GET | `/api/scorecards/search` | Search by date range, team, player_id |
+| GET | `/api/scorecards/player/{player_id}` | All per-match performances for a player |
 
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OUTPUT_DIR` | *(auto-discover)* | Path to pipeline output directory |
-| `PORT` | `8000` | Server port |
-| `HOST` | `0.0.0.0` | Server host |
+**Note:** Scorecards are read from `output_dir/scorecards/*.json`. The main pipeline does not write these; use `stream_write_scorecards()` from `src.scorecards` or a separate script.
 
 ---
 
-## 11. GUI — Frontend (React + TypeScript)
+## 12. GUI — Frontend (React + TypeScript)
 
 ### Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | React 18 + TypeScript |
-| Routing | React Router v6 |
-| State | TanStack Query (React Query) |
-| Charts | Recharts + D3 (custom radar/spider) |
-| Styling | Tailwind CSS + shadcn/ui |
-| Build | Vite |
+React 18, TypeScript, React Router v6, TanStack Query, Recharts + D3, Tailwind CSS, shadcn/ui, Vite.
 
 ### Pages & Routes
 
-| Route | Page | Description |
-|-------|------|-------------|
-| `/` | Home | Dashboard with hero search, leaderboard cards |
-| `/search` | Search | Player search with filters |
-| `/player/:id` | Player Profile | Full player profile (batting + bowling) |
-| `/player/:id/innings` | Innings Log | Paginated batting innings log |
-| `/player/:id/spells` | Spells Log | Paginated bowling spells log |
-| `/rankings` | Rankings | Leaderboards with sorting, filtering, pagination |
-| `/compare?ids=...` | Compare | Side-by-side comparison (2–4 players), role-aware radar |
-| `/matchups` | Matchups | Head-to-head lookup and matchup explorer |
-| `/similar/:id` | Similar Players | Cosine-similarity nearest neighbours |
-| `/team-builder` | Team Builder | Build hypothetical XI, team vs team compare mode |
-| `/eras` | Era Explorer | Timeline with par SR, boundary rate, avg RR, predicted score |
-| `/venues` | Venue Analysis | Venue difficulty and flat-track index |
-| `/glossary` | Glossary | Metric definitions and methodology |
+| Route | Page | Status |
+|-------|------|--------|
+| `/` | Home | ✅ |
+| `/search` | Search | ✅ |
+| `/player/:id` | Player Profile | ✅ |
+| `/player/:id/innings` | Innings Log | ✅ |
+| `/player/:id/spells` | Spells Log | ✅ |
+| `/rankings` | Rankings | ✅ |
+| `/compare` | Compare | ✅ |
+| `/matchups` | Matchups | ✅ |
+| `/matchups/explore` | Matchups Explorer | ✅ |
+| `/similar/:id` | Similar Players | ✅ |
+| `/team-builder` | Team Builder | ✅ |
+| `/eras` | Era Explorer | ✅ |
+| `/venues` | Venue Analysis | ✅ |
+| `/glossary` | Glossary | ✅ |
+| `/scorecards` | Match Scorecards | ⚠️ Page exists; route not in App.tsx; nav not in Layout |
 
 ### Key Components
 
-| Component | Description |
-|-----------|-------------|
-| `<FormatToggle>` | T20I/IPL format switcher (pill toggle in nav, only shows when >1 format) |
-| `<PlayerAutocomplete>` | Fuzzy search input with dropdown suggestions |
-| `<ScoreBar>` | Horizontal 0–100 bar with colour gradient (S=gold → D=red) |
-| `<GradeBadge>` | Letter grade chip with colour coding |
-| `<ArchetypeBadge>` | Archetype label with icon (supports multiple archetypes with opacity fade) |
-| `<MetricTooltip>` | Hover tooltip with plain-English metric explanations |
-| `<FormSparkline>` | Mini inline time-series chart for form indication |
-| `<ExportButton>` | CSV / PNG / shareable URL export |
-| `<ThemeToggle>` | Dark/light mode toggle with OS preference detection |
-
-### Score Colour Mapping
-
-| Score Range | Colour | Grade |
-|-------------|--------|-------|
-| 95–100 | Gold (#FFD700) | S |
-| 85–94 | Emerald (#10B981) | A+ |
-| 75–84 | Green (#22C55E) | A |
-| 60–74 | Cyan (#06B6D4) | B+ |
-| 45–59 | Blue (#3B82F6) | B |
-| 30–44 | Amber (#F59E0B) | C+ |
-| 15–29 | Orange (#F97316) | C |
-| 0–14 | Red (#EF4444) | D |
-
-### Frontend Environment
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VITE_API_URL` | `http://localhost:8000` | Backend API base URL |
+`FormatToggle`, `PlayerAutocomplete`, `ScoreBar`, `GradeBadge`, `ArchetypeBadge`, `MetricTooltip`, `FormSparkline`, `ExportButton`, `ThemeToggle`.
 
 ---
 
-## 12. API Reference
+## 13. API Reference
 
-All endpoints return JSON. The API is read-only and stateless. All endpoints accept an optional `?format=t20i|ipl` query parameter.
+All endpoints return JSON. Optional `?format=t20i|ipl` query parameter.
 
 ### Meta & Health
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/health` | Health check (status, loaded formats) |
-| `GET` | `/api/meta` | Dataset metadata (counts, countries, archetypes) |
-| `GET` | `/api/formats` | List available formats (e.g., `["t20i", "ipl"]`) |
+| GET | `/api/health` | Health check |
+| GET | `/api/meta` | Dataset metadata |
+| GET | `/api/formats` | List available formats |
 
-### Search
+### Search, Player, Rankings, Compare, Matchups, Venues, Eras, Team
 
-| Method | Path | Params | Description |
-|--------|------|--------|-------------|
-| `GET` | `/api/search` | `q`, `role`, `country`, `archetype`, `limit` | Full-text search |
-| `GET` | `/api/search/autocomplete` | `q` | Lightweight autocomplete |
-| `GET` | `/api/search/countries` | — | All countries in dataset |
-| `GET` | `/api/search/archetypes` | — | Archetype lists by role |
-
-### Player
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/player/:id` | Full profile (auto-detects bat/bowl) |
-| `GET` | `/api/player/:id/batting` | Batting-specific profile |
-| `GET` | `/api/player/:id/bowling` | Bowling-specific profile |
-| `GET` | `/api/player/:id/innings` | Paginated batting innings log |
-| `GET` | `/api/player/:id/spells` | Paginated bowling spells log |
-| `GET` | `/api/player/:id/form` | Form time-series |
-| `GET` | `/api/player/:id/matchups` | Paginated matchup list |
-| `GET` | `/api/player/:id/similar` | Similar players |
-
-### Rankings
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/rankings/bat` | Batting leaderboard (paginated, sortable, filterable) |
-| `GET` | `/api/rankings/bowl` | Bowling leaderboard |
-| `GET` | `/api/rankings/top` | Top N by any metric |
-| `GET` | `/api/rankings/columns/bat` | Available sort columns for batting |
-| `GET` | `/api/rankings/columns/bowl` | Available sort columns for bowling |
-
-### Comparison
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/compare?ids=...` | Side-by-side profile comparison (2–4 players) |
-| `GET` | `/api/compare/form?ids=...` | Overlaid form time-series |
-| `GET` | `/api/compare/shared-matchups?ids=...` | Shared matchup opponents |
-
-### Matchups
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/matchups?bat=...&bowl=...` | Head-to-head matchup detail |
-| `GET` | `/api/matchups/explore?player_id=...&role=...` | Paginated matchup explorer |
-| `GET` | `/api/matchups/top-bunnies?bowler_id=...` | Top bunny matchups |
-| `GET` | `/api/matchups/top-nemeses?batter_id=...` | Top nemesis matchups |
-| `GET` | `/api/matchups/top-dominant?batter_id=...` | Top dominant matchups |
-
-### Venues
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/venues` | All venues with baselines |
-| `GET` | `/api/venues/detail?venue=...` | Single venue detail |
-| `GET` | `/api/venues/players?venue=...&role=...` | Player performance at a venue |
-| `GET` | `/api/venues/flat-track-index` | Flat-track bully leaderboard |
-
-### Eras
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/eras` | Era baselines by year (par SR, boundary rate, dot %, multiplier) |
-
-### Team Builder
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/team/analyse?ids=...` | Aggregate team analysis (avg scores, WAR, weaknesses) |
-| `GET` | `/api/team/compare?a=...&b=...` | Team vs team comparison with edge indicators |
-| `GET` | `/api/team/auto-fill?strategy=...` | Auto-fill XI suggestions |
+See [Section 11](#11-gui--backend-fastapi) for router summaries.
 
 ---
 
-## 13. Output Files
+## 14. Output Files
 
 ### CSV Outputs
 
-| File | Description |
-|------|-------------|
-| `batting_profiles.csv` | One row per batter: IDs, career stats, 0–100 scores, grades, archetypes |
-| `bowling_profiles.csv` | One row per bowler: IDs, career stats, 0–100 scores, grades, archetypes |
-| `era_summary.csv` | Per-year era baselines (human-readable) |
-| `potential_duplicates.csv` | Suspected player ID duplicates for manual review |
+`batting_profiles.csv`, `bowling_profiles.csv`, `era_summary.csv`, `potential_duplicates.csv` (if applicable).
 
 ### Parquet Outputs
 
-| File | Rows (T20I) | Description |
-|------|-------------|-------------|
-| `batting_careers_full.parquet` | ~4K | Complete batting career profiles with all intermediate columns |
-| `bowling_careers_full.parquet` | ~3K | Complete bowling career profiles |
-| `batting_innings_detail.parquet` | ~51K | Per-innings component breakdown |
-| `bowling_spells_detail.parquet` | ~38K | Per-spell component breakdown |
-| `batting_form_series.parquet` | ~150K | Rolling-window batting form time-series |
-| `bowling_form_series.parquet` | ~100K | Rolling-window bowling form time-series |
-| `batting_similarities.parquet` | ~40K | Top-K similar batters |
-| `bowling_similarities.parquet` | ~25K | Top-K similar bowlers |
-| `matchups.parquet` | variable | Batter × bowler head-to-head matchups |
-| `matchups_by_phase.parquet` | variable | Phase-level matchup breakdowns |
-| `venue_baselines.parquet` | ~200 | Per-venue difficulty scores |
-| `era_baselines.parquet` | — | Year-by-year era baselines |
-| `batting_condition_terciles.parquet` | — | Per-batter condition tercile splits |
+`batting_careers_full.parquet`, `bowling_careers_full.parquet`, `batting_innings_detail.parquet`, `bowling_spells_detail.parquet`, `batting_form_series.parquet`, `bowling_form_series.parquet`, `batting_similarities.parquet`, `bowling_similarities.parquet`, `matchups.parquet`, `matchups_by_phase.parquet`, `venue_baselines.parquet`, `era_baselines.parquet`, `batting_condition_terciles.parquet`, `allrounder_war.parquet`.
 
-### Key DataFrame Schemas
+### Scorecards (Optional)
 
-**Batting Careers:** `batter_id`, `batter`, `country`, `innings_count`, `total_runs`, `total_balls`, `career_sr`, `career_avg`, `raw_acceleration`, `raw_power`, `raw_control`, `score_acceleration`, `score_power`, `score_control`, `grade_overall`, `archetype`, `archetypes`, `war_batting`, `clutch_index`, `chase_master_index`, `flat_track_index`, `peak_acceleration`, `peak_power`, `peak_control`, `is_provisional_bat`, `position_group`, `setting_sr`, `setting_avg`, `chasing_sr`, `chasing_avg`, …
-
-**Bowling Careers:** `bowler_id`, `bowler`, `country`, `matches`, `total_overs`, `total_wickets`, `career_economy`, `career_sr_bowl`, `score_accuracy`, `score_control`, `score_threat`, `grade_overall`, `archetype`, `war_bowling`, `clutch_index_bowl`, `bowl_first_index`, `bowl_second_index`, `is_provisional_bowl`, …
+`output_dir/scorecards/*.json` — per-match scorecard JSON (built by `stream_write_scorecards`, not by main pipeline).
 
 ---
 
-## 14. Testing
+## 15. Testing
 
-### Test Suite
-
-914 tests across 14 files, all passing. Tests use **synthetic fixtures** (no real match data required) defined in `tests/conftest.py`.
-
-```
-tests/test_batting.py          — 193 tests
-tests/test_bowling.py          —  76 tests
-tests/test_config.py           —  73 tests
-tests/test_context.py          —  14 tests
-tests/test_presentation.py     —  49 tests
-tests/test_rating.py           —  38 tests
-tests/test_v02_phase2.py       —  37 tests (chase splits, anchor cost, selfless)
-tests/test_v02_phase3.py       —  69 tests (form, peak, similarity)
-tests/test_v02_phase3b.py      —  93 tests (venue, WAR, era)
-tests/test_v02_phase4.py       —  66 tests (clutch/pressure)
-tests/test_v02_phase5.py       —  81 tests (matchups, WPA)
-tests/test_v02_phase6.py       —  94 tests (bowl splits, condition, matchup shrinkage)
-────────────────────────────────────────────
-TOTAL                          — 914 tests, ALL PASSING
-```
-
-### Running Tests
-
-```bash
-python -m pytest tests/ -v                          # Full suite (~25s)
-python -m pytest tests/test_batting.py -v           # Single module
-python -m pytest tests/ --cov=src --cov-report=term-missing  # With coverage
-```
-
-### Key Fixtures
-
-| Fixture | Description |
-|---------|-------------|
-| `synthetic_deliveries_simple` | Basic two-innings match with known batter/bowler stats |
-| `synthetic_deliveries_with_phases` | Match with deliveries across PP/middle/death |
-| `synthetic_multi_match_career` | Multiple matches for career aggregation testing |
-| `synthetic_deliveries_with_extras` | Match with wides, no-balls, leg-byes |
-| `innings_context_simple` | Pre-built innings context for unit tests |
-| `match_context_simple` | Pre-built match context |
+Tests use synthetic fixtures in `tests/conftest.py`. Run with `python -m pytest tests/ -v`.
 
 ---
 
-## 15. Hosting & Deployment
+## 16. Hosting & Deployment
 
-### Architecture for Hosting
+Options: Railway (recommended), Docker Compose, Vercel (frontend) + Railway (backend), VPS with Nginx.
 
-The app has two parts: a **static frontend** (~5 MB) and a **Python backend** (~360 MB RAM, reads Parquet at startup, no database). Both are containerised.
-
-### Option A: Railway (Recommended — Easiest)
-
-1. Push repo to GitHub (include `output_t20i/` and `output_ipl/` in the repo)
-2. Create Railway project → add Backend service (root Dockerfile, port 8000)
-3. Add Frontend service (gui/frontend/Dockerfile, set `VITE_API_URL` to backend URL)
-4. Add backend production domain to CORS in `gui/backend/app.py`
-
-### Option B: Docker Compose (Any Server)
-
-```bash
-cd gui
-docker compose up --build    # Backend :8000, Frontend :3000
-```
-
-### Option C: Vercel (Frontend) + Railway (Backend)
-
-Frontend as static site on Vercel/Cloudflare Pages (free), backend on Railway/Render.
-
-### Option D: VPS (DigitalOcean, Hetzner)
-
-Nginx reverse proxy → uvicorn backend + static frontend build. See the `Dockerfile` and `gui/frontend/Dockerfile` for container setup.
-
-### Key Deployment Notes
-
-- Backend auto-discovers `output_t20i/` and `output_ipl/` — do **not** set `OUTPUT_DIR`
-- Frontend needs `VITE_API_URL` set at **build time** (it's baked into the static bundle)
-- Backend CORS: add your frontend domain to `allow_origins` in `gui/backend/app.py`
-- RAM requirement: ~360 MB with both T20I and IPL loaded
-- The root-level `Dockerfile` is designed for Railway (copies data into image)
-- `gui/backend/Dockerfile` is for local dev (expects data mounted as volumes)
-
-### Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| "Available formats: ['t20i']" — IPL missing | Ensure `output_ipl/` is in the Docker build context |
-| Backend crashes with "Killed" / OOM | Need ≥512 MB RAM |
-| CORS errors in browser | Add frontend domain to `allow_origins` in `app.py` |
-| Frontend shows loading skeletons | Backend isn't returning data — check `/api/health` |
-| Form Tracker flat line | Pipeline data may be stale — re-run pipeline |
+- Backend auto-discovers `output_t20i/` and `output_ipl/`
+- Frontend needs `VITE_API_URL` set at build time
+- Backend CORS: add frontend domain to `allow_origins` in `app.py`
+- RAM: ~360 MB with both formats loaded
 
 ---
 
-## 16. Design Decisions
+## 17. Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| **ICC ranking-based opposition weighting** | External authoritative signal capturing squad depth, coaching, competitiveness beyond raw in-sample stats |
-| **Separate match quality weight** | Captures contest quality (both teams elite) vs just opponent strength |
-| **Post-percentile competition quality gate** | Prevents inflation for players who only face weak opposition |
-| **Z-score over min-max** | Robust to outliers, natural interpretation (0 = average), combines different scales |
-| **Opposition quality uses bowling stats, not batting ratings** | Avoids circular dependency between batting and bowling ratings |
-| **Bayesian shrinkage over minimum-innings cutoff** | Gracefully handles low samples (3-innings player gets a rating, pulled toward mean) |
-| **Recency weighting (545-day half-life)** | T20 evolves fast; recent form 2× more predictive than 1.5-year-old data |
-| **Phase-specific par rates** | Death SR of 170 vs overall par of 140 would overstate performance |
-| **No auto-merge duplicates** | False positives (merging different people) worse than false negatives |
-| **FastAPI over JS backend** | Same language as pipeline; native Parquet/pandas support; no ETL needed |
-| **No database** | All data fits in memory (~360 MB); sub-millisecond queries; zero infrastructure |
-| **Superstar bonus capped at max** | Prevents explosive finishers from inflating overall score via sum of bonuses |
-| **Responsibility multiplier on control** | Batters facing more balls (avg 75+ balls/inn) get up to 15% control bonus |
+| ICC ranking-based opposition weighting | External authoritative signal |
+| Blended z-scores | Cross-position comparability |
+| Bayesian shrinkage | Graceful handling of low samples |
+| Recency weighting (545-day half-life) | T20 evolves fast |
+| No database | All data fits in memory |
+| FastAPI over JS backend | Same language as pipeline; native Parquet/pandas |
 
 ---
 
-## 17. Glossary
+## 18. Glossary
 
 | Term | Definition |
-|------|-----------|
-| **Delivery** | A single ball bowled (the atomic unit of cricket data) |
-| **Innings** | One team's turn to bat (typically ~120 legal deliveries in T20) |
-| **Spell** | A bowler's contribution in one innings (1–4 overs) |
-| **Phase** | Powerplay (overs 0–5), Middle (6–15), Death (16–19) |
-| **Match par SR** | Average strike rate across both innings — proxy for pitch/era difficulty |
-| **Registry ID** | Cricsheet's unique identifier for a player |
-| **Provisional** | Player whose rating is heavily shrunk toward population mean (<10 batting innings or <30 bowling overs) |
-| **Z-score** | `(value − mean) / std` — number of standard deviations from average |
-| **Bayesian shrinkage** | Pulling individual estimates toward population mean, weighted by sample size |
-| **Percentile score** | 0–100 value where 50 = median, 99 = top 1% |
-| **ICC ranking weight** | Multiplicative per-innings weight from opponent's ICC T20I team rating |
-| **Match quality weight** | Symmetric weight from average ICC rating of both teams |
-| **Competition quality gate** | Post-percentile multiplicative penalty based on career-avg opponent quality |
-| **Average quality gate** | Multiplicative penalty for low-average batters (reduces ACC/POW scores) |
-| **Volume scaling** | Multiplicative factor rewarding players with more innings/matches |
-| **Recency weight** | Exponential time-decay: `2^(−days/half_life)` |
-| **Economy vs others** | Bowler's economy minus other bowlers' economy in the same innings |
-| **Wicket quality** | Position-weighted wicket count (top-order ~1.5× tailenders) |
-| **Dominance index** | Composite matchup measure: SR premium + boundary bonus − dot penalty − dismissal rate |
-| **WAR** | Wins Above Replacement — value above the replacement-level player in the same role |
-| **Clutch index** | Performance composite under pressure minus performance under normal conditions |
-| **Flat-track bully index** | Pearson correlation of performance vs pitch difficulty (positive = bully) |
-| **CDI** | Condition Dependence Index — measures if performance spikes in favourable conditions |
-| **CABI** | Context-Adjusted Boundary Index — boundary hitting residual after adjusting for context |
-| **RVA** | Run Value Added — per-delivery expected runs contribution from xR framework |
-| **WHA** | Wicket Hazard Added — bowling equivalent, measures added dismissal probability |
+|------|------------|
+| **Delivery** | A single ball bowled |
+| **Phase** | Powerplay (0–5), Middle (6–15), Death (16–19) |
+| **Match par SR** | Average strike rate across both innings |
+| **Registr ID** | Cricsheet's unique player identifier |
+| **Provisional** | Heavily shrunk rating (<10 innings or <30 overs) |
+| **Z-score** | `(value − mean) / std` |
+| **Bayesian shrinkage** | Pulling estimates toward population mean |
 
 ---
 
-## 18. Version History
+## 19. Version History
 
 ### v0.1 — Core Engine
 
-- Parser, context, batting, bowling modules
-- 3-dimension rating system with Bayesian shrinkage
-- Basic pipeline producing CSV profiles
+Parser, context, batting, bowling, 3-dimension rating system.
 
 ### v0.2 — Feature Expansion (18 Features)
 
-All 18 analytical features implemented:
-1. Grades & Archetypes (`presentation.py`)
-2. Clutch / Pressure Index (`clutch.py`)
-3. Head-to-Head Matchups + Bayesian Shrinkage (`matchups.py`)
-4. Peak vs Current Ratings (`peak_ratings.py`)
-5. Chase Master Index, Selfless Index, Anchor Cost (`batting.py`)
-6. Form Tracker (`form_tracker.py`)
-7. Player Similarity Engine (`similarity.py`)
-8. Venue & Pitch Difficulty (`venue.py`)
-9. Win Probability Added (`wpa.py`)
-10. Positional WAR (`war.py`)
-11. Era-Adjusted Ratings (`era.py`)
-12. Bowl First / Bowl Second Index (`bowling.py`)
-13. Condition-Dependence Metrics (`condition.py`)
-
-Test count: 914 tests, all passing.
+All 18 analytical features implemented.
 
 ### v1.0 — Stability Release
 
-- Fixed critical `KeyError: match_par_sr` crash in condition dependence
-- Fixed config weight dict sums (6/6 now sum to 1.0)
-- Fixed archetype ordering (Float no longer matches before specific types)
-- Graceful handling of missing xR columns
-- All 914 tests passing, 0 runtime errors
+Critical bug fixes, config weight sums, archetype ordering.
 
 ### v0.3 / v2.0 — GUI & IPL Support
 
-Major features implemented:
-1. **IPL Dataset Support** — Full pipeline run on IPL data (703 batters, 551 bowlers), `MultiDataStore` with format toggle
-2. **Rating Rebalance** — Superstar bonus capped at max (not sum), weight reduced 0.15→0.10; control weights rebalanced; responsibility multiplier for high-volume batters
-3. **Multiple Archetypes** — Up to 3 archetypes per player with comma-separated storage
-4. **Team vs Team Comparison** — Compare mode in Team Builder with edge indicators
-5. **Role-Aware Compare** — Auto/bat/bowl view modes, separate radar axes per role
-6. **Era Timeline Enhancements** — Avg run rate, predicted score metrics with toggles
-7. **Form Tracker Y-Axis Fix** — Auto-scales with 15% padding
-8. **Bowling Median Fix** — Excludes non-bowlers from percentile computations
-9. **Customisable Slot Positions** — 6 slot types in Team Builder, persisted in URLs
-10. **Chase Splits Tuning** — Actual SR and avg per split (not just differential indices)
-11. **Hover Tooltips on Compare Page** — MetricLabel component with explanations
-12. **Exclude Tail-Enders** — Genuine-batter/bowler filters for team analysis
-13. **Preserve Batting Order in Shared URLs** — Promise.all order preservation
-
-### Deployment History
-
-- Backend deployed on Railway (uvicorn, port 8080)
-- Frontend deployed separately (Vite build, serve)
-- Fixed CORS configuration, Docker build context, serve@13 CLI compatibility
-- Production: `VITE_API_URL` baked into frontend build pointing at backend domain
+IPL dataset, MultiDataStore, format toggle, team vs team comparison, role-aware compare, era timeline, form tracker fix, customisable slot positions, chase splits, hover tooltips, exclude tail-enders.
 
 ### v3.0 — Rating Rebalance, Archetype Fix & Average Valorisation
 
-1. **Position-Aware Archetypes** — `_conditions_match()` now supports `position_min`/`position_max`. New archetypes: Explosive Opener, Power Middle-Order. Prevents top-order batters being labelled "Explosive Finisher".
-2. **Strengthened Volume Scaling** — `VOLUME_BASE` 0.80→0.70, `VOLUME_REF` 50→100, `VOLUME_CURVE` 0.6→0.5, new `VOLUME_BEYOND_MAX=0.06` beyond-reference bonus. Applied to both batting and bowling.
-3. **Reduced Superstar Bonus** — Weight 0.10→0.05 in `_compute_overall_score()`.
-4. **Career Production Bonus** — New `_career_production_bonus()` adds up to 2 points to batting overall based on total career runs.
-5. **Blended Z-Scores** — `_grouped_zscore()` and `_grouped_zscore_bowl()` now blend within-group and population z-scores (α=0.6). Fixed cross-position score incomparability (Kohli IPL Power 28.8→73.9).
-6. **Weighted Dimension Scores** — Overall batting score now uses non-equal weights: ACC 0.35, POW 0.20, CTRL 0.45 (configurable via `presentation.bat_weight_*`). Control gets the highest weight because not getting out is the single most important T20 skill — every ball survived is a ball available to score. This prevents high-Power, low-average batters from outscoring high-average batters with comparable strike rates.
-7. **Career Average Bonus** — New `_career_avg_bonus()` adds up to 5 points to batting overall based on career batting average. Super-linear curve (exponent 2.5, ref=38) so the reward accelerates for elite averages: avg 30 → +2.75, avg 35 → +4.07, avg 38+ → +5.00. Configurable via `presentation.avg_bonus_*`.
-8. **Average Quality Ceiling Raised** — `batting_avg_quality.ceil` raised 1.20→1.35 and `exponent_above` 0.5→0.65 so that batters averaging 40 vs 30 are no longer both capped at the same pre-percentile multiplier.
-9. **Net effect on Kohli vs Rohit (IPL):** Kohli 98.8 (S, #20) vs Rohit 94.0 (A+, #31) — a ~5 point gap reflecting Kohli's 10-point higher average (39.6 vs 29.9), 1600 more runs, and 35% more WAR despite similar strike rates.
-
-Test count: 943 tests, all passing.
+Position-aware archetypes, blended z-scores, career production bonus, career average bonus, weighted dimension scores, volume scaling beyond-reference bonus.
 
 ---
 
-## 19. Known Limitations
+## 20. Known Limitations
 
 | Limitation | Detail |
 |------------|--------|
-| **Type-checking diagnostics** | ~500+ pyright warnings due to pandas typing ambiguity — not runtime errors |
-| **WPA disabled by default** | Computational cost; enable with `wpa.enabled: true` |
-| **Era adjustment disabled** | Primarily benefits historical cross-decade analysis |
-| **No mixed-effects models** | Uses Pearson correlation and Empirical Bayes rather than full multilevel regression |
-| **No deep learning embeddings** | Similarity uses cosine similarity on z-normalised vectors (works excellently without ML dependencies) |
-| **ICC ratings are static** | Stored in `config.yaml`, need periodic manual updates |
-| **No bowling style data** | Cricsheet JSON doesn't include pace/spin classification |
-| **IPL dataset smaller** | 703 batters / 551 bowlers vs 4,049 / 3,006 for T20I |
+| Type-checking diagnostics | ~500+ pyright warnings (pandas typing) |
+| WPA disabled by default | Computational cost |
+| Era adjustment disabled | Primarily for historical analysis |
+| Scorecards not in pipeline | Must be built separately |
 
 ---
 
-## 20. Roadmap (v3.0)
+## 21. Roadmap
 
-The following changes are planned for v3.0.
-
-### ~~Archetype Classification Fix~~ ✅ Done
-**Problem:** Openers (Abhishek Sharma, Chris Gayle, etc.) were being labelled as "Explosive Finisher" because the archetype system only checked score thresholds (ACC ≥ 85, POW ≥ 85), not batting position.
-**Fix:** Added `position_min` / `position_max` conditions to `_conditions_match()` in `presentation.py`. "Explosive Finisher" now requires `position ≥ 4`. New "Explosive Opener" archetype (ACC ≥ 85, POW ≥ 85, position ≤ 3) for top-order power hitters. "Aggressive Opener" gated to position ≤ 3; new "Power Middle-Order" for position ≥ 4. Updated `team.py` `_BATTING_ARCHETYPES` set and `ArchetypeBadge.tsx` icons/colours for new archetypes.
-
-### ~~Rating Rebalance — Reduce Finisher Overvaluation~~ ✅ Done
-**Problem:** Two related issues causing finisher overvaluation and cross-position score incomparability:
-1. The system undervalued volume and sustained production. In T20I, Dhoni (82 inn, 1584 runs) scored 93.6 overall vs Kohli (112 inn, 3969 runs) at 89.2. Low-volume finishers like KD Karthik (47 inn, 686 runs) reached 95.5 overall.
-2. Within-position-group z-scoring made scores incomparable across groups. In IPL, V Kohli (top_order, boundary_pct=0.515) got Power=28.8 because he was merely average *for a top-order batter*, while RG Sharma (upper_middle, boundary_pct=0.598) got Power=95.6 because he was elite *for a middle-order batter*. Overall gap: Rohit 88.7 vs Kohli 74.1 despite Kohli having more runs, higher avg, and higher SR.
-
-**Fix:** Four-pronged rebalance:
-1. **Strengthened volume scaling** (`batting.py`, `bowling.py`, `config.yaml`): lowered `VOLUME_BASE` 0.80→0.70 (bigger penalty for low-volume), raised `VOLUME_REF` 50→100 (reward extends further), lowered `VOLUME_CURVE` 0.6→0.5, and added a beyond-reference bonus (`VOLUME_BEYOND_MAX=0.06`) so players exceeding the reference innings get up to 6% additional scaling. A 50-innings player now sees a ~9% penalty (was 0%), while a 140-innings player gets a ~4% bonus (was 0%).
-2. **Reduced superstar bonus** (`presentation.py`): `superstar_bonus_weight` reduced 0.10→0.05, halving the outsized uplift that explosive finishers with both ACC and POW above 85 received.
-3. **Career production bonus** (`presentation.py`): new `_career_production_bonus()` adds up to 2 points to the overall score based on total career runs (`RUNS_BONUS_MAX=2.0`, `RUNS_BONUS_REF=3000`, `RUNS_BONUS_CURVE=0.8`). Players with 3000+ runs get the full bonus; a 700-run finisher gets ~0.6 points. This directly rewards sustained high-volume production.
-4. **Blended z-scores** (`batting.py::_grouped_zscore`, `bowling.py::_grouped_zscore_bowl`, `config.yaml`): replaced pure within-group z-scoring with a weighted blend of within-group and population z-scores (`blend_alpha=0.6`). Formula: `blended = 0.6 × within_group_z + 0.4 × population_z`. This preserves position-aware comparison while keeping cross-group scores on a comparable scale. V Kohli's IPL Power went from 28.8 → 73.9; the Kohli–Rohit overall gap shrank from 14.6 → 2.2 points.
-
-**Result (T20I):** Buttler 100.0 S, RG Sharma 99.7 S at the top. Kohli 91.9 A+ now edges Dhoni 91.7 A+. Low-volume finishers dropped (Karthik 95.5→86.8, Shepherd 97.0→89.4).
-**Result (IPL):** Kohli 98.8 S (was 74.1 B+), Rohit 94.0 A+ (was 88.7). Gap inverted from Rohit+14.6 to Kohli+4.8 points, reflecting Kohli's 10-point higher average (39.6 vs 29.9), 1600 more runs, and 35% more WAR despite similar strike rates. Dhoni 100.0 S at 241 innings — genuinely earned through massive volume + elite per-ball metrics.
-
-### Rankings Page — Show All Stats
-**Problem:** Users can't see clutch index, WAR, or other advanced metrics on the rankings page.
-**Fix:** Add these columns as optional display/sort columns on the rankings leaderboard.
-
-### Table Number Alignment
-**Problem:** Numbers in tables (By Phase, matchups, etc.) are not right-aligned, making comparison difficult.
-**Fix:** Right-align all numeric columns using `text-align: right` / Tailwind `text-right` and use `tabular-nums` font feature.
-
-### Dominance Index — Human-Readable Scale
-**Problem:** Dominance values like "+1.1" are meaningless to users. The raw composite (SR premium + boundary bonus − dot penalty − dismissal rate) has no intuitive interpretation.
-**Fix:** Rescale dominance to a 0–100 or descriptive tier system (e.g., "Dominant" / "Slight Edge" / "Even" / "Struggles" / "Bunny") so users instantly understand the matchup dynamic.
-
-### Clutch Index — Human-Readable Scale
-**Problem:** Clutch values are very small numbers (±0.02) that convey nothing to average users. It seems like nobody is clutch.
-**Fix:** Rescale clutch to a more interpretable range (e.g., 0–100 percentile, or letter grades, or descriptive tiers). Consider also showing the raw pressure SR delta alongside the composite for intuitive understanding.
-
-### General: Avoid Tiny Numbers
-**Problem:** Several metrics (dominance, clutch, dot %, boundary %) display as very small decimals or sub-1% values that are hard for users to conceptualise.
-**Fix:** Scale all user-facing numbers to intuitive ranges. Percentages should be real percentages (e.g., "34.2%" not "0.3%"). Composite indices should use 0–100 or descriptive tiers.
-
-### Matchups — Year/Period Filter
-**Problem:** Matchup data is career-aggregate only; users can't see how a matchup evolved over time.
-**Fix:** Add a year range filter (slider or dropdown) to the matchups section. Filter the underlying delivery data by date range before computing matchup aggregates.
-
-### Matchups — Player Search
-**Problem:** Users have to scroll through paginated matchup lists to find a specific bowler/batter.
-**Fix:** Add a search/autocomplete field in the matchups section so users can quickly look up a specific opponent.
-
-### Responsive Navigation
-**Problem:** At narrow viewport widths, nav items overflow and get cut off ("Glos...", "T20I" and "IPL" overlap).
-**Fix:** Implement a responsive hamburger menu or "more" dropdown that collapses nav items at smaller breakpoints. Keep the mobile nav clean.
+- **Scorecards:** Wire `/scorecards` route and Layout nav; add pipeline step to write scorecards
+- **Rankings:** Add clutch, WAR, advanced metrics as optional columns
+- **Table alignment:** Right-align numeric columns
+- **Dominance / Clutch:** Human-readable scale (0–100 or tiers)
+- **Matchups:** Year/period filter, player search
+- **Responsive nav:** Hamburger menu at narrow viewports
+- **Live scores:** Integrate live data source; extra viewer features
 
 ---
 
-*This document was last updated during the v3.0 development cycle (Rating Rebalance + Blended Z-Scores). It consolidates and replaces all previous documentation files: `README.md`, `ARCHITECTURE.md`, `Version_1.0.md`, `version02.md`, `version03.md`, `documentation.md`, `gui.md`, `HOSTING.md`, and `algorithm_update.md`.*
+## 22. Product Specification
+
+This section captures the detailed product requirements derived from the elaboration questions. It serves as the authoritative spec for UI, UX, and feature design.
+
+---
+
+### 22.1 Home — Match Center
+
+When live cricket exists, Home should feel like a **match center**. When it doesn't, Home should feel like the **fastest doorway into deep cricket analysis**.
+
+**Two modes:** Live mode (when matches are happening) and Discovery mode (when there are no live matches).
+
+#### State A — Live Match in Progress
+
+Dominates the page. Should feel like a **cricket control room**, not just a score block.
+
+**Live Match Block:** Teams (flags/logos), live score, overs, wickets, target/required run rate, current run rate, summary of past 10 balls, win probability, match status. CTA buttons: View live match, Predict result, Compare key players, View matchups.
+
+**Match Context Strip:** Top batter right now, top bowler right now, current partnership, last wicket, projected score/defendability, venue difficulty tag, pressure level tag.
+
+**Best Performances of the Day:** Best batting performance, best bowling spell, best under pressure, biggest overperformance vs expectation.
+
+**User Action Zone:** Predict winner, predict top scorer, predict total score, build fantasy XI for today's slate, compare opening batters, explore batter vs bowler live matchup, predict next over.
+
+#### State B — Match Day, No Live Match Right Now
+
+Match later today, innings break, just-finished match, end of day's play (Test).
+
+#### State C — No Match Today
+
+Pure discovery: hero search, top-ranked batters card, top bowlers card, best under pressure card, quick compare panel, featured matchups, recently viewed players.
+
+---
+
+### 22.2 Theme & Visual Identity
+
+- **Default theme:** Dark
+- **Avoid:** Vibe-coding clichés (e.g. gradients)
+- **Tone:** Analytical, cater to statistically aligned cricket fans
+
+---
+
+### 22.3 Rankings / Leaderboard
+
+**Default columns:** Player trend (rising/falling/unchanged), mini form sparkline. Batters: rolling composite, recent strike rate, recent runs per innings. Bowlers: rolling composite, recent wickets, economy/strike rate.
+
+**Top summary bar:** Current filter scope, number of players shown, average score of visible set, top archetype in current view.
+
+**Presets:** Overall, Recent form, Power hitters, Anchors, Death specialists, Powerplay bowlers.
+
+**Row behavior:** Expandable row or hover panel explaining rankings; open profile in new tab; add to team builder; single click → right-side preview panel (player summary, key metrics, phase splits, recent form, quick actions).
+
+**Filters:** Min innings, min balls faced, min overs bowled, min matches, recent window.
+
+**Density options:** Compact, Default, Expanded.
+
+**Sticky columns on horizontal scroll:** Rank, player, country, overall score.
+
+**Custom sort logic:** e.g. 50% overall + 30% pressure + 20% form + prioritize Power and WAR; compare raw vs adjusted stats.
+
+**Filterable by every metric:** Users can add/remove metrics from the leaderboard.
+
+---
+
+### 22.4 Format Expansion (ODI / Test)
+
+**Test batter dimensions:** Control (keep); Acceleration (rework for innings pacing — consistent scoring vs quick/slow phases); Power → **Patience** (ability to play long innings, tire out bowlers).
+
+**ODI batter dimensions:** Replace Patience with **Pacing** (ability to pace a good innings of 80–100 balls).
+
+**Bowlers (all formats):** Accuracy, Control, Threat remain; recalibrated for longer formats.
+
+---
+
+### 22.5 Player Tags
+
+Algorithm-driven; accurate.
+
+---
+
+### 22.6 Team Builder
+
+Display: Batting strength, bowling strength, total WAR, collective advanced stats. Filter stats by role (batter vs bowler) so averages don't tank on either side.
+
+---
+
+### 22.7 Matchup Explorer
+
+Head-to-head for two specific players; nemeses (who dominates them); who they dominate.
+
+---
+
+### 22.8 Era Exploration
+
+Years covered; how metrics have changed: run rate, dot balls, boundary %, acceleration in different phases.
+
+---
+
+### 22.9 Venue Detail
+
+Beyond difficulty and flat-track index: average run rate over time, scores.
+
+---
+
+### 22.10 Metric Storytelling
+
+**Rule:** Narrative should be **layered, not dumped.**
+
+**Level 1 — Micro-insights:** Above tables, summary cards, player headers, compare verdicts, matchup cards. Short, declarative, grounded in data, readable in under 2 seconds. Examples: "Elite death-over accelerator", "Ranks far higher in pressure than raw average suggests".
+
+**Level 2 — Section insights:** At top of module or chart. Explain why the section matters. Examples: "Kohli leads on control and pressure, but Sharma has the stronger acceleration profile."
+
+**Level 3 — Deep narrative:** Use sparingly. Player profile "Analyst Notes", compare verdict block, scorecard post-match summary, era interpretation panel. Collapsible, secondary, never first thing user sees.
+
+**Template:** Claim + evidence + context. **Avoid:** Vague praise, long AI summaries, insights with no metric, contradictory insights, jargon without tooltips.
+
+---
+
+### 22.11 Clutch / Pressure Score
+
+Present as **Pressure Score** with "Clutch" as plain-English interpretation. **Three layers:** (1) Simple score + label, (2) Interpretation band (80–100 Elite | 65–79 Strong | 45–64 Neutral | 30–44 Below average | 0–29 Struggles), (3) Why — 2–3 drivers. **Best places:** Player profile, rankings column, compare table, live match cards. **Visual:** Numeric score, short label, tooltip. **Tooltip answers:** What counts as pressure? Format-specific? Sample size? Relative to era or raw?
+
+---
+
+### 22.12 WAR Explanation
+
+**Plain-English:** "WAR estimates how much more value a player provides than a readily available replacement-level player." "Think of WAR as 'how many wins this player is worth above a baseline squad option.'" **Answer:** What is replacement? Batting/bowling/total? Is 5.0 good? Cross-era? Cumulative or rate? **Supporting visual:** Pair WAR with component drivers. **Safeguard:** Never show WAR alone without tooltip, glossary link, component breakdown, or percentile/band.
+
+---
+
+### 22.13 Glanceable vs Deep (Per-Page)
+
+**Rule:** Every page gets: (1) Quick insight layer (5–20 seconds), (2) Deep analysis layer.
+
+| Page | Quick insight | Deep layer |
+|------|---------------|------------|
+| Home | Live match hero or hero search; top performers; discovery cards | Featured matchups; compare widget; recently viewed |
+| Rankings | Scope summary; top player; filter chips; biggest riser; best value; sort explanation | Dense table; column picker; filters; row expansion |
+| Compare | Headline verdict; 3–5 key winner calls; radar summary; one-sentence insight | Full metric table; phase splits; form chart; shared matchups |
+| Matchups | Matchup edge; balls/runs/dismissals; verdict | By-phase table; dismissal patterns; similar matchup explorer |
+| Player Profile | Identity card; grade; 3 core metric bars; one-line style summary; peak vs current | Advanced metrics; component breakdown; phase splits; form; matchups |
+| Eras | Era trend cards; one-line interpretation; equivalent calculator result | Timeline chart; multiplier table; methodology |
+| Venues | Hardest/easiest venue; total venues; what defines environment | Venue table; detail; trend charts; player-at-venue |
+| Team Builder | XI summary; budget; total WAR; balance; biggest weakness | Player pool; drafted XI; composition breakdown |
+| Glossary | Simple definitions; why metric matters; when to use | Methodology; caveats; examples; component math |
+
+---
+
+### 22.14 ESPNcricinfo Parity
+
+**Principle:** Familiar baseline + analytics differentiation. **Must-haves:** Live scores, fixtures/results, scorecards, match summary, player-of-match; player search, profiles, career stats, splits; sortable rankings, filters; innings scorecard, batting/bowling figures, partnerships, fall of wickets; venue basics, format filter, recent form; compare players, matchup page, metric explanations, quick insights. **Nice-to-haves:** Editorial news, commentary feed, galleries; archive UI, squad pages, series hubs; fantasy articles, records pages; social, personalization. **Core expectations:** Find match → open scorecard → find player → see basic stats → drill deeper.
+
+---
+
+### 22.15 Scorecards Integration
+
+**Dual drill-down:** Scorecard-centric (from live matches, fixtures, daily cards) and Entity-centric (from rankings, compare, matchups, profiles). **Primary for matches/innings, not only path.** **Scorecard structure:** Top: result, summary, win probability, standout performances. Middle: batting/bowling tables, partnerships, fall of wickets, extras. Analytics: pressure moments, best over, turning point, top matchup, innings rating vs venue/era. **Linking:** Home live card → Scorecard, Matchups, Predict, Compare. Scorecard → player (profile), bowler/batter pair (matchup), venue (venue page), standout (innings analysis). Player profile → recent innings (scorecards), top matchups (matchup pages). Matchup page → innings, both profiles. **Row interactions:** Click player → profile; hover: Compare, View matchup vs key bowlers; dismissal → matchup; partnership → mini breakdown; fall of wickets → score state, required rate, leverage.
+
+---
+
+### 22.16 Final Recommendations
+
+| Topic | Recommendation |
+|-------|----------------|
+| Metric storytelling | Layered: micro first, section second, deep only when expanded |
+| Clutch/pressure | Present as **Pressure Score**, "clutch" as plain-language interpretation |
+| WAR | "How many wins above replacement-level option"; show drivers |
+| Quick insight layer | Every page: "What matters here, in one glance, before the table proves it?" |
+| Cricinfo parity | Match core expectations; differentiate through analytics |
+| Scorecards | Major drill-down for matches; not the only analytical path |
+
+---
+
+*This document consolidates and replaces all previous documentation files. Last updated with Product Specification v1.*

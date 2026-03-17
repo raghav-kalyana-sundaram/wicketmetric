@@ -20,6 +20,7 @@ Output
     output/batting_innings_detail.parquet – Per-innings component breakdown
     output/bowling_spells_detail.parquet  – Per-spell component breakdown
     output/potential_duplicates.csv      – Suspected player-ID duplicates (if any)
+    output/scorecards/                    – Per-match JSON scorecards (one file per match, e.g. <match_id>.json) containing ball-by-ball play-by-play and per-innings batting/bowling summaries for drill-down analysis
 """
 
 import os
@@ -96,6 +97,7 @@ from src.matchups import (
     compute_all_matchup_metrics,
 )
 from src.parser import parse_all_matches
+from src.scorecards import stream_write_scorecards
 from src.peak_ratings import (
     compute_peak_ratings,
     compute_peak_ratings_bowl,
@@ -1546,6 +1548,17 @@ def run_pipeline(
         frame.to_parquet(fpath, index=False)
         print(f"  ✓ {fpath}  ({len(frame):,} rows)")
 
+    # Per-match scorecards (for GUI drill-down)
+    sc_dir = os.path.join(output_dir, "scorecards")
+    print("  Writing per-match scorecards...")
+    stream_write_scorecards(df, sc_dir, include_deliveries=True)
+    n_sc = (
+        len([f for f in os.listdir(sc_dir) if f.endswith(".json")])
+        if os.path.isdir(sc_dir)
+        else 0
+    )
+    print(f"  ✓ {sc_dir}/  ({n_sc:,} scorecards)")
+
     # ── Step 9: Summary spot-checks ──────────────────────────────────────
     print("=" * 65)
     print("STEP 9 / 9 — Spot-check summaries")
@@ -1852,6 +1865,13 @@ if __name__ == "__main__":
         "Franchise formats use win-rate-based team quality instead of "
         "ICC rankings. (default: t20i)",
     )
+    parser.add_argument(
+        "--scorecards-only",
+        action="store_true",
+        help="Only parse matches and write per-match scorecard JSON files to "
+        "output_dir/scorecards/. Use this to populate scorecards for an "
+        "existing output directory without re-running the full pipeline.",
+    )
     args = parser.parse_args()
 
     data_path = args.data_dir
@@ -1860,6 +1880,37 @@ if __name__ == "__main__":
         sys.exit(1)
 
     output_path = args.output_dir
+
+    if args.scorecards_only:
+        # Lightweight mode: parse matches and write scorecards only
+        print("=" * 65)
+        print("  SCORECARDS-ONLY MODE")
+        print("=" * 65)
+        df, match_infos = parse_all_matches(data_path)
+        print(f"  Parsed: {len(df):,} deliveries, {len(match_infos):,} matches")
+
+        excluded_teams = {"Afghanistan"}
+        batting_teams = df["batting_team"].astype(str)
+        bowling_teams = df["bowling_team"].astype(str)
+        excl_mask = batting_teams.isin(excluded_teams) | bowling_teams.isin(
+            excluded_teams
+        )
+        df = df[~excl_mask].reset_index(drop=True)
+        match_infos = [
+            mi
+            for mi in match_infos
+            if not any(t in excluded_teams for t in mi.get("teams", []))
+        ]
+        print(f"  After exclusions: {len(df):,} deliveries, {df['match_id'].nunique():,} matches")
+
+        sc_dir = os.path.join(output_path, "scorecards")
+        os.makedirs(sc_dir, exist_ok=True)
+        stream_write_scorecards(df, sc_dir, include_deliveries=True)
+        n_sc = len([f for f in os.listdir(sc_dir) if f.endswith(".json")])
+        print(f"  ✓ Wrote {n_sc:,} scorecards to {sc_dir}/")
+        print("=" * 65)
+        sys.exit(0)
+
     results = run_pipeline(
         data_path,
         output_dir=output_path,

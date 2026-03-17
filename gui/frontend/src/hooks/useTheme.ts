@@ -10,7 +10,7 @@
  *   const { theme, toggleTheme, setTheme, isDark } = useTheme();
  *
  *   <button onClick={toggleTheme}>
- *     {isDark ? '☀️ Light' : '🌙 Dark'}
+ *     {isDark ? "Light" : "Dark"}
  *   </button>
  */
 
@@ -68,7 +68,7 @@ function applyTheme(theme: Theme): void {
   if (metaThemeColor) {
     metaThemeColor.setAttribute(
       "content",
-      theme === "dark" ? "#0F172A" : "#F8FAFC",
+      theme === "dark" ? "#06080C" : "#EEF1F5",
     );
   }
 }

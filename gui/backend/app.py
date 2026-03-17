@@ -54,6 +54,7 @@ from data_loader import (
 from fastapi import Query as FastAPIQuery
 from routers import compare as compare_router
 from routers import eras as eras_router
+from routers import match_scorecards as match_scorecards_router
 from routers import matchups as matchups_router
 from routers import player as player_router
 from routers import rankings as rankings_router
@@ -185,6 +186,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Matchups router
     matchups_router._get_store = get_store  # type: ignore[attr-defined]
 
+    # Match scorecards router
+    match_scorecards_router._get_store = get_store  # type: ignore[attr-defined]
+
     # Compare router
     compare_router._get_store = get_store  # type: ignore[attr-defined]
 
@@ -246,23 +250,28 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────
-# Allow the React dev server (Vite) and common local development origins.
+# Allow the React dev server (Vite), localhost, and production frontend origins.
+# Set CORS_ORIGINS (comma-separated) in production to add your Vercel/frontend URL.
+_default_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://localhost:4173",
+]
+_cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+_cors_origins = _default_origins + [
+    o.strip() for o in _cors_origins_env.split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # React dev server (CRA)
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:5174",  # Vite alternate port
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "http://localhost:4173",  # Vite preview
-        "https://wicketmetric-production.up.railway.app",  # Railway production
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
-    max_age=3600,  # Cache preflight for 1 hour
+    max_age=3600,
 )
 
 
@@ -282,6 +291,7 @@ app.dependency_overrides[player_router._get_store] = get_store
 app.dependency_overrides[player_router._get_search_index] = get_search_index
 app.dependency_overrides[rankings_router._get_store] = get_store
 app.dependency_overrides[matchups_router._get_store] = get_store
+app.dependency_overrides[match_scorecards_router._get_store] = get_store
 app.dependency_overrides[compare_router._get_store] = get_store
 app.dependency_overrides[venues_router._get_store] = get_store
 app.dependency_overrides[eras_router._get_store] = get_store
@@ -294,6 +304,7 @@ app.include_router(search_router.router)
 app.include_router(player_router.router)
 app.include_router(rankings_router.router)
 app.include_router(matchups_router.router)
+app.include_router(match_scorecards_router.router)
 app.include_router(compare_router.router)
 app.include_router(venues_router.router)
 app.include_router(eras_router.router)

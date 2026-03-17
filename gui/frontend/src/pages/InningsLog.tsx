@@ -395,7 +395,7 @@ export default function InningsLogPage() {
   const isBatter = profile ? isBatterProfile(profile) : true;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <div className="app-page page-stack">
       {/* ── Back link ─────────────────────────────────────────── */}
       <Link
         to={`/player/${id}`}
@@ -426,7 +426,7 @@ export default function InningsLogPage() {
 
         {!isBatter && profile && (
           <div className="text-sm text-warning bg-warning/10 px-3 py-2 rounded-lg">
-            ⚠ This player is primarily a bowler.{" "}
+            Note: this player is primarily a bowler.{" "}
             <Link
               to={`/player/${id}/spells`}
               className="underline hover:text-warning"
@@ -511,7 +511,7 @@ export default function InningsLogPage() {
                     colSpan={columns.length}
                     className="px-6 py-16 text-center text-text-muted"
                   >
-                    <div className="text-3xl mb-2">🏏</div>
+                    <div className="mb-2 text-lg font-semibold text-text-muted">No innings</div>
                     <p className="text-sm">
                       No innings data available for this player.
                     </p>

@@ -15,7 +15,6 @@ import {
   useFormat,
   ALL_FORMATS,
   FORMAT_LABELS,
-  FORMAT_ICONS,
   type Format,
 } from "@/api/FormatContext";
 import { useQueryClient } from "@tanstack/react-query";
@@ -68,9 +67,6 @@ export default function FormatToggle({ className = "" }: FormatToggleProps) {
             `}
             title={`Switch to ${FORMAT_LABELS[f]} data`}
           >
-            <span className="text-[13px]" aria-hidden="true">
-              {FORMAT_ICONS[f]}
-            </span>
             <span>{FORMAT_LABELS[f]}</span>
           </button>
         );

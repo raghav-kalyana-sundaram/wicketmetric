@@ -369,43 +369,43 @@ const ARCHETYPES: {
         name: "Aggressive Opener",
         description:
           "High acceleration and power upfront. Takes the attack to the bowling in the powerplay. Often a high-risk, high-reward player.",
-        icon: "⚡",
+        icon: "pace",
       },
       {
         name: "Anchor",
         description:
           "High control, moderate acceleration. Provides stability and builds the innings. Often bats through and accelerates in the back end.",
-        icon: "🛡️",
+        icon: "control",
       },
       {
         name: "Chase Master",
         description:
           "Elite performance in chases. High pressure score and chase master score. Can be trusted to pace a run chase perfectly.",
-        icon: "🎯",
+        icon: "focus",
       },
       {
         name: "Explosive Finisher",
         description:
           "Extreme power and acceleration in the death overs. Often bats at 5-7 and can score at 200+ SR in the last 5 overs.",
-        icon: "💥",
+        icon: "impact",
       },
       {
         name: "Power Hitter",
         description:
           "Raw six-hitting ability throughout the innings. High power score but may sacrifice some control for aggression.",
-        icon: "🔥",
+        icon: "attack",
       },
       {
         name: "Accumulator",
         description:
           "Consistent scorer with high average but moderate strike rate. Rarely fails but may not always provide the scoring rate the team needs.",
-        icon: "📊",
+        icon: "data",
       },
       {
         name: "All-Phase",
         description:
           "Balanced performer across all three metrics. No glaring weakness, adaptable to any match situation.",
-        icon: "⚖️",
+        icon: "balance",
       },
     ],
   },
@@ -416,37 +416,37 @@ const ARCHETYPES: {
         name: "Death Specialist",
         description:
           "Excels in death overs (16-20). Yorker accuracy, slower ball variety, and composure under pressure define this type.",
-        icon: "🎯",
+        icon: "focus",
       },
       {
         name: "Powerplay Enforcer",
         description:
           "Dominates the first 6 overs with new ball. Takes early wickets and restricts scoring when the field is up.",
-        icon: "⚡",
+        icon: "pace",
       },
       {
         name: "Spin Wizard",
         description:
           "Control-oriented spinner who excels in the middle overs. High dot percentage, good economy, and the ability to take wickets through deception.",
-        icon: "🌀",
+        icon: "spin",
       },
       {
         name: "Wicket-Taker",
         description:
           "High threat score — a genuine wicket-taking option. May be expensive at times but provides crucial breakthroughs.",
-        icon: "🔥",
+        icon: "attack",
       },
       {
         name: "Containment Specialist",
         description:
           "Elite economy and accuracy. May not take bags of wickets but builds immense pressure through dot balls and tight spells.",
-        icon: "🛡️",
+        icon: "control",
       },
       {
         name: "All-Phase",
         description:
           "Balanced bowler effective in all phases. Can bowl in the powerplay, middle, and death without a significant dip in performance.",
-        icon: "⚖️",
+        icon: "balance",
       },
     ],
   },
@@ -796,14 +796,14 @@ export default function Glossary() {
   }, []);
 
   return (
-    <div className="animate-fade-in space-y-8">
+    <div className="app-page page-stack animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-h1 text-text-primary flex items-center gap-3">
+      <div className="page-header">
+        <h1 className="page-title flex items-center gap-3">
           <BookOpen size={28} className="text-primary" />
           Glossary & Methodology
         </h1>
-        <p className="mt-1 text-sm text-text-secondary max-w-3xl">
+        <p className="page-subtitle max-w-3xl">
           A comprehensive reference explaining every metric, the rating system,
           context adjustments, and how player archetypes are determined. Click
           any metric to expand its full definition.

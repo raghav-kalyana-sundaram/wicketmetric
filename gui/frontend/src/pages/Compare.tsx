@@ -753,11 +753,11 @@ export default function Compare() {
   const canCompare = playerIds.length >= MIN_PLAYERS;
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="app-page page-stack animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-h1 text-text-primary">Compare Players</h1>
-        <p className="mt-1 text-sm text-text-secondary">
+      <div className="page-header">
+        <h1 className="page-title">Compare Players</h1>
+        <p className="page-subtitle">
           Select 2–4 players to compare side-by-side. The URL is shareable.
         </p>
       </div>
@@ -860,8 +860,7 @@ export default function Compare() {
 
       {/* Empty state */}
       {!canCompare && !compareLoading && (
-        <div className="card flex flex-col items-center justify-center py-16 text-center">
-          <div className="text-5xl mb-4">⚖️</div>
+        <div className="state-empty flex flex-col items-center justify-center py-16 text-center">
           <h2 className="text-h3 text-text-primary mb-2">
             Select Players to Compare
           </h2>
@@ -874,7 +873,7 @@ export default function Compare() {
 
       {/* Comparison Content */}
       {compareData && canCompare && allProfiles.length >= MIN_PLAYERS && (
-        <div className="space-y-6">
+        <div className="app-page page-stack">
           {/* ── Role toggle ───────────────────────────────── */}
           {hasBatters && hasBowlers && (
             <div className="flex items-center gap-2">
@@ -892,8 +891,8 @@ export default function Compare() {
                   {mode === "auto"
                     ? "Auto"
                     : mode === "bat"
-                      ? "🏏 Batters"
-                      : "🎳 Bowlers"}
+                      ? "Batters"
+                      : "Bowlers"}
                 </button>
               ))}
             </div>

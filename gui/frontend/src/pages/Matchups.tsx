@@ -270,7 +270,7 @@ interface HeadToHeadViewProps {
 
 function HeadToHeadView({ data }: HeadToHeadViewProps) {
   return (
-    <div className="space-y-6">
+    <div className="app-page page-stack">
       {/* Hero card */}
       <div
         className="card p-6 border-l-4"
@@ -448,7 +448,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="app-page page-stack">
       {/* Player search + filters */}
       <div className="card p-4 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3">
@@ -566,7 +566,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
 
       {/* Results */}
       {playerId && exploreData && (
-        <div className="space-y-6">
+        <div className="app-page page-stack">
           {/* Quick stats sidebar (bunnies / nemeses / dominant) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {role === "bat" && (
@@ -860,14 +860,14 @@ export default function Matchups() {
   );
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="app-page page-stack animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-h1 text-text-primary flex items-center gap-3">
+      <div className="page-header">
+        <h1 className="page-title flex items-center gap-3">
           <Swords size={28} className="text-primary" />
           {isExplorer ? "Matchup Explorer" : "Head-to-Head Matchups"}
         </h1>
-        <p className="mt-1 text-sm text-text-secondary">
+        <p className="page-subtitle">
           {isExplorer
             ? "Browse all matchups for any player. Sort by matchup edge, balls, strike rate, or dismissals."
             : "Analyse the head-to-head record between any batter and bowler, or explore all matchups."}
@@ -904,7 +904,7 @@ export default function Matchups() {
 
       {/* H2H Mode */}
       {(activeTab === "h2h" || isExplorer) && activeTab === "h2h" && (
-        <div className="space-y-6">
+        <div className="app-page page-stack">
           {/* Selection */}
           <div className="card p-4">
             <div className="flex flex-col sm:flex-row items-center gap-3">

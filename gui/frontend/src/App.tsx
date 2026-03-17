@@ -58,6 +58,8 @@ const TeamBuilder = lazy(() => import("@/pages/TeamBuilder"));
 const Eras = lazy(() => import("@/pages/Eras"));
 const Venues = lazy(() => import("@/pages/Venues"));
 const Glossary = lazy(() => import("@/pages/Glossary"));
+const Scorecards = lazy(() => import("@/pages/Scorecards"));
+const ScorecardDetail = lazy(() => import("@/pages/ScorecardDetail"));
 
 // ── Suspense wrapper ─────────────────────────────────────────────
 
@@ -194,6 +196,22 @@ const router = createBrowserRouter([
         element: (
           <SuspenseWrapper>
             <Glossary />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "/scorecards",
+        element: (
+          <SuspenseWrapper>
+            <Scorecards />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "/scorecards/:matchId",
+        element: (
+          <SuspenseWrapper>
+            <ScorecardDetail />
           </SuspenseWrapper>
         ),
       },

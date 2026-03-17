@@ -249,7 +249,7 @@ export default function PlayerProfile() {
   // ── No data state ──────────────────────────────────────────
   if (!profile) {
     return (
-      <div className="space-y-4">
+      <div className="app-page page-stack">
         <BackLink />
         <NotFound />
       </div>
@@ -258,7 +258,7 @@ export default function PlayerProfile() {
 
   // ── Render profile ─────────────────────────────────────────
   return (
-    <div className="space-y-6 pb-8">
+    <div className="app-page page-stack pb-8">
       <BackLink />
 
       {/* ── Batting / Bowling Toggle ──────────────────────────── */}
@@ -420,11 +420,11 @@ function BatterProfileView({
   return (
     <>
       {/* ── Identity Header ───────────────────────────────────── */}
-      <section className="card p-6 bg-gradient-to-r from-surface to-surface-elevated/30">
+      <section className="player-profile-hero card p-6 bg-gradient-to-r from-surface to-surface-elevated/30">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap mb-2">
-              <h1 className="text-h1 text-text-primary">{p.name}</h1>
+              <h1 className="text-h1 text-text-primary font-semibold">{p.name}</h1>
               {flag && (
                 <span className="text-2xl" title={p.country}>
                   {flag}
@@ -911,11 +911,11 @@ function BowlerProfileView({
   return (
     <>
       {/* ── Identity Header ───────────────────────────────────── */}
-      <section className="card p-6 bg-gradient-to-r from-surface to-surface-elevated/30">
+      <section className="player-profile-hero card p-6 bg-gradient-to-r from-surface to-surface-elevated/30">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap mb-2">
-              <h1 className="text-h1 text-text-primary">{p.name}</h1>
+              <h1 className="text-h1 text-text-primary font-semibold">{p.name}</h1>
               {flag && (
                 <span className="text-2xl" title={p.country}>
                   {flag}
@@ -1267,7 +1267,7 @@ function SectionTitle({
 function StatChip({ label, value }: { label: string; value: string }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span className="text-text-muted text-xs">{label}</span>
+      <span className="text-text-secondary text-xs font-medium">{label}</span>
       <span className="font-score tabular-nums font-medium text-text-primary text-sm">
         {value}
       </span>
@@ -1339,27 +1339,27 @@ function MetricTile({
 }) {
   return (
     <div
-      className="bg-surface-elevated/30 rounded-lg p-3 group relative"
+      className="metric-tile bg-surface-elevated/30 rounded-lg p-3 group relative"
       title={tooltip}
     >
-      <div className="text-xs text-text-muted mb-1 flex items-center gap-1">
+      <div className="metric-tile-label text-xs text-text-secondary mb-1 flex items-center gap-1 font-medium">
         {label}
         {tooltip && (
           <Info
             size={10}
-            className="text-text-muted/50 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
           />
         )}
       </div>
       <div className="flex items-center gap-1.5">
         {icon}
         <span
-          className="text-lg font-score font-bold tabular-nums"
+          className="text-lg font-score font-bold tabular-nums text-text-primary"
           style={colour ? { color: colour } : undefined}
         >
           {value}
         </span>
-        {suffix && <span className="text-xs text-text-muted">{suffix}</span>}
+        {suffix && <span className="metric-tile-suffix text-xs text-text-secondary">{suffix}</span>}
       </div>
     </div>
   );
@@ -2313,7 +2313,7 @@ function ActionBar({
 
 function ProfileSkeleton() {
   return (
-    <div className="space-y-6 pb-8 animate-pulse">
+    <div className="app-page page-stack pb-8 animate-pulse">
       {/* Back link */}
       <div className="skeleton w-28 h-4 rounded" />
 

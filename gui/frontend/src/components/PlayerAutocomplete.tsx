@@ -463,7 +463,7 @@ export default function PlayerAutocomplete({
               }`}
               type="button"
             >
-              {r === "bat" ? "🏏 Bat" : "🎳 Bowl"}
+              {r === "bat" ? "Bat" : "Bowl"}
             </button>
           ))}
           {selectedRoleFilter && (
@@ -690,7 +690,7 @@ function DefaultAutocompleteItem({
               </span>
             )}
             {player.is_provisional && (
-              <span className="text-[10px] text-warning shrink-0">⚠</span>
+              <span className="text-[10px] text-warning shrink-0">!</span>
             )}
           </div>
 

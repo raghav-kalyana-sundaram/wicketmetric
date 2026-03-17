@@ -62,12 +62,12 @@ const LOCALSTORAGE_KEY = "cricket-metrics-team-builder";
 // ── Slot type constants ──────────────────────────────────────────
 
 const SLOT_TYPE_OPTIONS = [
-  { key: "opener", label: "Opener", icon: "🏏" },
-  { key: "top_order", label: "Top Order", icon: "🏏" },
-  { key: "middle_order", label: "Middle Order", icon: "🏏" },
-  { key: "finisher_wk", label: "Finisher / WK", icon: "🧤" },
-  { key: "allrounder", label: "All-rounder", icon: "⚡" },
-  { key: "bowler", label: "Bowler", icon: "🎳" },
+  { key: "opener", label: "Opener", icon: "BAT" },
+  { key: "top_order", label: "Top Order", icon: "BAT" },
+  { key: "middle_order", label: "Middle Order", icon: "BAT" },
+  { key: "finisher_wk", label: "Finisher / WK", icon: "WK" },
+  { key: "allrounder", label: "All-rounder", icon: "AR" },
+  { key: "bowler", label: "Bowler", icon: "BWL" },
 ] as const;
 
 type SlotTypeKey = (typeof SLOT_TYPE_OPTIONS)[number]["key"];
@@ -542,7 +542,7 @@ function AnalysisPanel({
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-h3 text-text-primary flex items-center gap-2">
-          📊 Team Analysis
+          Team Analysis
         </h2>
         <span className="text-xs text-text-muted">
           {analysis.player_count} player{analysis.player_count !== 1 ? "s" : ""}
@@ -1250,34 +1250,34 @@ export default function TeamBuilder() {
   }, [selectedIds, navigate]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <div className="app-page page-stack">
       {/* ── Page header ───────────────────────────────────────── */}
-      <div>
-        <h1 className="text-h1 text-text-primary flex items-center gap-2">
+      <div className="page-header">
+        <h1 className="page-title flex items-center gap-2">
           <Users size={24} className="text-primary" />
           Team Builder
         </h1>
-        <p className="text-sm text-text-secondary mt-1 max-w-2xl">
+        <p className="page-subtitle max-w-2xl">
           Build a hypothetical T20I XI and see how your team stacks up. Add
           players to slots, view aggregate metrics, and detect team weaknesses.
         </p>
         <div className="mt-2">
           <button
             onClick={() => setIsCompareMode(!isCompareMode)}
-            className={`btn-sm text-xs flex items-center gap-1.5 ${
+            className={`inline-flex items-center gap-1.5 ${
               isCompareMode ? "btn-primary" : "btn-secondary"
             }`}
           >
             <Swords size={14} />
-            {isCompareMode ? "Exit Compare Mode" : "⚔️ Compare Teams"}
+            {isCompareMode ? "Exit Compare Mode" : "Compare Teams"}
           </button>
         </div>
       </div>
 
       {/* URL loading indicator */}
       {urlLoading && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-sm text-primary animate-pulse">
-          <span className="animate-spin-slow">⏳</span>
+        <div className="flex items-center gap-2 rounded-lg bg-primary/10 p-3 text-sm text-primary animate-pulse">
+          <span className="inline-block h-2 w-2 rounded-full bg-primary" />
           Loading team from shared URL…
         </div>
       )}
@@ -1490,7 +1490,7 @@ export default function TeamBuilder() {
 
                 {autoFillLoading && (
                   <div className="text-xs text-text-muted text-center py-2">
-                    ⏳ Finding the best XI…
+                    Finding the best XI…
                   </div>
                 )}
               </div>
@@ -1572,7 +1572,7 @@ export default function TeamBuilder() {
                   {analysis.batters.length > 0 && (
                     <div>
                       <span className="text-xs font-medium text-text-secondary">
-                        🏏 Batters ({analysis.batters.length})
+                        Batters ({analysis.batters.length})
                       </span>
                       <div className="mt-1 space-y-0.5">
                         {analysis.batters.map((b) => (
@@ -1598,7 +1598,7 @@ export default function TeamBuilder() {
                   {analysis.bowlers.length > 0 && (
                     <div>
                       <span className="text-xs font-medium text-text-secondary">
-                        🎳 Bowlers ({analysis.bowlers.length})
+                        Bowlers ({analysis.bowlers.length})
                       </span>
                       <div className="mt-1 space-y-0.5">
                         {analysis.bowlers.map((b) => (

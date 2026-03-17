@@ -110,17 +110,17 @@ function difficultyLabel(score: number | null | undefined): string {
 // ── FTB interpretation helpers ───────────────────────────────────
 
 function ftbIcon(interpretation: string, icon: string): React.ReactNode {
-  if (icon === "🏆" || interpretation.toLowerCase().includes("consistent")) {
+  if (icon === "top" || interpretation.toLowerCase().includes("consistent")) {
     return <CheckCircle2 size={14} className="text-accent" />;
   }
   if (
-    icon === "⚠️" ||
-    icon === "⚠" ||
+    icon === "warn" ||
+    icon === "warn" ||
     interpretation.toLowerCase().includes("slight")
   ) {
     return <AlertTriangle size={14} className="text-warning" />;
   }
-  if (icon === "🚩" || interpretation.toLowerCase().includes("flat track")) {
+  if (icon === "flag" || interpretation.toLowerCase().includes("flat track")) {
     return <Flag size={14} className="text-danger" />;
   }
   return <span className="text-xs">{icon || "·"}</span>;
@@ -731,14 +731,14 @@ export default function Venues() {
   // ── Render ─────────────────────────────────────────────────────
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="app-page page-stack animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-h1 text-text-primary flex items-center gap-3">
+      <div className="page-header">
+        <h1 className="page-title flex items-center gap-3">
           <MapPin size={28} className="text-primary" />
           Venue Analysis
         </h1>
-        <p className="mt-1 text-sm text-text-secondary">
+        <p className="page-subtitle">
           Explore venue characteristics, difficulty ratings, and see who
           performs best (or worst) depending on conditions.
         </p>
