@@ -541,22 +541,45 @@ async function showPlayer(key) {
   const p = d.person;
   const bowlerFirst = d.primary_role === "bowl";
   setQuery(p.display_name);
-  const hasMetrics = d.metrics?.length;
+  const val = d.value || {};
+  const order = bowlerFirst
+    ? ["war", "war_per_season", "rae_bowl", "rae_bat", "wpa", "pressure"]
+    : ["war", "war_per_season", "rae_bat", "rae_bowl", "wpa", "pressure"];
+  const byKey = Object.fromEntries((val.metrics || []).map((m) => [m.key, m]));
+  const fmtVal = (m) => {
+    if (!m || m.value == null) return "–";
+    const dec = { war: 2, war_per_season: 2, rae_bat: 1, rae_bowl: 1, wpa: 3, pressure: 1 }[m.key] ?? 1;
+    const n = Number(m.value);
+    const s = n.toFixed(dec);
+    return (n > 0 && m.key !== "war_per_season" && m.key !== "war" ? "+" : "") + (m.key === "war" || m.key === "war_per_season" || n < 0 ? (n > 0 && (m.key === "war" || m.key === "war_per_season") ? s : s) : s);
+  };
+  const pools = (d.person?.gender === "female" || (d.summary || []).some((s) => s.competition === "wpl"))
+    ? [["t20i_wpl", "T20I + WPL"], ["t20i", "T20I"], ["wpl", "WPL"], ["t20", "All T20"]]
+    : [["t20i_ipl", "T20I + IPL"], ["t20i", "T20I"], ["ipl", "IPL"], ["t20", "All T20"]];
+  const poolBtns = pools.map(([id, lab]) =>
+    `<button class="tab ${val.pool === id ? "active" : ""}" data-pool="${id}">${lab}</button>`
+  ).join("");
   let cards = "";
-  if (hasMetrics) {
-    const latest = d.metrics[0];
-    const items = bowlerFirst
-      ? [["RAE bowl", latest.rae_bowl, 0], ["WPA", latest.wpa, 2], ["WAR", latest.war, 2], ["RAE bat", latest.rae_bat, 0], ["Pressure", latest.pressure_impact, 2]]
-      : [["RAE bat", latest.rae_bat, 0], ["RAE bowl", latest.rae_bowl, 0], ["WPA", latest.wpa, 2], ["WAR", latest.war, 2], ["Pressure", latest.pressure_impact, 2]];
-    cards = `<div class="metric-row">${items.map(([n, v, dec]) => `
-      <div class="metric-card">
-        <div class="name">${n} <span>${esc(latest.season)} <span class="info" tabindex="0">i<span class="pop">T20 value metrics in this warehouse. See MODEL.md.</span></span></span></div>
-        <div class="val ${v < 0 ? "neg" : ""}">${v == null ? "–" : (dec ? Number(v).toFixed(dec) : signed(v, 0))}</div>
-        <div class="sc">${esc(latest.competition?.toUpperCase())} · ${bowlerFirst ? "bowler first" : "batter first"} · in this warehouse</div>
-      </div>`).join("")}</div>`;
+  if (val.metrics?.length) {
+    cards = `
+      <div class="fmt-row" id="val-pools">${poolBtns}</div>
+      <p class="scope">Career · ${val.seasons} season${val.seasons === 1 ? "" : "s"} · ${esc(val.pool_label || "")} · ${val.n?.toLocaleString()} players in this pool</p>
+      <div class="metric-row" id="val-cards">${order.map((k) => {
+        const m = byKey[k];
+        if (!m) return "";
+        return `<div class="metric-card">
+          <div class="name">${esc(m.label)} <span class="info" tabindex="0">i<span class="pop">${esc(m.copy)}</span></span></div>
+          <div class="val ${Number(m.value) < 0 ? "neg" : ""}">${fmtVal(m)}</div>
+          <div class="sc">#${m.rank} of ${Number(m.of).toLocaleString()}</div>
+        </div>`;
+      }).join("")}</div>
+      <p class="caption">Career totals — more games count. WAR / season is the same pile, divided. In this warehouse, not an official rating.</p>`;
   } else {
-    cards = `<p class="caption">${bowlerFirst ? "Bowler first — more balls bowled than faced in this warehouse." : "Ball-derived T20 metrics appear when T20 rows exist (see MODEL.md)."}</p>`;
+    cards = `<p class="caption">${bowlerFirst ? "Bowler first — more balls bowled than faced in this warehouse." : "Ball-derived T20 metrics appear when T20I / IPL rows exist (see MODEL.md)."}</p>`;
   }
+  const pf = d.performances?.rows || [];
+  const h2h = d.matchups || { as_batter: [], as_bowler: [] };
+  const h2hComps = [...new Set([...(h2h.as_batter || []), ...(h2h.as_bowler || [])].map((r) => r.competition))];
   const comps = [...new Set([
     ...d.summary.map((s) => s.competition),
     ...d.bowling_summary.map((s) => s.competition),
@@ -604,6 +627,17 @@ async function showPlayer(key) {
     <h1 class="page-title">${esc(p.display_name)}</h1>
     <p class="meta-line">${esc(p.unique_name)} · ${bowlerFirst ? "Bowler" : "Batter"} first · ${esc(d.span.line)}</p>
     ${cards}
+    <h2 class="section">Best T20</h2>
+    <p class="caption">0–100 percentile within that competition’s history. NRC, WPA, and pressure blended — not raw runs added.</p>
+    <div class="fmt-row" id="pf-tabs">
+      <button class="tab ${bowlerFirst ? "" : "active"}" data-disc="bat">Batting</button>
+      <button class="tab ${bowlerFirst ? "active" : ""}" data-disc="bowl">Bowling</button>
+    </div>
+    <div id="pf-box"></div>
+    <h2 class="section">Batter vs bowler</h2>
+    <p class="caption">Balls they actually faced each other. Twelve-ball floor. Every format they share.</p>
+    <div class="fmt-row" id="h2h-tabs">${["all", ...h2hComps].map((c, i) => `<button class="tab ${i === 0 ? "active" : ""}" data-h2h="${c}">${c === "all" ? "All" : c.toUpperCase()}</button>`).join("")}</div>
+    <div id="h2h-box"></div>
     <div class="fmt-row" id="p-tabs">${tabs}</div>
     ${bowlerFirst ? bowlTable + batTable : batTable + bowlTable}
     <p class="caption">Fielding in this warehouse: ${d.fielding.catches} catches · ${d.fielding.run_outs} run-outs · ${d.fielding.stumpings} stumpings</p>
@@ -681,32 +715,116 @@ async function showPlayer(key) {
     $("p-tabs").querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
     paint(t.dataset.comp);
   });
+  const paintPf = (disc) => {
+    const rows = pf.filter((r) => r.discipline === disc).slice(0, 15).map((r) => ({
+      ...r,
+      player: p.display_name,
+      slug: p.slug,
+    }));
+    $("pf-box").innerHTML = table(
+      [
+        { key: "score", label: "Score", align: "right", numeric: true },
+        { key: "start_date", label: "Date", align: "left", link: "match" },
+        { key: "competition", label: "Comp", align: "left" },
+        { key: "opposition", label: "Opp", align: "left" },
+        { key: "line", label: "Line", align: "left" },
+        { key: "venue", label: "Venue", align: "left" },
+        { key: "result", label: "Result", align: "left" },
+      ],
+      rows,
+    );
+  };
+  paintPf(bowlerFirst ? "bowl" : "bat");
+  $("pf-tabs")?.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-disc]");
+    if (!t) return;
+    $("pf-tabs").querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+    paintPf(t.dataset.disc);
+  });
+  const paintH2h = (comp) => {
+    const filt = (rows) => (rows || []).filter((r) => comp === "all" || r.competition === comp).slice(0, 12);
+    const bat = filt(h2h.as_batter).map((r) => ({ ...r, player: r.opponent, slug: r.opp_slug }));
+    const bowl = filt(h2h.as_bowler).map((r) => ({ ...r, player: r.opponent, slug: r.opp_slug }));
+    const batT = table(
+      [
+        { key: "player", label: "Bowler", align: "left", link: "player" },
+        { key: "competition", label: "Comp", align: "left" },
+        { key: "line", label: "Line", align: "left" },
+        { key: "sr", label: "SR", align: "right", numeric: true },
+        { key: "dismissals", label: "Out", align: "right", numeric: true },
+      ],
+      bat,
+    );
+    const bowlT = table(
+      [
+        { key: "player", label: "Batter", align: "left", link: "player" },
+        { key: "competition", label: "Comp", align: "left" },
+        { key: "line", label: "Line", align: "left" },
+        { key: "econ", label: "Econ", align: "right", numeric: true },
+        { key: "dismissals", label: "W", align: "right", numeric: true },
+      ],
+      bowl,
+    );
+    $("h2h-box").innerHTML = `<div class="h2h">${bowlerFirst ? `<div><h3 class="section">Bowled to</h3>${bowlT}</div><div><h3 class="section">Faced</h3>${batT}</div>` : `<div><h3 class="section">Faced</h3>${batT}</div><div><h3 class="section">Bowled to</h3>${bowlT}</div>`}</div>`;
+  };
+  paintH2h("all");
+  $("h2h-tabs")?.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-h2h]");
+    if (!t) return;
+    $("h2h-tabs").querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+    paintH2h(t.dataset.h2h);
+  });
+  $("val-pools")?.addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-pool]");
+    if (!t) return;
+    $("val-pools").querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+    const nv = await (await fetch(`/api/player/${p.slug}/value?pool=${encodeURIComponent(t.dataset.pool)}`)).json();
+    const map = Object.fromEntries((nv.metrics || []).map((m) => [m.key, m]));
+    const scope = $("val-pools")?.nextElementSibling;
+    if (scope && scope.classList.contains("scope")) {
+      scope.textContent = `Career · ${nv.seasons || 0} season${nv.seasons === 1 ? "" : "s"} · ${nv.pool_label || ""} · ${(nv.n || 0).toLocaleString()} players in this pool`;
+    }
+    const row = $("val-cards");
+    if (!row) return;
+    row.innerHTML = order.map((k) => {
+      const m = map[k];
+      if (!m) return "";
+      return `<div class="metric-card">
+        <div class="name">${esc(m.label)} <span class="info" tabindex="0">i<span class="pop">${esc(m.copy)}</span></span></div>
+        <div class="val ${Number(m.value) < 0 ? "neg" : ""}">${fmtVal(m)}</div>
+        <div class="sc">#${m.rank} of ${Number(m.of).toLocaleString()}</div>
+      </div>`;
+    }).join("");
+  });
 }
 
 async function showStats() {
   setHero(false);
   main.classList.add("wide");
-  const state = { comp: "", gender: "male", role: "all", sort: "runs", min_inns: 10 };
+  const state = { comp: "t20i_ipl", gender: "male", role: "all", sort: "war", min_inns: 8, wtc: false };
   const paint = async () => {
-    const qs = new URLSearchParams({ role: state.role, sort: state.sort, min_inns: String(state.min_inns) });
+    if (state.gender === "female" && state.comp === "t20i_ipl") state.comp = "t20i_wpl";
+    if (state.gender === "male" && state.comp === "t20i_wpl") state.comp = "t20i_ipl";
+    const qs = new URLSearchParams({ role: state.role, sort: state.sort, min_inns: String(state.min_inns), wtc: state.wtc ? "true" : "false" });
     if (state.comp) qs.set("comp", state.comp);
     if (state.gender) qs.set("gender", state.gender);
     const d = await (await fetch(`/api/stats?${qs}`)).json();
+    const fmtOpts = state.gender === "female"
+      ? [["t20i_wpl","T20I + WPL"],["t20i","T20I"],["wpl","WPL"],["odi","ODI"],["test","Tests"],["wbbl","WBBL"],["","All"]]
+      : [["t20i_ipl","T20I + IPL"],["t20i","T20I"],["ipl","IPL"],["odi","ODI"],["test","Tests"],["bbl","BBL"],["","All"]];
     main.innerHTML = `
       <h1 class="page-title">Stats</h1>
-      <p class="lede">Master table — batting and bowling in one place. Percentiles are within this filtered set, in this warehouse.</p>
+      <p class="lede">Counting stats and T20 value in one table. Default pool is T20I plus the main T20 league. Percentiles are within this filtered set.</p>
       <div class="filters">
         <label>Format
           <select id="st-comp">
-            <option value="">All</option>
-            ${["test","odi","t20i","ipl","wpl","bbl","wbbl"].map((c) => `<option value="${c}" ${state.comp===c?"selected":""}>${c.toUpperCase()}</option>`).join("")}
+            ${fmtOpts.map(([k,l]) => `<option value="${k}" ${state.comp===k?"selected":""}>${l}</option>`).join("")}
           </select>
         </label>
         <label>Gender
           <select id="st-g">
             <option value="male" ${state.gender==="male"?"selected":""}>Men</option>
             <option value="female" ${state.gender==="female"?"selected":""}>Women</option>
-            <option value="" ${state.gender===""?"selected":""}>Both</option>
           </select>
         </label>
         <label>Role
@@ -718,9 +836,10 @@ async function showStats() {
         </label>
         <label>Sort
           <select id="st-sort">
-            ${[["runs","Runs"],["wickets","Wickets"],["avg","Bat avg"],["sr","Strike rate"],["bowl_avg","Bowl avg"],["econ","Econ"]].map(([k,l]) => `<option value="${k}" ${state.sort===k?"selected":""}>${l}</option>`).join("")}
+            ${[["war","WAR"],["war_per_season","WAR / season"],["rae_bat","RAE bat"],["rae_bowl","RAE bowl"],["wpa","WPA"],["runs","Runs"],["wickets","Wickets"],["avg","Bat avg"],["sr","Strike rate"],["bowl_avg","Bowl avg"],["econ","Econ"]].map(([k,l]) => `<option value="${k}" ${state.sort===k?"selected":""}>${l}</option>`).join("")}
           </select>
         </label>
+        <label class="check"><input type="checkbox" id="st-wtc" ${state.wtc?"checked":""}> WTC sides only</label>
       </div>
       <p class="scope">${esc(d.scope || "")}</p>
       <div id="st-table"></div>`;
@@ -729,14 +848,14 @@ async function showStats() {
       { key: "player", label: "Player", align: "left", link: "player" },
       { key: "primary_role", label: "Role", align: "left" },
       { key: "matches", label: "M", align: "right", numeric: true },
+      { key: "war", label: "WAR", align: "right", numeric: true },
+      { key: "war_per_season", label: "WAR/yr", align: "right", numeric: true },
+      { key: "rae_bat", label: "RAE bat", align: "right", numeric: true },
+      { key: "rae_bowl", label: "RAE bowl", align: "right", numeric: true },
       { key: "runs", label: "Runs", align: "right", numeric: true },
       { key: "avg", label: "Avg", align: "right", numeric: true },
-      { key: "sr", label: "SR", align: "right", numeric: true },
-      { key: "runs_pct", label: "Runs %ile", align: "right", numeric: true },
       { key: "wickets", label: "W", align: "right", numeric: true },
-      { key: "bowl_avg", label: "Bowl avg", align: "right", numeric: true },
       { key: "econ", label: "Econ", align: "right", numeric: true },
-      { key: "wickets_pct", label: "W %ile", align: "right", numeric: true },
     ];
     $("st-table").innerHTML = table(cols, d.rows || []);
     const bind = (id, key) => $(id)?.addEventListener("change", (e) => { state[key] = e.target.value; paint(); });
@@ -744,6 +863,7 @@ async function showStats() {
     bind("st-g", "gender");
     bind("st-role", "role");
     bind("st-sort", "sort");
+    $("st-wtc")?.addEventListener("change", (e) => { state.wtc = e.target.checked; paint(); });
   };
   await paint();
 }
@@ -756,7 +876,7 @@ async function showWowy() {
   const teams = await (await fetch("/api/teams")).json();
   main.innerHTML = `
     <h1 class="page-title">WOWY</h1>
-    <p class="lede">With or without you. How a side’s results change when a player is in the XI. Small samples stay noisy.</p>
+    <p class="lede">With or without you — only from the player’s first XI for that side. Matches before they existed don’t count as “without”.</p>
     <div class="filters">
       <label>Team
         <input type="text" id="wy-team" list="wy-teams" value="${esc(qteam)}" placeholder="India">
@@ -811,60 +931,54 @@ async function showWowy() {
   if (qplayer) run();
 }
 
-async function showRankings() {
+async function showBest() {
   setHero(false);
   main.classList.add("wide");
-  const state = { metric: "wickets", comp: "odi", gender: "male" };
+  const state = { discipline: "bat", comp: "t20i_ipl", gender: "male" };
   const paint = async () => {
-    const qs = new URLSearchParams({ metric: state.metric, min_inns: "8" });
+    const qs = new URLSearchParams({ discipline: state.discipline, limit: "40", gender: state.gender });
     if (state.comp) qs.set("comp", state.comp);
-    if (state.gender) qs.set("gender", state.gender);
-    const d = await (await fetch(`/api/rankings?${qs}`)).json();
+    const d = await (await fetch(`/api/best?${qs}`)).json();
     main.innerHTML = `
-      <h1 class="page-title">Rankings</h1>
-      <p class="lede">Counting stats and T20 WAR, in this warehouse. Switch the metric — bowling is a first-class sort.</p>
+      <h1 class="page-title">Best T20</h1>
+      <p class="lede">Highest-scoring innings and spells in this warehouse. Scores are percentiles within each competition’s history.</p>
       <div class="filters">
-        <label>Metric
-          <select id="rk-m">
-            ${[["wickets","Wickets"],["runs","Runs"],["avg","Batting avg"],["bowl_avg","Bowling avg"],["econ","Economy"],["sr","Strike rate"],["war","T20 WAR"]].map(([k,l]) => `<option value="${k}" ${state.metric===k?"selected":""}>${l}</option>`).join("")}
+        <label>Discipline
+          <select id="bt-d">
+            <option value="bat" ${state.discipline==="bat"?"selected":""}>Batting</option>
+            <option value="bowl" ${state.discipline==="bowl"?"selected":""}>Bowling</option>
           </select>
         </label>
         <label>Format
-          <select id="rk-c">
-            ${["","test","odi","t20i","ipl","wpl","bbl","wbbl"].map((c) => `<option value="${c}" ${state.comp===c?"selected":""}>${c ? c.toUpperCase() : "All"}</option>`).join("")}
+          <select id="bt-c">
+            ${[["t20i_ipl","T20I + IPL"],["t20i","T20I"],["ipl","IPL"],["t20","All T20"]].map(([k,l]) => `<option value="${k}" ${state.comp===k?"selected":""}>${l}</option>`).join("")}
           </select>
         </label>
         <label>Gender
-          <select id="rk-g">
+          <select id="bt-g">
             <option value="male" ${state.gender==="male"?"selected":""}>Men</option>
             <option value="female" ${state.gender==="female"?"selected":""}>Women</option>
           </select>
         </label>
-        <a class="btn-text" href="#/metrics">T20 WAR sliders →</a>
       </div>
-      <p class="scope">${esc(d.scope || "")}</p>
-      <div id="rk-table"></div>`;
-    const countCols = [
-      { key: "rank", label: "#", align: "right", numeric: true },
-      { key: "player", label: "Player", align: "left", link: "player" },
-      { key: "primary_role", label: "Role", align: "left" },
-      { key: "runs", label: "Runs", align: "right", numeric: true },
-      { key: "avg", label: "Avg", align: "right", numeric: true },
-      { key: "wickets", label: "W", align: "right", numeric: true },
-      { key: "bowl_avg", label: "Bowl avg", align: "right", numeric: true },
-      { key: "econ", label: "Econ", align: "right", numeric: true },
-    ];
-    const warCols = [
-      { key: "rank", label: "#", align: "right", numeric: true },
-      { key: "player", label: "Player", align: "left", link: "player" },
-      { key: "primary_role", label: "Role", align: "left" },
-      { key: "war", label: "WAR", align: "right", numeric: true },
-      { key: "overall_default", label: "Overall", align: "right", numeric: true },
-    ];
-    $("rk-table").innerHTML = table(state.metric === "war" ? warCols : countCols, d.rows || []);
-    $("rk-m").addEventListener("change", (e) => { state.metric = e.target.value; paint(); });
-    $("rk-c").addEventListener("change", (e) => { state.comp = e.target.value; paint(); });
-    $("rk-g").addEventListener("change", (e) => { state.gender = e.target.value; paint(); });
+      <p class="caption">${esc(d.caption || "")}</p>
+      <div id="bt-table"></div>`;
+    $("bt-table").innerHTML = table(
+      [
+        { key: "score", label: "Score", align: "right", numeric: true },
+        { key: "player", label: "Player", align: "left", link: "player" },
+        { key: "start_date", label: "Date", align: "left", link: "match" },
+        { key: "competition", label: "Comp", align: "left" },
+        { key: "opposition", label: "Opp", align: "left" },
+        { key: "line", label: "Line", align: "left" },
+        { key: "venue", label: "Venue", align: "left" },
+        { key: "result", label: "Result", align: "left" },
+      ],
+      d.rows || [],
+    );
+    $("bt-d").addEventListener("change", (e) => { state.discipline = e.target.value; paint(); });
+    $("bt-c").addEventListener("change", (e) => { state.comp = e.target.value; paint(); });
+    $("bt-g").addEventListener("change", (e) => { state.gender = e.target.value; paint(); });
   };
   await paint();
 }
@@ -1096,7 +1210,8 @@ async function route() {
   if (head === "player") return showPlayer(parts[1]);
   if (head === "stats") return showStats();
   if (head.startsWith("wowy")) return showWowy();
-  if (head === "rankings") return showRankings();
+  if (head === "rankings") return showStats();
+  if (head === "best") return showBest();
   if (head === "metrics" || head === "war") return showMetrics();
   if (head === "standings") {
     setQuery("standings comp:ipl");

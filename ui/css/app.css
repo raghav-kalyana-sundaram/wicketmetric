@@ -126,6 +126,21 @@ a:hover { color: var(--accent-strong); }
   color: var(--ink-2);
 }
 
+.filters label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.h2h {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.h2h h3.section { margin-top: 0; }
+
 .filters select, .filters input[type="text"], .filters input[type="number"] {
   background: var(--bg-surface);
   color: var(--ink);
