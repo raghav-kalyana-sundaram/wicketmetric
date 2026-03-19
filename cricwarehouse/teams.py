@@ -40,7 +40,7 @@ POOL_COMPS = {
 
 METRIC_COPY = {
     "war": "Wins above a replacement player. Career total — more games count for more.",
-    "war_per_season": "Career WAR divided by seasons with balls in this pool.",
+    "war_per_game": "Career WAR divided by matches in this pool (20-game floor). A 400-game career is not the same pile as a dozen T20Is.",
     "rae_bat": "Runs scored versus expected, given over, wickets, and opposition.",
     "rae_bowl": "Runs saved versus expected on balls bowled. Higher is better.",
     "wpa": "Win probability added, in wins. Noisy in blowouts; NRC/RAE carries more weight.",

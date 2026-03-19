@@ -57,7 +57,11 @@ def _destinations(q: str) -> list[dict]:
     dest = [
         {"id": "stats", "label": "Stats table", "hint": "Master batting and bowling, with percentiles and WAR"},
         {"id": "wowy", "label": "WOWY", "hint": "With or without a player"},
-        {"id": "best", "label": "Best T20", "hint": "Greatest innings and spells in this warehouse"},
+        {"id": "best", "label": "Best T20", "hint": "Greatest match composites in this warehouse"},
+        {"id": "compare", "label": "Compare", "hint": "Two players, side by side"},
+        {"id": "teams", "label": "Team compare", "hint": "Two sides, same season"},
+        {"id": "twin", "label": "Profile twin", "hint": "Closest T20 shape in this warehouse"},
+        {"id": "shift", "label": "Stat line shift", "hint": "How teammates change with you"},
     ]
     ql = q.lower()
     if ql:
@@ -115,6 +119,15 @@ def master_stats(
         if gender:
             val_w.append("gender = ?")
             vparams.append(gender)
+        game_w = ["1=1"]
+        gparams: list[Any] = []
+        if t20_comps:
+            phg = ",".join(["?"] * len(t20_comps))
+            game_w.append(f"m.competition IN ({phg})")
+            gparams.extend(t20_comps)
+        if gender:
+            game_w.append("m.gender = ?")
+            gparams.append(gender)
         sql = f"""
         WITH bat AS (
           SELECT b.person_id,
@@ -154,6 +167,13 @@ def master_stats(
           WHERE {' AND '.join(val_w)}
           GROUP BY 1
         ),
+        games AS (
+          SELECT x.person_id, COUNT(DISTINCT x.match_id) AS games
+          FROM xi x
+          JOIN matches m ON m.match_id = x.match_id
+          WHERE {' AND '.join(game_w)}
+          GROUP BY 1
+        ),
         joined AS (
           SELECT COALESCE(bat.person_id, bowl.person_id) AS person_id,
                  COALESCE(bat.matches, 0) AS matches,
@@ -177,20 +197,27 @@ def master_stats(
                CASE WHEN j.legal_balls > 0 THEN ROUND(j.bowl_runs * 6.0 / j.legal_balls, 2) END AS econ,
                CASE WHEN j.legal_balls > j.balls THEN 'bowl' ELSE 'bat' END AS primary_role,
                v.war, v.rae_bat, v.rae_bowl, v.wpa, v.pressure, v.seasons,
-               CASE WHEN v.seasons > 0 THEN ROUND(v.war / v.seasons, 2) END AS war_per_season,
+               CASE WHEN g.games >= 20 THEN ROUND(v.war / g.games, 3) END AS war_per_game,
                ROUND(PERCENT_RANK() OVER (ORDER BY j.runs) * 100) AS runs_pct,
                ROUND(PERCENT_RANK() OVER (ORDER BY j.wickets) * 100) AS wickets_pct,
                ROUND(PERCENT_RANK() OVER (ORDER BY v.war NULLS FIRST) * 100) AS war_pct
         FROM joined j
         JOIN people p ON p.person_id = j.person_id
         LEFT JOIN val v ON v.person_id = j.person_id
+        LEFT JOIN games g ON g.person_id = j.person_id
         WHERE (j.inns >= ? OR j.wickets >= ?)
         """
         floor = max(int(min_inns), 1)
         try:
-            recs = con.execute(sql, params + bparams + vparams + [floor, floor]).fetchdf()
+            recs = con.execute(sql, params + bparams + vparams + gparams + [floor, floor]).fetchdf()
         except Exception:
-            recs = con.execute(sql.replace("LEFT JOIN val v ON v.person_id = j.person_id", "").replace("v.war, v.rae_bat, v.rae_bowl, v.wpa, v.pressure, v.seasons,", "NULL AS war, NULL AS rae_bat, NULL AS rae_bowl, NULL AS wpa, NULL AS pressure, NULL AS seasons,"), params + bparams + [floor, floor]).fetchdf()
+            recs = con.execute(
+                sql.replace("LEFT JOIN val v ON v.person_id = j.person_id", "")
+                .replace("LEFT JOIN games g ON g.person_id = j.person_id", "")
+                .replace("v.war, v.rae_bat, v.rae_bowl, v.wpa, v.pressure, v.seasons,", "NULL AS war, NULL AS rae_bat, NULL AS rae_bowl, NULL AS wpa, NULL AS pressure, NULL AS seasons,")
+                .replace("CASE WHEN g.games >= 20 THEN ROUND(v.war / g.games, 3) END AS war_per_game,", "NULL AS war_per_game,"),
+                params + bparams + [floor, floor],
+            ).fetchdf()
         if recs.empty:
             return {"rows": [], "scope": _scope(comp, gender, 0, wtc)}
         rows = recs.to_dict("records")
@@ -207,14 +234,22 @@ def master_stats(
             "econ": "econ",
             "balls": "balls",
             "war": "war",
-            "war_per_season": "war_per_season",
+            "war_per_game": "war_per_game",
             "rae_bat": "rae_bat",
             "rae_bowl": "rae_bowl",
             "wpa": "wpa",
             "pressure": "pressure",
         }.get(sort, "runs")
         reverse = key not in {"bowl_avg", "econ"}
-        rows.sort(key=lambda r: (r.get(key) is not None, r.get(key) or 0), reverse=reverse)
+
+        def _sort_key(r, k=key, hi=reverse):
+            v = r.get(k)
+            missing = v is None or (isinstance(v, float) and v != v)
+            if missing:
+                return (1, 0.0)
+            return (0, -float(v) if hi else float(v))
+
+        rows.sort(key=_sort_key)
         for i, r in enumerate(rows, start=1):
             r["rank"] = i
             r["player"] = r.get("display_name")
@@ -482,14 +517,27 @@ def career_value(person_id: str, *, pool: str | None = None, gender: str | None 
                 "metrics": [],
                 "copy": METRIC_COPY,
             }
-        recs["war_per_season"] = recs.apply(
-            lambda r: round(float(r["war"] or 0) / max(int(r["seasons"] or 1), 1), 2), axis=1
+        games = con.execute(
+            f"""
+            SELECT x.person_id, COUNT(DISTINCT x.match_id) AS games
+            FROM xi x
+            JOIN matches m ON m.match_id = x.match_id
+            WHERE m.competition IN ({ph}) AND m.gender = ?
+            GROUP BY 1
+            """,
+            comps + [g],
+        ).fetchdf()
+        recs = recs.merge(games, on="person_id", how="left")
+        recs["games"] = recs["games"].fillna(0).astype(int)
+        recs["war_per_game"] = recs.apply(
+            lambda r: round(float(r["war"] or 0) / int(r["games"]), 3) if int(r["games"] or 0) >= 20 else None,
+            axis=1,
         )
         n = len(recs)
         ranks = {}
         for col, higher in (
             ("war", True),
-            ("war_per_season", True),
+            ("war_per_game", True),
             ("rae_bat", True),
             ("rae_bowl", True),
             ("wpa", True),
@@ -510,7 +558,7 @@ def career_value(person_id: str, *, pool: str | None = None, gender: str | None 
         metrics = []
         for key, label in (
             ("war", "WAR"),
-            ("war_per_season", "WAR / season"),
+            ("war_per_game", "WAR / game"),
             ("rae_bat", "RAE bat"),
             ("rae_bowl", "RAE bowl"),
             ("wpa", "WPA"),
@@ -533,6 +581,7 @@ def career_value(person_id: str, *, pool: str | None = None, gender: str | None 
             "pool": pool,
             "pool_label": POOL_LABELS.get(pool, pool),
             "seasons": int(r.get("seasons") or 0),
+            "games": int(r.get("games") or 0),
             "balls_bat": int(r.get("balls_bat") or 0),
             "balls_bowl": int(r.get("balls_bowl") or 0),
             "n": n,
@@ -629,12 +678,15 @@ def list_performances(
     discipline: str | None = None,
     comp: str | None = None,
     gender: str | None = None,
+    wtc: bool = False,
     limit: int = 50,
 ) -> dict[str, Any]:
     if not warehouse_ready():
         return {"rows": [], "scope": "Warehouse not built"}
     con = connect()
     try:
+        if wtc:
+            _attach_wtc(con, gender)
         where = ["1=1"]
         params: list[Any] = []
         if person_id:
@@ -651,6 +703,8 @@ def list_performances(
         if gender:
             where.append("pf.gender = ?")
             params.append(gender)
+        if wtc:
+            where.append(wtc_match_sql("m"))
         recs = con.execute(
             f"""
             SELECT pf.*, p.display_name, p.slug,

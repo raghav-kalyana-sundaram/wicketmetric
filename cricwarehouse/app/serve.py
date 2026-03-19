@@ -132,9 +132,42 @@ def create_app() -> FastAPI:
         discipline: str | None = None,
         comp: str | None = None,
         gender: str | None = None,
+        wtc: bool = True,
+        mode: str = "composite",
         limit: int = 50,
     ):
-        return catalog.list_performances(discipline=discipline, comp=comp, gender=gender, limit=limit)
+        from cricwarehouse.app import studio
+        if mode == "composite" or discipline in {None, "", "match"}:
+            return studio.list_match_composites(comp=comp, gender=gender, wtc=wtc, limit=limit)
+        return catalog.list_performances(
+            discipline=discipline, comp=comp, gender=gender, wtc=wtc, limit=limit
+        )
+
+    @app.get("/api/compare")
+    def api_compare(a: str, b: str, pool: str | None = None):
+        from cricwarehouse.app import studio
+        return studio.player_compare(a, b, pool=pool)
+
+    @app.get("/api/team-compare")
+    def api_team_compare(
+        a: str,
+        b: str,
+        comp: str = "t20i",
+        season: str | None = None,
+        gender: str = "male",
+    ):
+        from cricwarehouse.app import studio
+        return studio.team_compare(a, b, comp=comp, season=season, gender=gender)
+
+    @app.get("/api/twin")
+    def api_twin(player: str, pool: str | None = None):
+        from cricwarehouse.app import studio
+        return studio.profile_twin(player, pool=pool)
+
+    @app.get("/api/shift")
+    def api_shift(player: str, team: str | None = None, comp: str | None = None):
+        from cricwarehouse.app import studio
+        return studio.stat_shift(player, team=team, comp=comp)
 
     @app.get("/api/rankings")
     def api_rankings(
@@ -336,7 +369,10 @@ def create_app() -> FastAPI:
             bowl_balls = int(sum(int(s.get("legal_balls") or 0) for s in bowl))
             primary_role = "bowl" if bowl_balls > bat_balls else "bat"
             value = catalog.career_value(pid)
-            perfs = catalog.list_performances(person_id=pid, limit=40)
+            from cricwarehouse.app import studio
+            perfs = studio.list_match_composites(person_id=pid, focus=primary_role, limit=25)
+            if not perfs.get("rows"):
+                perfs = catalog.list_performances(person_id=pid, discipline=primary_role, limit=25)
             h2h = catalog.matchups(pid)
             return {
                 "person": p,
