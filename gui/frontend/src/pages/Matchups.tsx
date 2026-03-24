@@ -100,15 +100,23 @@ function DominanceGauge({ value, size = "md" }: DominanceGaugeProps) {
         {/* Pointer */}
         <div className="dominance-gauge-pointer" style={{ left: `${pct}%` }} />
       </div>
-      <div className="flex items-center justify-between mt-1 text-[10px] text-text-muted">
-        <span>← Bowler</span>
+      <div className="flex items-center justify-between gap-1 mt-1 text-[10px] text-text-muted">
+        <span className="text-left leading-tight max-w-[5.5rem]">
+          Bowler
+          <br />
+          <span className="text-text-muted/80">dominance</span>
+        </span>
         <span
-          className="font-score font-semibold text-xs"
+          className="font-score font-semibold text-xs text-center px-1"
           style={{ color: colour }}
         >
           {score != null ? `${fmtMatchupEdge(value)}/100` : "—"} · {label}
         </span>
-        <span>Batter →</span>
+        <span className="text-right leading-tight max-w-[5.5rem]">
+          Batter
+          <br />
+          <span className="text-text-muted/80">dominance</span>
+        </span>
       </div>
     </div>
   );
@@ -298,8 +306,8 @@ function HeadToHeadView({ data }: HeadToHeadViewProps) {
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4 mb-6">
           <StatBadge label="Balls" value={fmtInt(data.balls)} />
           <StatBadge label="Runs" value={fmtInt(data.runs)} />
-          <StatBadge label="SR" value={fmtSR(data.sr)} />
-          <StatBadge label="Dismissals" value={fmtInt(data.dismissals)} />
+          <StatBadge label="SR" value={fmtSR(data.sr)} emphasis />
+          <StatBadge label="Dismissals" value={fmtInt(data.dismissals)} emphasis />
           <StatBadge label="Dots" value={fmtInt(data.dots)} />
           <StatBadge label="Fours" value={fmtInt(data.fours)} />
           <StatBadge label="Sixes" value={fmtInt(data.sixes)} />
@@ -352,13 +360,22 @@ interface StatBadgeProps {
   label: string;
   value: string;
   valueColour?: string;
+  /** Larger value for headline stats (e.g. SR, dismissals). */
+  emphasis?: boolean;
 }
 
-function StatBadge({ label, value, valueColour }: StatBadgeProps) {
+function StatBadge({
+  label,
+  value,
+  valueColour,
+  emphasis = false,
+}: StatBadgeProps) {
   return (
     <div className="text-center">
       <div
-        className="font-score text-lg font-bold tabular-nums"
+        className={`font-score font-bold tabular-nums ${
+          emphasis ? "text-xl sm:text-2xl" : "text-lg"
+        }`}
         style={valueColour ? { color: valueColour } : undefined}
       >
         {value}

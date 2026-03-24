@@ -21,7 +21,8 @@
  * Follows gui.md § 7.1 Component Library — `<FormSparkline>`.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from "react";
+import { detectTrend, type Trend } from "@/components/formSparklineUtils";
 
 // ── Props ────────────────────────────────────────────────────────
 
@@ -52,46 +53,32 @@ interface FormSparklineProps {
   yMin?: number;
   /** Maximum Y value for the scale. Default: auto from data. */
   yMax?: number;
+  /**
+   * When true, style as a miniature of the profile "Form Tracker" chart:
+   * fixed 0–100 scale, blue line, gradient fill, optional median line at 50.
+   */
+  variant?: 'default' | 'formTracker';
+  /** When variant="formTracker", show a faint median (50) reference line. */
+  showMedianLine?: boolean;
 }
 
-// ── Trend detection ──────────────────────────────────────────────
-
-type Trend = 'up' | 'down' | 'stable';
-
-function detectTrend(values: number[]): Trend {
-  if (values.length < 3) return 'stable';
-
-  // Compare the average of the last third to the average of the first third
-  const third = Math.max(1, Math.floor(values.length / 3));
-  const firstSlice = values.slice(0, third);
-  const lastSlice = values.slice(-third);
-
-  const firstAvg = firstSlice.reduce((a, b) => a + b, 0) / firstSlice.length;
-  const lastAvg = lastSlice.reduce((a, b) => a + b, 0) / lastSlice.length;
-
-  const delta = lastAvg - firstAvg;
-  const range = Math.max(...values) - Math.min(...values);
-
-  // Only count as a trend if the change is >10% of the range
-  const threshold = range > 0 ? range * 0.1 : 2;
-
-  if (delta > threshold) return 'up';
-  if (delta < -threshold) return 'down';
-  return 'stable';
-}
+export type { Trend } from "@/components/formSparklineUtils";
+export { detectTrend, detectTrendFromLastN } from "@/components/formSparklineUtils";
 
 function trendColour(trend: Trend): string {
   switch (trend) {
     case 'up':
-      return '#10B981'; // Emerald (improving)
+      return '#38BDF8'; // Sky — direction, not "good"
     case 'down':
-      return '#EF4444'; // Red (declining)
+      return '#F59E0B'; // Amber
     case 'stable':
-      return '#3B82F6'; // Blue (stable)
+      return '#94A3B8'; // Slate
   }
 }
 
 // ── Component ────────────────────────────────────────────────────
+
+const FORM_TRACKER_BLUE = '#3B82F6';
 
 export default function FormSparkline({
   data,
@@ -107,9 +94,18 @@ export default function FormSparkline({
   ariaLabel,
   yMin: yMinProp,
   yMax: yMaxProp,
+  variant = 'default',
+  showMedianLine = false,
 }: FormSparklineProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  const isFormTrackerVariant = variant === 'formTracker';
+  const effectiveYMin = isFormTrackerVariant ? 0 : yMinProp;
+  const effectiveYMax = isFormTrackerVariant ? 100 : yMaxProp;
+  const effectiveColour = isFormTrackerVariant ? FORM_TRACKER_BLUE : colour;
+  const effectiveShowFill = isFormTrackerVariant ? true : showFill;
+  const effectiveShowMedian = showMedianLine || (isFormTrackerVariant && showMedianLine !== false);
 
   // Filter out nulls and build clean values array
   const cleanData = useMemo(() => {
@@ -127,22 +123,21 @@ export default function FormSparkline({
 
   // Compute scale
   const { yMin, yMax } = useMemo(() => {
-    if (values.length === 0) return { yMin: 0, yMax: 100 };
+    if (values.length === 0) return { yMin: effectiveYMin ?? 0, yMax: effectiveYMax ?? 100 };
+    if (effectiveYMin != null && effectiveYMax != null)
+      return { yMin: effectiveYMin, yMax: effectiveYMax };
     const dataMin = Math.min(...values);
     const dataMax = Math.max(...values);
-
-    // Add 10% padding
     const range = dataMax - dataMin || 10;
     const padding = range * 0.1;
-
     return {
       yMin: yMinProp ?? Math.max(0, dataMin - padding),
       yMax: yMaxProp ?? Math.min(100, dataMax + padding),
     };
-  }, [values, yMinProp, yMaxProp]);
+  }, [values, yMinProp, yMaxProp, effectiveYMin, effectiveYMax]);
 
   const trend = useMemo(() => detectTrend(values), [values]);
-  const lineColour = colour ?? trendColour(trend);
+  const lineColour = effectiveColour ?? colour ?? trendColour(trend);
 
   // Compute points
   const points = useMemo(() => {
@@ -172,7 +167,7 @@ export default function FormSparkline({
 
   // Build fill path (closed polygon for gradient area)
   const fillPath = useMemo(() => {
-    if (points.length < 2 || !showFill) return '';
+    if (points.length < 2 || !effectiveShowFill) return '';
     const bottomY = height - 1;
     const pathStart = `M ${points[0].x.toFixed(1)} ${bottomY}`;
     const lineSegments = points
@@ -180,7 +175,7 @@ export default function FormSparkline({
       .join(' ');
     const pathEnd = `L ${points[points.length - 1].x.toFixed(1)} ${bottomY} Z`;
     return `${pathStart} ${lineSegments} ${pathEnd}`;
-  }, [points, height, showFill]);
+  }, [points, height, effectiveShowFill]);
 
   // Gradient IDs need to be unique per instance
   const gradientId = useMemo(() => `sparkline-grad-${Math.random().toString(36).slice(2, 8)}`, []);
@@ -266,8 +261,21 @@ export default function FormSparkline({
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
+        {/* Median reference line (mini Form Tracker style) */}
+        {effectiveShowMedian && isFormTrackerVariant && (
+          <line
+            x1={2}
+            y1={3 + (height - 6) / 2}
+            x2={width - 2}
+            y2={3 + (height - 6) / 2}
+            stroke="#64748B"
+            strokeDasharray="2 2"
+            strokeOpacity={0.4}
+          />
+        )}
+
         {/* Gradient definition */}
-        {showFill && (
+        {effectiveShowFill && (
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={lineColour} stopOpacity={0.3} />
@@ -276,8 +284,8 @@ export default function FormSparkline({
           </defs>
         )}
 
-        {/* Fill area */}
-        {fillPath && (
+        {/* Fill area (gradient under line) */}
+        {fillPath && effectiveShowFill && (
           <path d={fillPath} fill={`url(#${gradientId})`} />
         )}
 

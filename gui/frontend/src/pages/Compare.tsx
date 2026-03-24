@@ -64,6 +64,8 @@ import {
   fmtPressureScore,
   fmtMatchupEdge,
   matchupEdgeScore,
+  primaryDisplayRating,
+  careerDisplayRating,
 } from "@/lib/format";
 import type {
   PlayerSummary,
@@ -552,7 +554,11 @@ function PhaseComparisonChart({ players }: PhaseChartProps) {
   return (
     <ResponsiveContainer width="100%" height={250}>
       <BarChart data={data} barGap={2} barCategoryGap="20%">
-        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+        <CartesianGrid
+          strokeDasharray="3 3"
+          stroke="#334155"
+          strokeOpacity={0.28}
+        />
         <XAxis
           dataKey="phase"
           tick={{ fill: "#94A3B8", fontSize: 12 }}
@@ -760,6 +766,11 @@ export default function Compare() {
         <p className="page-subtitle">
           Select 2–4 players to compare side-by-side. The URL is shareable.
         </p>
+        <p className="text-xs text-text-muted max-w-2xl mt-2">
+          Players can be resolved across loaded datasets (e.g. men&apos;s and
+          women&apos;s). Scores use the same 0–100 scale but are not directly
+          comparable as physical benchmarks between genders.
+        </p>
       </div>
 
       {/* Player Selection Inputs */}
@@ -908,21 +919,12 @@ export default function Compare() {
               </span>
             </h2>
 
-            <div className="flex flex-col lg:flex-row items-center gap-6">
-              <div className="flex-1 min-w-0">
-                <RadarChart
-                  axes={radarAxes}
-                  players={radarPlayers}
-                  size={320}
-                />
-              </div>
-
-              {/* Legend */}
-              <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
                 {allProfiles.map((profile, i) => (
                   <div key={profile.id} className="flex items-center gap-2">
                     <div
-                      className="h-3 w-6 rounded"
+                      className="h-3 w-6 rounded shrink-0"
                       style={{ backgroundColor: chartColour(i) }}
                     />
                     <span className="text-sm text-text-primary">
@@ -930,6 +932,13 @@ export default function Compare() {
                     </span>
                   </div>
                 ))}
+              </div>
+              <div className="flex justify-center w-full min-w-0">
+                <RadarChart
+                  axes={radarAxes}
+                  players={radarPlayers}
+                  size={320}
+                />
               </div>
             </div>
           </section>
@@ -1045,16 +1054,37 @@ export default function Compare() {
                         ))}
                       </tr>
                       <tr>
-                        <td className="text-text-secondary">Overall Score</td>
+                        <td className="text-text-secondary">Current</td>
                         {allProfiles.map((p) => (
                           <td key={p.id} className="text-right">
                             <span
                               className="font-score tabular-nums"
                               style={{
-                                color: scoreToColour(p.overall_score),
+                                color: scoreToColour(
+                                  primaryDisplayRating(p) ?? p.overall_score,
+                                ),
                               }}
                             >
-                              {fmtScore(p.overall_score)}
+                              {fmtScore(
+                                primaryDisplayRating(p) ?? p.overall_score,
+                              )}
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="text-text-secondary">
+                          Career overall
+                        </td>
+                        {allProfiles.map((p) => (
+                          <td key={p.id} className="text-right">
+                            <span
+                              className="font-score tabular-nums"
+                              style={{
+                                color: scoreToColour(careerDisplayRating(p)),
+                              }}
+                            >
+                              {fmtScore(careerDisplayRating(p))}
                             </span>
                           </td>
                         ))}
@@ -1111,17 +1141,19 @@ export default function Compare() {
               {formChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={formChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#334155"
+                      strokeOpacity={0.28}
+                    />
                     <XAxis
                       dataKey="date"
                       tick={{ fill: "#94A3B8", fontSize: 11 }}
                       axisLine={{ stroke: "#334155" }}
                       tickFormatter={(v: string) => {
                         if (!v) return "";
-                        const parts = v.split("-");
-                        return parts.length >= 2
-                          ? `${parts[0]}-${parts[1]}`
-                          : v;
+                        const y = v.slice(0, 4);
+                        return /^\d{4}$/.test(y) ? y : v;
                       }}
                       interval="preserveStartEnd"
                     />

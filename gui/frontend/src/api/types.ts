@@ -27,6 +27,18 @@ export interface PlayerSummary {
   is_provisional: boolean;
   overall_score: number | null;
   metrics?: Record<string, number | null>;
+  /** ISO date of last game in the current format's dataset */
+  last_match_date?: string | null;
+  /** True if last match within format recency (1y T20I / 2y IPL) */
+  is_active?: boolean;
+  /** Simple views: prefer this over `overall_score` (rolling form, capped). */
+  rating_current?: number | null;
+  /** Expanded / career-style display rating (capped by peak form). */
+  rating_overall?: number | null;
+  /** Modal batting position 1–11 when role is bat */
+  modal_position?: number | null;
+  /** Squad / franchise from the player's most recent match in this format */
+  recent_team?: string | null;
 }
 
 // ── Phase Split ──────────────────────────────────────────────────
@@ -179,6 +191,10 @@ export interface BatterProfile {
   archetype: string;
   archetypes?: string[];
   position_group: string;
+  /** Most common batting slot 1–11 */
+  modal_position?: number | null;
+  /** Side they played for in their last game (batting_team) */
+  recent_team?: string | null;
 
   // Career stats
   innings_count: number;
@@ -201,6 +217,10 @@ export interface BatterProfile {
   grade_control: string;
   overall_score: number | null;
   overall_grade: string;
+  /** Simple header: current form rating */
+  rating_current?: number | null;
+  /** Expanded: career-style overall (capped by form peak) */
+  rating_overall?: number | null;
 
   // Provisional
   is_provisional: boolean;
@@ -259,6 +279,8 @@ export interface BowlerProfile {
   archetype: string;
   archetypes?: string[];
   phase_group: string;
+  /** Side they played for in their last game (bowling_team) */
+  recent_team?: string | null;
 
   // Career stats
   matches: number;
@@ -281,6 +303,8 @@ export interface BowlerProfile {
   grade_threat: string;
   overall_score: number | null;
   overall_grade: string;
+  rating_current?: number | null;
+  rating_overall?: number | null;
 
   // Provisional
   is_provisional: boolean;
@@ -445,6 +469,22 @@ export interface FormResponse {
   player_id: string;
   player_name: string;
   series: FormPoint[];
+}
+
+export interface FormBatchPoint {
+  date: string;
+  composite: number | null;
+}
+
+export interface FormBatchItem {
+  player_id: string;
+  form_points: FormBatchPoint[];
+  last_played: string | null;
+  active: boolean;
+}
+
+export interface FormBatchResponse {
+  results: FormBatchItem[];
 }
 
 // ── Similarity Response ──────────────────────────────────────────
@@ -627,6 +667,16 @@ export interface SpellsLogResponse {
 
 // ── API Metadata ─────────────────────────────────────────────────
 
+/** Latest match in scorecard JSON corpus for the active format (from /api/meta). */
+export interface LatestScorecardSummary {
+  match_id: string;
+  date?: string | null;
+  venue?: string | null;
+  teams?: string[] | null;
+  /** Cricsheet `info.event.name` when present (e.g. World Cup, bilateral series). */
+  event_name?: string | null;
+}
+
 export interface ApiMeta {
   status: string;
   total_batters: number;
@@ -635,6 +685,9 @@ export interface ApiMeta {
   total_venues: number;
   countries: string[];
   archetypes: Record<string, string[]>;
+  /** Latest career last_match_date across bat/bowl tables (yyyy-mm-dd). */
+  data_through_date?: string | null;
+  latest_scorecard?: LatestScorecardSummary | null;
 }
 
 // ── Grade type (for type-safe grade handling) ────────────────────
@@ -687,9 +740,13 @@ export interface LeaderboardParams {
   country?: string | null;
   archetype?: string | null;
   position_group?: string | null;
+  /** Batting only: filter to players whose modal batting-order slot is 1–11 */
+  modal_slot?: number | null;
   phase_group?: string | null;
   min_innings?: number | null;
   provisional?: boolean | null;
+  /** active (default) | retired | all — recency window depends on format */
+  activity?: "active" | "retired" | "all";
   page?: number;
   per_page?: number;
 }

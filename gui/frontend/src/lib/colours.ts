@@ -316,17 +316,17 @@ export function deliveryColour(
 // ── Dominance gauge colour ───────────────────────────────────────
 
 /**
- * Get a colour for matchup edge.
- * Red = bowler edge, grey = even, green = batter edge.
+ * Get a colour for matchup edge (blue = bowler side, amber/orange = batter side).
+ * Avoids red/green-only encoding for colour-vision accessibility.
  */
 export function dominanceColour(value: number | null | undefined): string {
   const score = matchupEdgeScore(value);
   if (score == null) return "#64748B";
-  if (score < 36) return "#EF4444";
-  if (score < 45) return "#F97316";
+  if (score < 36) return "#2563EB";
+  if (score < 45) return "#3B82F6";
   if (score < 56) return "#64748B";
-  if (score < 65) return "#22C55E";
-  return "#10B981";
+  if (score < 65) return "#EA580C";
+  return "#D97706";
 }
 
 /**

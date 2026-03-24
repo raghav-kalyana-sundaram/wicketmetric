@@ -56,7 +56,7 @@ export default function ThemeToggle({
         ${showLabel ? "inline-flex items-center gap-2 rounded-lg px-3 py-1.5" : `${BUTTON_SIZES[size] ?? BUTTON_SIZES.md} inline-flex items-center justify-center rounded-lg`}
         text-text-secondary hover:text-text-primary
         hover:bg-surface-elevated
-        transition-all duration-200 ease-in-out
+        transition-colors duration-200 ease-out-quart
         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary
         ${className}
       `.trim()}
@@ -64,7 +64,7 @@ export default function ThemeToggle({
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
     >
       <span
-        className="inline-block transition-transform duration-300 ease-in-out"
+        className="inline-block transition-transform duration-300 ease-out-quart"
         style={{
           transform: isDark ? "rotate(0deg)" : "rotate(180deg)",
         }}

@@ -26,7 +26,7 @@ import { Link } from 'react-router-dom';
 import type { PlayerSummary } from '@/api/types';
 import GradeBadge from '@/components/GradeBadge';
 import ScoreBar, { ScoreBarMini } from '@/components/ScoreBar';
-import { fmtInt, fmtSR, fmtEcon, fmtAvg, fmtScore, countryFlag, fmtRole } from '@/lib/format';
+import { fmtInt, fmtSR, fmtEcon, fmtAvg, fmtScore, countryFlag, fmtRole, primaryDisplayRating } from '@/lib/format';
 
 // ── Props ────────────────────────────────────────────────────────
 
@@ -166,11 +166,11 @@ export default function PlayerCard({
         {/* Grade */}
         <GradeBadge grade={player.grade_overall} size="xs" />
 
-        {/* Overall score */}
+        {/* Headline score (current when API sends it) */}
         <span
           className="text-xs font-score tabular-nums text-text-secondary w-8 text-right shrink-0"
         >
-          {fmtScore(player.overall_score, '')}
+          {fmtScore(primaryDisplayRating(player) ?? player.overall_score, '')}
         </span>
       </div>
     );

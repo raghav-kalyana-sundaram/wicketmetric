@@ -12,12 +12,20 @@
  *   - Template auto-fill buttons (Best XI by WAR, Power, Control, Country)
  *   - Shareable URL encoding the selected player IDs
  *   - Country-constrained auto-fill
+ *   - Compare mode: 2–4 XIs side-by-side (aligned slots), spec-style metrics + radars
  *
  * Follows gui.md § 6.8 "Team Builder".
  */
 
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
   Users,
   X,
@@ -39,25 +47,28 @@ import {
 import {
   useTeamAnalysis,
   useTeamAutoFill,
-  useTeamCompare,
+  useTeamAnalysesParallel,
   useCountries,
 } from "@/api/queries";
-import type {
-  PlayerSummary,
-  TeamAnalysis,
-  TeamCompareResponse,
-} from "@/api/types";
+import type { PlayerSummary, TeamAnalysis } from "@/api/types";
 import api from "@/api/client";
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import GradeBadge from "@/components/GradeBadge";
 import ScoreBar from "@/components/ScoreBar";
+import PlayerAvatar from "@/components/PlayerAvatar";
 import { countryFlag } from "@/lib/format";
-import { scoreToColour } from "@/lib/colours";
+import { chartColour, scoreToColour } from "@/lib/colours";
 
 // ── Constants ────────────────────────────────────────────────────
 
 const MAX_PLAYERS = 11;
+const MAX_COMPARE_TEAMS = 4;
 const LOCALSTORAGE_KEY = "cricket-metrics-team-builder";
+
+type TeamDraft = {
+  slots: (PlayerSummary | null)[];
+  slotTypes: SlotTypeKey[];
+};
 
 // ── Slot type constants ──────────────────────────────────────────
 
@@ -97,6 +108,36 @@ const TYPE_SHORT_CODES: Record<SlotTypeKey, string> = {
 const SHORT_CODE_TO_TYPE: Record<string, SlotTypeKey> = Object.fromEntries(
   Object.entries(TYPE_SHORT_CODES).map(([k, v]) => [v, k as SlotTypeKey]),
 );
+
+function emptyCompareTeam(): TeamDraft {
+  return {
+    slots: Array(MAX_PLAYERS).fill(null) as (PlayerSummary | null)[],
+    slotTypes: [...DEFAULT_SLOT_TYPES],
+  };
+}
+
+/** Typical batting-order slots for out-of-position hints (manual XI only). */
+const SLOT_TYPICAL_POSITIONS: Record<SlotTypeKey, readonly number[]> = {
+  opener: [1, 2],
+  top_order: [1, 2, 3],
+  middle_order: [3, 4, 5, 6],
+  finisher_wk: [4, 5, 6, 7],
+  allrounder: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  bowler: [],
+};
+
+function battingSlotOutOfPosition(
+  player: PlayerSummary,
+  slotType: SlotTypeKey,
+): boolean {
+  if (player.role !== "bat") return false;
+  if (slotType === "bowler" || slotType === "allrounder") return false;
+  const mp = player.modal_position;
+  if (mp == null) return false;
+  const allowed = SLOT_TYPICAL_POSITIONS[slotType];
+  if (!allowed.length) return false;
+  return !allowed.includes(mp);
+}
 
 // ── localStorage helpers ─────────────────────────────────────────
 
@@ -197,10 +238,18 @@ interface RadarAxis {
   value: number | null;
 }
 
-function TeamRadar({ axes }: { axes: RadarAxis[] }) {
-  const size = 300;
+function TeamRadar({
+  axes,
+  size = 300,
+  accent = "#3B82F6",
+}: {
+  axes: RadarAxis[];
+  size?: number;
+  /** Stroke/fill colour (hex). Defaults to primary blue. */
+  accent?: string;
+}) {
   const center = size / 2;
-  const maxRadius = size / 2 - 45;
+  const maxRadius = size / 2 - 40;
   const n = axes.length;
 
   if (n < 3) return null;
@@ -216,8 +265,8 @@ function TeamRadar({ axes }: { axes: RadarAxis[] }) {
     return {
       x: center + r * Math.cos(angle),
       y: center + r * Math.sin(angle),
-      labelX: center + (maxRadius + 25) * Math.cos(angle),
-      labelY: center + (maxRadius + 25) * Math.sin(angle),
+      labelX: center + (maxRadius + 28) * Math.cos(angle),
+      labelY: center + (maxRadius + 28) * Math.sin(angle),
       label: axis.shortLabel,
       value: val,
     };
@@ -271,8 +320,9 @@ function TeamRadar({ axes }: { axes: RadarAxis[] }) {
       {/* Team polygon */}
       <polygon
         points={polygonPath}
-        fill="rgba(59, 130, 246, 0.15)"
-        stroke="#3B82F6"
+        fill={accent}
+        fillOpacity={0.15}
+        stroke={accent}
         strokeWidth={2}
       />
 
@@ -283,7 +333,7 @@ function TeamRadar({ axes }: { axes: RadarAxis[] }) {
           cx={p.x}
           cy={p.y}
           r={4}
-          fill="#3B82F6"
+          fill={accent}
           stroke="white"
           strokeWidth={1.5}
         />
@@ -298,7 +348,7 @@ function TeamRadar({ axes }: { axes: RadarAxis[] }) {
             textAnchor="middle"
             dominantBaseline="middle"
             className="fill-text-secondary"
-            fontSize={11}
+            fontSize={12}
             fontWeight={500}
           >
             {p.label}
@@ -326,6 +376,7 @@ interface PlayerSlotProps {
   index: number;
   slotLabel: string;
   slotIcon: string;
+  slotType: SlotTypeKey;
   player: PlayerSummary | null;
   onSelect: (player: PlayerSummary) => void;
   onRemove: () => void;
@@ -337,6 +388,7 @@ function PlayerSlot({
   index,
   slotLabel,
   slotIcon,
+  slotType,
   player,
   onSelect,
   onRemove,
@@ -346,6 +398,7 @@ function PlayerSlot({
   if (player) {
     const isBowler = player.role === "bowl";
     const flag = countryFlag(player.country);
+    const oop = battingSlotOutOfPosition(player, slotType);
 
     return (
       <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-elevated/50 hover:bg-surface-elevated/70 transition-colors group">
@@ -363,7 +416,11 @@ function PlayerSlot({
             </span>
             <GradeBadge grade={player.grade_overall} size="xs" />
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <span className="text-xs text-text-muted truncate max-w-[10rem]">
+              {(player.recent_team || "").trim() || player.country || "—"}
+            </span>
+            <span className="text-xs text-text-muted">·</span>
             <span className="text-xs text-text-muted">
               {player.archetype || (isBowler ? "Bowler" : "Batter")}
             </span>
@@ -374,6 +431,13 @@ function PlayerSlot({
                 : `${player.total_runs} runs`}
             </span>
           </div>
+          {oop && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+              <AlertTriangle size={12} className="shrink-0" />
+              Usually bats #{player.modal_position}; this slot is atypical (you
+              can keep them here).
+            </p>
+          )}
         </div>
 
         {/* Score bars (compact) */}
@@ -550,7 +614,7 @@ function AnalysisPanel({
       </div>
 
       {/* Radar chart */}
-      <TeamRadar axes={radarAxes} />
+      <TeamRadar axes={radarAxes} size={368} />
 
       {/* Aggregate stats */}
       <button
@@ -656,9 +720,9 @@ function AnalysisPanel({
                 style={{
                   color:
                     analysis.avg_clutch != null && analysis.avg_clutch > 0
-                      ? "#10B981"
+                      ? "#38BDF8"
                       : analysis.avg_clutch != null && analysis.avg_clutch < 0
-                        ? "#EF4444"
+                        ? "#F59E0B"
                         : undefined,
                 }}
               >
@@ -683,9 +747,9 @@ function AnalysisPanel({
             {analysis.weaknesses.map((w, i) => (
               <div
                 key={i}
-                className="flex items-start gap-2 text-sm text-warning bg-warning/5 rounded-lg px-3 py-2"
+                className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-200/90 bg-amber-500/10 dark:bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/20"
               >
-                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-300" />
                 <span>{w}</span>
               </div>
             ))}
@@ -698,186 +762,462 @@ function AnalysisPanel({
 
 // ── Main page component ──────────────────────────────────────────
 
-// ── Comparison Panel (Team A vs Team B) ──────────────────────────
+// ── Multi-team compare (2–4 columns, spec-style metrics) ───────────
 
-function ComparisonPanel({
-  data,
-  isLoading,
-}: {
-  data: TeamCompareResponse;
-  isLoading: boolean;
-}) {
-  if (isLoading) {
+function teamBatProfileSum(a: TeamAnalysis): number | null {
+  if (
+    a.avg_acceleration == null &&
+    a.avg_bat_power == null &&
+    a.avg_bat_control == null
+  )
+    return null;
+  return (
+    (a.avg_acceleration ?? 0) +
+    (a.avg_bat_power ?? 0) +
+    (a.avg_bat_control ?? 0)
+  );
+}
+
+function teamBowlProfileSum(a: TeamAnalysis): number | null {
+  if (
+    a.avg_accuracy == null &&
+    a.avg_bowl_control == null &&
+    a.avg_threat == null
+  )
+    return null;
+  return (
+    (a.avg_accuracy ?? 0) +
+    (a.avg_bowl_control ?? 0) +
+    (a.avg_threat ?? 0)
+  );
+}
+
+function teamTotalWarSum(a: TeamAnalysis): number | null {
+  const t =
+    (a.total_war_batting ?? 0) + (a.total_war_bowling ?? 0);
+  return t > 0 ? t : null;
+}
+
+/** Indices among `visible` teams that strictly win the metric (ties → no highlight). */
+function winnerIndices(
+  analyses: (TeamAnalysis | undefined)[],
+  visible: number,
+  pick: (a: TeamAnalysis) => number | null,
+  higherIsBetter: boolean,
+): Set<number> {
+  const entries: { i: number; v: number }[] = [];
+  for (let i = 0; i < visible; i++) {
+    const a = analyses[i];
+    if (!a) continue;
+    const v = pick(a);
+    if (v == null || Number.isNaN(v)) continue;
+    entries.push({ i, v });
+  }
+  if (entries.length < 2) return new Set();
+  const extreme = higherIsBetter
+    ? Math.max(...entries.map((e) => e.v))
+    : Math.min(...entries.map((e) => e.v));
+  const atExtreme = entries.filter((e) => e.v === extreme);
+  if (atExtreme.length !== 1) return new Set();
+  return new Set([atExtreme[0].i]);
+}
+
+interface CompareSlotCellProps {
+  slotIndex: number;
+  slotType: SlotTypeKey;
+  player: PlayerSummary | null;
+  accent: string;
+  excludeIds: string[];
+  onSelect: (p: PlayerSummary) => void;
+  onRemove: () => void;
+  onTypeCycle: () => void;
+}
+
+function CompareSlotCell({
+  slotIndex,
+  slotType,
+  player,
+  accent,
+  excludeIds,
+  onSelect,
+  onRemove,
+  onTypeCycle,
+}: CompareSlotCellProps) {
+  const typeOption =
+    SLOT_TYPE_OPTIONS.find((t) => t.key === slotType) ?? SLOT_TYPE_OPTIONS[0];
+
+  if (player) {
+    const isBowler = player.role === "bowl";
+    const flag = countryFlag(player.country);
+    const oop = battingSlotOutOfPosition(player, slotType);
     return (
-      <div className="card p-4 animate-pulse text-sm text-text-muted">
-        Computing comparison…
+      <div
+        className="rounded-xl border border-border/60 bg-surface-elevated/40 p-2.5 min-h-[5.5rem] flex flex-col gap-1 transition-shadow hover:shadow-sm"
+        style={{ borderTopColor: accent, borderTopWidth: 3 }}
+      >
+        <div className="flex items-start justify-between gap-1">
+          <span className="text-[10px] font-semibold text-text-muted tabular-nums">
+            #{slotIndex + 1}
+          </span>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded p-0.5 text-text-muted hover:bg-danger/10 hover:text-danger"
+            aria-label={`Remove ${player.name}`}
+          >
+            <X size={12} />
+          </button>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <PlayerAvatar name={player.name} playerId={player.id} size="sm" />
+            {flag && <span className="text-xs">{flag}</span>}
+            <Link
+              to={`/player/${player.id}`}
+              className="text-xs font-medium text-text-primary hover:text-primary truncate"
+            >
+              {player.name}
+            </Link>
+            <GradeBadge grade={player.grade_overall} size="xs" />
+          </div>
+          <p className="text-[10px] text-text-muted truncate mt-0.5">
+            {typeOption.icon} {typeOption.label} ·{" "}
+            {player.archetype || (isBowler ? "Bowler" : "Batter")}
+          </p>
+          <div className="flex gap-2 mt-1.5 text-[10px] tabular-nums">
+            <span style={{ color: scoreToColour(player.score_1) }}>
+              {player.score_1 != null ? Math.round(player.score_1) : "—"}
+            </span>
+            <span className="text-text-muted">/</span>
+            <span style={{ color: scoreToColour(player.score_2) }}>
+              {player.score_2 != null ? Math.round(player.score_2) : "—"}
+            </span>
+            <span className="text-text-muted">/</span>
+            <span style={{ color: scoreToColour(player.score_3) }}>
+              {player.score_3 != null ? Math.round(player.score_3) : "—"}
+            </span>
+          </div>
+          {oop && (
+            <p className="text-[9px] text-amber-700/90 dark:text-amber-200/85 mt-1 flex items-center gap-0.5">
+              <AlertTriangle size={9} className="shrink-0" />
+              Modal #{player.modal_position}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
-  const { team_a, team_b, comparison } = data;
-
-  const edgeLabel = (edge: string) => {
-    if (edge === "even") return "Even";
-    return edge === "A" ? "Team A" : "Team B";
-  };
-
-  const edgeColour = (edge: string) => {
-    if (edge === "even") return "text-text-muted";
-    return edge === "A" ? "text-primary" : "text-accent";
-  };
-
-  const rows: { label: string; edge: string; diff: number; unit?: string }[] = [
-    {
-      label: "Batting",
-      edge: comparison.batting_edge,
-      diff: comparison.batting_diff,
-    },
-    {
-      label: "Bowling",
-      edge: comparison.bowling_edge,
-      diff: comparison.bowling_diff,
-    },
-    { label: "WAR", edge: comparison.war_edge, diff: comparison.war_diff },
-    { label: "Clutch", edge: comparison.clutch_edge, diff: 0 },
-  ];
-
   return (
-    <div className="card p-4 space-y-4 mt-4">
-      <h3 className="text-h4 text-text-primary flex items-center gap-2">
-        <Swords size={16} className="text-primary" />
-        Head-to-Head Comparison
-      </h3>
-
-      {/* Edge summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {rows.map((r) => (
-          <div
-            key={r.label}
-            className="rounded-lg bg-surface-elevated p-3 text-center space-y-1"
-          >
-            <div className="text-xs text-text-muted">{r.label} Edge</div>
-            <div className={`text-sm font-bold ${edgeColour(r.edge)}`}>
-              {edgeLabel(r.edge)}
-            </div>
-            {r.diff !== 0 && (
-              <div className="text-[10px] text-text-muted">
-                {r.diff > 0 ? "+" : ""}
-                {r.diff.toFixed(1)}
-              </div>
-            )}
-          </div>
-        ))}
+    <div
+      className="rounded-xl border border-dashed border-border/50 bg-surface-elevated/20 p-2 min-h-[5.5rem] flex flex-col gap-1"
+      style={{ borderTopColor: accent, borderTopWidth: 2, opacity: 0.95 }}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] font-semibold text-text-muted w-4">
+          {slotIndex + 1}
+        </span>
+        <button
+          type="button"
+          onClick={onTypeCycle}
+          className="text-[9px] text-text-muted hover:text-primary truncate text-left"
+        >
+          {typeOption.icon} {typeOption.label}
+        </button>
       </div>
-
-      {/* Side-by-side aggregates */}
-      <div className="grid grid-cols-2 gap-4 text-xs">
-        {/* Team A */}
-        <div className="space-y-2">
-          <div className="font-medium text-text-primary text-sm">Team A</div>
-          <div className="space-y-1">
-            <StatCompareRow
-              label="Batters"
-              value={team_a.genuine_batter_count ?? team_a.batters.length}
-            />
-            <StatCompareRow
-              label="Bowlers"
-              value={team_a.genuine_bowler_count ?? team_a.bowlers.length}
-            />
-            <StatCompareRow label="Avg ACC" value={team_a.avg_acceleration} />
-            <StatCompareRow label="Avg POW" value={team_a.avg_bat_power} />
-            <StatCompareRow label="Avg CTL" value={team_a.avg_bat_control} />
-            <StatCompareRow label="Avg Accuracy" value={team_a.avg_accuracy} />
-            <StatCompareRow label="Avg Threat" value={team_a.avg_threat} />
-            <StatCompareRow
-              label="Total WAR"
-              value={(
-                (team_a.total_war_batting ?? 0) +
-                (team_a.total_war_bowling ?? 0)
-              ).toFixed(1)}
-            />
-          </div>
-        </div>
-        {/* Team B */}
-        <div className="space-y-2">
-          <div className="font-medium text-text-primary text-sm">Team B</div>
-          <div className="space-y-1">
-            <StatCompareRow
-              label="Batters"
-              value={team_b.genuine_batter_count ?? team_b.batters.length}
-            />
-            <StatCompareRow
-              label="Bowlers"
-              value={team_b.genuine_bowler_count ?? team_b.bowlers.length}
-            />
-            <StatCompareRow label="Avg ACC" value={team_b.avg_acceleration} />
-            <StatCompareRow label="Avg POW" value={team_b.avg_bat_power} />
-            <StatCompareRow label="Avg CTL" value={team_b.avg_bat_control} />
-            <StatCompareRow label="Avg Accuracy" value={team_b.avg_accuracy} />
-            <StatCompareRow label="Avg Threat" value={team_b.avg_threat} />
-            <StatCompareRow
-              label="Total WAR"
-              value={(
-                (team_b.total_war_batting ?? 0) +
-                (team_b.total_war_bowling ?? 0)
-              ).toFixed(1)}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Weaknesses */}
-      <div className="grid grid-cols-2 gap-4 text-xs">
-        <div>
-          <div className="text-text-muted mb-1">Team A Weaknesses</div>
-          {team_a.weaknesses.length === 0 ? (
-            <span className="text-green-400">None detected ✓</span>
-          ) : (
-            <ul className="space-y-0.5">
-              {team_a.weaknesses.map((w, i) => (
-                <li key={i} className="text-warning flex items-start gap-1">
-                  <AlertTriangle size={10} className="mt-0.5 shrink-0" />
-                  {w}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div>
-          <div className="text-text-muted mb-1">Team B Weaknesses</div>
-          {team_b.weaknesses.length === 0 ? (
-            <span className="text-green-400">None detected ✓</span>
-          ) : (
-            <ul className="space-y-0.5">
-              {team_b.weaknesses.map((w, i) => (
-                <li key={i} className="text-warning flex items-start gap-1">
-                  <AlertTriangle size={10} className="mt-0.5 shrink-0" />
-                  {w}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
+      <PlayerAutocomplete
+        placeholder="Add…"
+        onSelect={onSelect}
+        excludeIds={excludeIds}
+        size="sm"
+      />
     </div>
   );
 }
 
-function StatCompareRow({
-  label,
-  value,
+function MultiTeamComparisonPanel({
+  analyses,
+  visibleTeams,
+  anyLoading,
+  hasAnyPlayers,
 }: {
-  label: string;
-  value: number | string | null | undefined;
+  analyses: (TeamAnalysis | undefined)[];
+  visibleTeams: number;
+  anyLoading: boolean;
+  hasAnyPlayers: boolean;
 }) {
-  const display =
-    value == null ? "—" : typeof value === "number" ? value.toFixed(1) : value;
+  if (!hasAnyPlayers) return null;
+
+  if (anyLoading) {
+    return (
+      <div className="card p-4 animate-pulse text-sm text-text-muted">
+        Computing team metrics…
+      </div>
+    );
+  }
+
+  const gridCols = `minmax(5.5rem,7rem) repeat(${visibleTeams}, minmax(0, 1fr))`;
+
+  const wBat = winnerIndices(
+    analyses,
+    visibleTeams,
+    (a) => teamBatProfileSum(a),
+    true,
+  );
+  const wBowl = winnerIndices(
+    analyses,
+    visibleTeams,
+    (a) => teamBowlProfileSum(a),
+    true,
+  );
+  const wWar = winnerIndices(
+    analyses,
+    visibleTeams,
+    (a) => teamTotalWarSum(a),
+    true,
+  );
+  const wClutch = winnerIndices(
+    analyses,
+    visibleTeams,
+    (a) => a.avg_clutch,
+    true,
+  );
+
+  const specRow = (
+    label: string,
+    winners: Set<number>,
+    cells: (ReactNode | null)[],
+  ) => (
+    <div
+      className="grid gap-x-3 gap-y-1 items-center py-2 border-b border-border/30 last:border-b-0 text-sm"
+      style={{ gridTemplateColumns: gridCols }}
+    >
+      <div className="text-xs text-text-muted pr-1">{label}</div>
+      {cells.map((cell, i) => (
+        <div
+          key={i}
+          className={`text-right font-score tabular-nums ${
+            winners.has(i) ? "font-semibold text-text-primary ring-1 ring-gold/30 rounded-md px-1 py-0.5 -my-0.5" : "text-text-secondary"
+          }`}
+        >
+          {cell ?? "—"}
+        </div>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="flex justify-between">
-      <span className="text-text-muted">{label}</span>
-      <span className="text-text-primary font-score tabular-nums">
-        {display}
-      </span>
+    <div className="card p-4 md:p-6 space-y-6 mt-4">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+        <h3 className="text-h4 text-text-primary flex items-center gap-2">
+          <Swords size={18} className="text-primary" />
+          Compare teams
+        </h3>
+        <p className="text-xs text-text-muted max-w-md">
+          Same batting-order row across columns. Highlights show the single best
+          value per metric when differences are clear.
+        </p>
+      </div>
+
+      <div>
+        <h4 className="text-xs text-text-muted uppercase tracking-wider mb-2">
+          Summary
+        </h4>
+        <div className="rounded-xl border border-border/40 overflow-hidden bg-surface-elevated/20">
+          {specRow(
+            "Bat profile Σ",
+            wBat,
+            analyses.slice(0, visibleTeams).map((a) => {
+              if (!a) return null;
+              const v = teamBatProfileSum(a);
+              return v != null ? v.toFixed(1) : null;
+            }),
+          )}
+          {specRow(
+            "Bowl profile Σ",
+            wBowl,
+            analyses.slice(0, visibleTeams).map((a) => {
+              if (!a) return null;
+              const v = teamBowlProfileSum(a);
+              return v != null ? v.toFixed(1) : null;
+            }),
+          )}
+          {specRow(
+            "Total WAR",
+            wWar,
+            analyses.slice(0, visibleTeams).map((a) =>
+              a && teamTotalWarSum(a) != null
+                ? teamTotalWarSum(a)!.toFixed(1)
+                : null,
+            ),
+          )}
+          {specRow(
+            "Bat WAR",
+            winnerIndices(
+              analyses,
+              visibleTeams,
+              (x) => x.total_war_batting,
+              true,
+            ),
+            analyses.slice(0, visibleTeams).map((a) =>
+              a?.total_war_batting != null
+                ? a.total_war_batting.toFixed(1)
+                : null,
+            ),
+          )}
+          {specRow(
+            "Bowl WAR",
+            winnerIndices(
+              analyses,
+              visibleTeams,
+              (x) => x.total_war_bowling,
+              true,
+            ),
+            analyses.slice(0, visibleTeams).map((a) =>
+              a?.total_war_bowling != null
+                ? a.total_war_bowling.toFixed(1)
+                : null,
+            ),
+          )}
+          {specRow(
+            "Avg clutch",
+            wClutch,
+            analyses.slice(0, visibleTeams).map((a) =>
+              a?.avg_clutch != null ? a.avg_clutch.toFixed(1) : null,
+            ),
+          )}
+          {specRow(
+            "Batters",
+            winnerIndices(
+              analyses,
+              visibleTeams,
+              (x) => x.genuine_batter_count ?? x.batters.length,
+              true,
+            ),
+            analyses.slice(0, visibleTeams).map((a) =>
+              a ? String(a.genuine_batter_count ?? a.batters.length) : null,
+            ),
+          )}
+          {specRow(
+            "Bowlers",
+            winnerIndices(
+              analyses,
+              visibleTeams,
+              (x) => x.genuine_bowler_count ?? x.bowlers.length,
+              true,
+            ),
+            analyses.slice(0, visibleTeams).map((a) =>
+              a ? String(a.genuine_bowler_count ?? a.bowlers.length) : null,
+            ),
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-xs text-text-muted uppercase tracking-wider mb-3">
+          Shape (per team)
+        </h4>
+        <div className="flex flex-wrap justify-center gap-6">
+          {analyses.slice(0, visibleTeams).map((a, i) =>
+            a ? (
+              <div key={i} className="text-center space-y-2">
+                <div
+                  className="text-xs font-medium"
+                  style={{ color: chartColour(i) }}
+                >
+                  Team {i + 1}
+                </div>
+                <TeamRadar
+                  size={220}
+                  accent={chartColour(i)}
+                  axes={[
+                    {
+                      label: "Bat ACC",
+                      shortLabel: "Bat ACC",
+                      value: a.avg_acceleration,
+                    },
+                    {
+                      label: "Bat POW",
+                      shortLabel: "Bat POW",
+                      value: a.avg_bat_power,
+                    },
+                    {
+                      label: "Bat CTL",
+                      shortLabel: "Bat CTL",
+                      value: a.avg_bat_control,
+                    },
+                    {
+                      label: "Bowl ACR",
+                      shortLabel: "Bwl ACR",
+                      value: a.avg_accuracy,
+                    },
+                    {
+                      label: "Bowl CTL",
+                      shortLabel: "Bwl CTL",
+                      value: a.avg_bowl_control,
+                    },
+                    {
+                      label: "Bowl THR",
+                      shortLabel: "Bwl THR",
+                      value: a.avg_threat,
+                    },
+                  ]}
+                />
+              </div>
+            ) : null,
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-xs text-text-muted uppercase tracking-wider mb-2">
+          Weaknesses
+        </h4>
+        <div
+          className="grid gap-3"
+          style={{
+            gridTemplateColumns: `repeat(${Math.min(visibleTeams, 4)}, minmax(0, 1fr))`,
+          }}
+        >
+          {analyses.slice(0, visibleTeams).map((a, i) => (
+            <div
+              key={i}
+              className="rounded-lg border border-border/40 bg-surface-elevated/30 p-3 text-xs"
+            >
+              <div
+                className="font-medium mb-2 flex items-center gap-2"
+                style={{ color: chartColour(i) }}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: chartColour(i) }}
+                />
+                Team {i + 1}
+              </div>
+              {!a ? (
+                <span className="text-text-muted">Add players…</span>
+              ) : a.weaknesses.length === 0 ? (
+                <span className="text-emerald-500/90">None flagged</span>
+              ) : (
+                <ul className="space-y-1.5">
+                  {a.weaknesses.map((w, wi) => (
+                    <li
+                      key={wi}
+                      className="text-warning flex items-start gap-1.5"
+                    >
+                      <AlertTriangle
+                        size={11}
+                        className="shrink-0 mt-0.5 opacity-80"
+                      />
+                      <span>{w}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -908,22 +1248,24 @@ export default function TeamBuilder() {
   const [autoFillCountry, setAutoFillCountry] = useState<string | null>(null);
   const [showAutoFill, setShowAutoFill] = useState(false);
 
-  // ── State: Compare mode (Team B) ───────────────────────────
+  // ── State: Compare mode (2–4 teams side-by-side) ───────────
   const [isCompareMode, setIsCompareMode] = useState(false);
-  const [slotsB, setSlotsB] = useState<(PlayerSummary | null)[]>(
-    () => Array(MAX_PLAYERS).fill(null) as (PlayerSummary | null)[],
+  const [compareTeamCount, setCompareTeamCount] = useState<2 | 3 | 4>(2);
+  const [compareTeams, setCompareTeams] = useState<TeamDraft[]>(() =>
+    Array.from({ length: MAX_COMPARE_TEAMS }, () => emptyCompareTeam()),
   );
-  const [slotTypesB, setSlotTypesB] = useState<SlotTypeKey[]>(() => [
-    ...DEFAULT_SLOT_TYPES,
-  ]);
 
   // Countries for country auto-fill
   const { data: countries } = useCountries();
 
-  // ── Persist to localStorage on every slot/type change ──────
+  // ── Persist primary XI (team 1) ─────────────────────────────
   useEffect(() => {
-    saveTeamToStorage(slots, slotTypes);
-  }, [slots, slotTypes]);
+    if (isCompareMode) {
+      saveTeamToStorage(compareTeams[0].slots, compareTeams[0].slotTypes);
+    } else {
+      saveTeamToStorage(slots, slotTypes);
+    }
+  }, [isCompareMode, slots, slotTypes, compareTeams]);
 
   // ── URL pre-fill: load from ?ids= on mount ────────────────
   // When the page loads with ?ids=id1,id2,..., fetch each player's
@@ -996,6 +1338,12 @@ export default function TeamBuilder() {
             score_3_label: isBat ? "control" : "threat",
             is_provisional: (profile as any).is_provisional ?? true,
             overall_score: (profile as any).overall_score ?? null,
+            rating_current: (profile as any).rating_current ?? null,
+            rating_overall: (profile as any).rating_overall ?? null,
+            modal_position: isBat
+              ? ((profile as any).modal_position ?? null)
+              : null,
+            recent_team: (profile as any).recent_team ?? null,
           };
           return summary;
         } catch {
@@ -1034,34 +1382,78 @@ export default function TeamBuilder() {
 
   const playerCount = selectedIds.length;
 
-  // ── Derived values for Team B (compare mode) ───────────────
-  const selectedIdsB = useMemo(
-    () => slotsB.filter((s): s is PlayerSummary => s !== null).map((s) => s.id),
-    [slotsB],
-  );
-
-  const playerCountB = selectedIdsB.length;
+  const allCompareSelectedIds = useMemo(() => {
+    const s = new Set<string>();
+    compareTeams.forEach((t) => {
+      t.slots.forEach((p) => {
+        if (p) s.add(p.id);
+      });
+    });
+    return Array.from(s);
+  }, [compareTeams]);
 
   const excludeIds = useMemo(
-    () => (isCompareMode ? [...selectedIds, ...selectedIdsB] : selectedIds),
-    [selectedIds, selectedIdsB, isCompareMode],
+    () => (isCompareMode ? allCompareSelectedIds : selectedIds),
+    [isCompareMode, allCompareSelectedIds, selectedIds],
   );
 
-  const excludeIdsB = useMemo(
-    () => [...selectedIdsB, ...selectedIds],
-    [selectedIdsB, selectedIds],
+  const compareTeamInputs = useMemo(() => {
+    if (!isCompareMode) {
+      return Array.from({ length: MAX_COMPARE_TEAMS }, () => ({
+        ids: [] as string[],
+        slotTypes: [] as string[],
+      }));
+    }
+    return compareTeams.map((t) => {
+      const ids = t.slots
+        .filter((s): s is PlayerSummary => s !== null)
+        .map((s) => s.id);
+      const st = t.slots.reduce<string[]>((acc, s, i) => {
+        if (s !== null) acc.push(t.slotTypes[i]);
+        return acc;
+      }, []);
+      return { ids, slotTypes: st };
+    });
+  }, [isCompareMode, compareTeams]);
+
+  const compareTeamQueries = useTeamAnalysesParallel(compareTeamInputs);
+
+  const compareAnalyses = compareTeamQueries.map((q) => q.data);
+  const compareQueriesLoading =
+    isCompareMode &&
+    compareTeamQueries.some(
+      (q, i) =>
+        i < compareTeamCount &&
+        compareTeamInputs[i].ids.length > 0 &&
+        q.isLoading,
+    );
+
+  const team0SelectedIds = useMemo(
+    () =>
+      compareTeams[0].slots
+        .filter((s): s is PlayerSummary => s !== null)
+        .map((s) => s.id),
+    [compareTeams],
   );
 
-  // ── Team comparison query (compare mode) ───────────────────
-  const teamCompare = useTeamCompare(
-    isCompareMode ? selectedIds : [],
-    isCompareMode ? selectedIdsB : [],
+  const team0SlotTypesAligned = useMemo(
+    () =>
+      compareTeams[0].slots.reduce<string[]>((acc, s, i) => {
+        if (s !== null) acc.push(compareTeams[0].slotTypes[i]);
+        return acc;
+      }, []),
+    [compareTeams],
   );
 
-  // ── Team analysis query ────────────────────────────────────
+  // ── Team analysis query (sidebar: team 1 in compare mode) ───
+  const analysisIds = isCompareMode ? team0SelectedIds : selectedIds;
+  const analysisSlotTypes = isCompareMode
+    ? team0SlotTypesAligned
+    : selectedSlotTypes;
+
   const { data: analysis, isLoading: analysisLoading } = useTeamAnalysis(
-    selectedIds,
-    selectedSlotTypes,
+    analysisIds,
+    analysisSlotTypes,
   );
 
   // ── Auto-fill query (only when triggered) ──────────────────
@@ -1100,48 +1492,19 @@ export default function TeamBuilder() {
       newSlots[i] = unique[i];
     }
 
-    setSlots(newSlots);
-    setAutoFillEnabled(false);
-  }, [autoFillData, autoFillEnabled]);
-
-  // ── Handlers ───────────────────────────────────────────────
-
-  // Known bowling archetypes from the pipeline — used to auto-assign slot type
-  // ── Handlers for Team B ────────────────────────────────────
-  const handleAddPlayerB = useCallback(
-    (slotIndex: number, player: PlayerSummary) => {
-      setSlotsB((prev) => {
+    if (isCompareMode) {
+      setCompareTeams((prev) => {
         const next = [...prev];
-        next[slotIndex] = player;
+        next[0] = { ...next[0], slots: newSlots };
         return next;
       });
-      // Auto-assign slot type based on role/archetype (same logic as Team A)
-      const isBowlingArchetype =
-        player.role === "bowl" ||
-        BOWLING_ARCHETYPE_LABELS.has(player.archetype ?? "");
-      if (isBowlingArchetype) {
-        setSlotTypesB((prev) => {
-          const next = [...prev];
-          next[slotIndex] = "bowler";
-          return next;
-        });
-      }
-    },
-    [],
-  );
+    } else {
+      setSlots(newSlots);
+    }
+    setAutoFillEnabled(false);
+  }, [autoFillData, autoFillEnabled, isCompareMode]);
 
-  const handleRemovePlayerB = useCallback((slotIndex: number) => {
-    setSlotsB((prev) => {
-      const next = [...prev];
-      next[slotIndex] = null;
-      return next;
-    });
-  }, []);
-
-  const handleClearAllB = useCallback(() => {
-    setSlotsB(Array(MAX_PLAYERS).fill(null));
-    setSlotTypesB([...DEFAULT_SLOT_TYPES]);
-  }, []);
+  // ── Handlers ───────────────────────────────────────────────
 
   const BOWLING_ARCHETYPE_LABELS = useMemo(
     () =>
@@ -1155,6 +1518,90 @@ export default function TeamBuilder() {
         "Restrictive Spinner",
         "Enforcer",
       ]),
+    [],
+  );
+
+  const handleEnterCompareMode = useCallback(() => {
+    setCompareTeams(() => {
+      const next = Array.from({ length: MAX_COMPARE_TEAMS }, () =>
+        emptyCompareTeam(),
+      );
+      next[0] = { slots: [...slots], slotTypes: [...slotTypes] };
+      return next;
+    });
+    setCompareTeamCount(2);
+    setIsCompareMode(true);
+  }, [slots, slotTypes]);
+
+  const handleExitCompareMode = useCallback(() => {
+    setSlots(compareTeams[0].slots);
+    setSlotTypes(compareTeams[0].slotTypes);
+    setIsCompareMode(false);
+  }, [compareTeams]);
+
+  const handleAddComparePlayer = useCallback(
+    (teamIdx: number, slotIdx: number, player: PlayerSummary) => {
+      setCompareTeams((prev) => {
+        const next = prev.map((t) => ({
+          slots: [...t.slots],
+          slotTypes: [...t.slotTypes],
+        }));
+        next[teamIdx].slots[slotIdx] = player;
+        const isBowlingArchetype =
+          player.role === "bowl" ||
+          BOWLING_ARCHETYPE_LABELS.has(player.archetype ?? "");
+        if (isBowlingArchetype) {
+          next[teamIdx].slotTypes[slotIdx] = "bowler";
+        } else if (
+          player.role === "bat" &&
+          next[teamIdx].slotTypes[slotIdx] === "bowler"
+        ) {
+          if (slotIdx <= 1) next[teamIdx].slotTypes[slotIdx] = "opener";
+          else if (slotIdx <= 3) next[teamIdx].slotTypes[slotIdx] = "top_order";
+          else if (slotIdx <= 6)
+            next[teamIdx].slotTypes[slotIdx] = "middle_order";
+          else next[teamIdx].slotTypes[slotIdx] = "finisher_wk";
+        }
+        return next;
+      });
+    },
+    [BOWLING_ARCHETYPE_LABELS],
+  );
+
+  const handleRemoveComparePlayer = useCallback(
+    (teamIdx: number, slotIdx: number) => {
+      setCompareTeams((prev) => {
+        const next = prev.map((t) => ({ ...t, slots: [...t.slots] }));
+        next[teamIdx].slots[slotIdx] = null;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleClearCompareTeam = useCallback((teamIdx: number) => {
+    setCompareTeams((prev) => {
+      const next = [...prev];
+      next[teamIdx] = emptyCompareTeam();
+      return next;
+    });
+  }, []);
+
+  const handleCompareSlotTypeCycle = useCallback(
+    (teamIdx: number, slotIdx: number) => {
+      setCompareTeams((prev) => {
+        const next = prev.map((t) => ({
+          ...t,
+          slotTypes: [...t.slotTypes],
+        }));
+        const curIdx = SLOT_TYPE_OPTIONS.findIndex(
+          (opt) => opt.key === next[teamIdx].slotTypes[slotIdx],
+        );
+        next[teamIdx].slotTypes[slotIdx] =
+          SLOT_TYPE_OPTIONS[(curIdx + 1) % SLOT_TYPE_OPTIONS.length].key;
+        return next;
+      });
+    },
     [],
   );
 
@@ -1222,16 +1669,19 @@ export default function TeamBuilder() {
   );
 
   const handleShare = useCallback(() => {
-    if (selectedIds.length === 0) return;
+    const shareSlots = isCompareMode ? compareTeams[0].slots : slots;
+    const shareTypes = isCompareMode ? compareTeams[0].slotTypes : slotTypes;
+    const ids = shareSlots
+      .filter((s): s is PlayerSummary => s !== null)
+      .map((s) => s.id);
+    if (ids.length === 0) return;
 
     const url = new URL(window.location.href);
-    // Encode player IDs in slot order (preserving gaps as empty)
-    const orderedIds = slots.map((s) => s?.id ?? "").join(",");
+    const orderedIds = shareSlots.map((s) => s?.id ?? "").join(",");
     url.searchParams.set("ids", orderedIds);
-    // Encode slot types compactly
     url.searchParams.set(
       "types",
-      slotTypes.map((t) => TYPE_SHORT_CODES[t]).join(""),
+      shareTypes.map((t) => TYPE_SHORT_CODES[t]).join(""),
     );
     const shareUrl = url.toString();
 
@@ -1241,13 +1691,20 @@ export default function TeamBuilder() {
         setTimeout(() => setCopied(false), 2000);
       });
     }
-  }, [selectedIds, slots, slotTypes]);
+  }, [isCompareMode, compareTeams, slots, slotTypes]);
 
   const handleCompare = useCallback(() => {
-    if (selectedIds.length < 2) return;
-    const ids = selectedIds.slice(0, 4).join(",");
-    navigate(`/compare?ids=${ids}`);
-  }, [selectedIds, navigate]);
+    const src = isCompareMode ? compareTeams[0].slots : slots;
+    const ids = src
+      .filter((s): s is PlayerSummary => s !== null)
+      .map((s) => s.id);
+    if (ids.length < 2) return;
+    navigate(`/compare?ids=${ids.slice(0, 4).join(",")}`);
+  }, [isCompareMode, compareTeams, slots, navigate]);
+
+  const sidebarPlayerCount = isCompareMode
+    ? team0SelectedIds.length
+    : playerCount;
 
   return (
     <div className="app-page page-stack">
@@ -1263,13 +1720,16 @@ export default function TeamBuilder() {
         </p>
         <div className="mt-2">
           <button
-            onClick={() => setIsCompareMode(!isCompareMode)}
+            type="button"
+            onClick={() =>
+              isCompareMode ? handleExitCompareMode() : handleEnterCompareMode()
+            }
             className={`inline-flex items-center gap-1.5 ${
               isCompareMode ? "btn-primary" : "btn-secondary"
             }`}
           >
             <Swords size={14} />
-            {isCompareMode ? "Exit Compare Mode" : "Compare Teams"}
+            {isCompareMode ? "Exit compare mode" : "Compare teams"}
           </button>
         </div>
       </div>
@@ -1284,122 +1744,185 @@ export default function TeamBuilder() {
 
       {/* ── Main layout: slots + analysis ─────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* ── Left: Player slots (3/5 width) ───────────────── */}
-        <div className="lg:col-span-3 space-y-4">
-          {/* Slot header */}
-          <div className="flex items-center justify-between">
-            <h2 className="text-h3 text-text-primary">
-              {isCompareMode ? "Team A" : "Your XI"}{" "}
-              <span className="text-text-muted font-normal text-sm">
-                ({playerCount}/{MAX_PLAYERS})
-              </span>
-            </h2>
-            <div className="flex items-center gap-2">
-              {playerCount >= 2 && (
-                <button
-                  onClick={handleCompare}
-                  className="btn-ghost btn-sm text-xs"
-                  title="Compare selected players"
-                >
-                  Compare
-                </button>
-              )}
-              {playerCount > 0 && (
-                <button
-                  onClick={handleClearAll}
-                  className="btn-ghost btn-sm text-xs text-danger hover:text-danger"
-                  title="Clear all players"
-                >
-                  <Trash2 size={12} />
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Player slots */}
-          <div className="space-y-2">
-            {slots.map((player, i) => {
-              const typeOption =
-                SLOT_TYPE_OPTIONS.find((t) => t.key === slotTypes[i]) ??
-                SLOT_TYPE_OPTIONS[0];
-              return (
-                <PlayerSlot
-                  key={i}
-                  index={i}
-                  slotLabel={typeOption.label}
-                  slotIcon={typeOption.icon}
-                  player={player}
-                  onSelect={(p) => handleAddPlayer(i, p)}
-                  onRemove={() => handleRemovePlayer(i)}
-                  excludeIds={excludeIds}
-                  onLabelClick={() => {
-                    setSlotTypes((prev) => {
-                      const next = [...prev];
-                      const curIdx = SLOT_TYPE_OPTIONS.findIndex(
-                        (t) => t.key === next[i],
-                      );
-                      next[i] =
-                        SLOT_TYPE_OPTIONS[
-                          (curIdx + 1) % SLOT_TYPE_OPTIONS.length
-                        ].key;
-                      return next;
-                    });
-                  }}
-                />
-              );
-            })}
-          </div>
-
-          {/* Constraints note */}
-          {!isCompareMode && (
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-surface-elevated/30 text-xs text-text-muted">
-              <Info size={14} className="shrink-0 mt-0.5 text-text-muted" />
-              <span>
-                Recommended: 5–6 batters, 4–5 bowlers, at least 1 all-rounder.
-                Slot labels are suggestions — add any player to any slot.
-              </span>
-            </div>
-          )}
-
-          {/* ── Team B slots (compare mode) ────────────────── */}
-          {isCompareMode && (
-            <div className="space-y-4 mt-6 pt-6 border-t border-border/50">
-              <div className="flex items-center justify-between">
-                <h2 className="text-h3 text-text-primary">
-                  Team B{" "}
-                  <span className="text-text-muted font-normal text-sm">
-                    ({playerCountB}/{MAX_PLAYERS})
+        <div
+          className={`space-y-4 ${isCompareMode ? "lg:col-span-5" : "lg:col-span-3"}`}
+        >
+          {isCompareMode ? (
+            <>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h2 className="text-h3 text-text-primary">Compare XIs</h2>
+                  <p className="text-sm text-text-muted mt-1 max-w-xl">
+                    Each row is the same batting-order slot across teams — like
+                    a product compare grid. Add up to four squads side by side.
+                  </p>
+                </div>
+                <div className="flex flex-col items-stretch sm:items-end gap-2">
+                  <span className="text-xs text-text-muted uppercase tracking-wider">
+                    Columns
                   </span>
-                </h2>
-                {playerCountB > 0 && (
+                  <div className="inline-flex rounded-xl border border-border/50 p-1 bg-surface-elevated/40">
+                    {([2, 3, 4] as const).map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setCompareTeamCount(n)}
+                        className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                          compareTeamCount === n
+                            ? "bg-primary text-white shadow-sm"
+                            : "text-text-secondary hover:text-text-primary"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto pb-2 -mx-1 px-1">
+                <div
+                  className="grid gap-3 min-w-[min(100%,52rem)]"
+                  style={{
+                    gridTemplateColumns: `repeat(${compareTeamCount}, minmax(11rem, 1fr))`,
+                  }}
+                >
+                  {Array.from({ length: compareTeamCount }, (_, ti) => {
+                    const t = compareTeams[ti];
+                    const cnt = t.slots.filter(Boolean).length;
+                    return (
+                      <div key={ti} className="space-y-2 min-w-0">
+                        <div
+                          className="sticky top-16 z-10 flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-surface/95 dark:bg-surface/90 backdrop-blur-md px-3 py-2.5 shadow-sm"
+                          style={{
+                            boxShadow: `inset 0 3px 0 0 ${chartColour(ti)}`,
+                          }}
+                        >
+                          <div className="min-w-0">
+                            <div
+                              className="text-sm font-semibold truncate"
+                              style={{ color: chartColour(ti) }}
+                            >
+                              Team {ti + 1}
+                            </div>
+                            <div className="text-[11px] text-text-muted tabular-nums">
+                              {cnt}/{MAX_PLAYERS} players
+                            </div>
+                          </div>
+                          {cnt > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => handleClearCompareTeam(ti)}
+                              className="btn-ghost btn-sm text-xs text-danger shrink-0 p-1.5"
+                              title={`Clear team ${ti + 1}`}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="space-y-2">
+                          {t.slots.map((player, si) => (
+                            <CompareSlotCell
+                              key={si}
+                              slotIndex={si}
+                              slotType={t.slotTypes[si]}
+                              player={player}
+                              accent={chartColour(ti)}
+                              excludeIds={excludeIds}
+                              onSelect={(p) => handleAddComparePlayer(ti, si, p)}
+                              onRemove={() => handleRemoveComparePlayer(ti, si)}
+                              onTypeCycle={() =>
+                                handleCompareSlotTypeCycle(ti, si)
+                              }
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <MultiTeamComparisonPanel
+                analyses={compareAnalyses}
+                visibleTeams={compareTeamCount}
+                anyLoading={compareQueriesLoading}
+                hasAnyPlayers={allCompareSelectedIds.length > 0}
+              />
+
+              <div className="flex flex-wrap items-center gap-2">
+                {team0SelectedIds.length >= 2 && (
                   <button
-                    onClick={handleClearAllB}
-                    className="btn-ghost btn-sm text-xs text-danger hover:text-danger"
-                    title="Clear Team B"
+                    type="button"
+                    onClick={handleCompare}
+                    className="btn-ghost btn-sm text-xs"
+                    title="Open player compare for team 1"
                   >
-                    <Trash2 size={12} />
-                    Clear
+                    Compare team 1 players →
                   </button>
                 )}
               </div>
+
+              <div className="border-t border-border/50 pt-8 mt-2">
+                <AnalysisPanel
+                  analysis={analysis}
+                  isLoading={analysisLoading}
+                  playerCount={sidebarPlayerCount}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <h2 className="text-h3 text-text-primary">
+                  Your XI{" "}
+                  <span className="text-text-muted font-normal text-sm">
+                    ({playerCount}/{MAX_PLAYERS})
+                  </span>
+                </h2>
+                <div className="flex items-center gap-2">
+                  {playerCount >= 2 && (
+                    <button
+                      type="button"
+                      onClick={handleCompare}
+                      className="btn-ghost btn-sm text-xs"
+                      title="Compare selected players"
+                    >
+                      Compare
+                    </button>
+                  )}
+                  {playerCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearAll}
+                      className="btn-ghost btn-sm text-xs text-danger hover:text-danger"
+                      title="Clear all players"
+                    >
+                      <Trash2 size={12} />
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-2">
-                {slotsB.map((player, i) => {
+                {slots.map((player, i) => {
                   const typeOption =
-                    SLOT_TYPE_OPTIONS.find((t) => t.key === slotTypesB[i]) ??
+                    SLOT_TYPE_OPTIONS.find((t) => t.key === slotTypes[i]) ??
                     SLOT_TYPE_OPTIONS[0];
                   return (
                     <PlayerSlot
-                      key={`b-${i}`}
+                      key={i}
                       index={i}
                       slotLabel={typeOption.label}
                       slotIcon={typeOption.icon}
+                      slotType={slotTypes[i]}
                       player={player}
-                      onSelect={(p) => handleAddPlayerB(i, p)}
-                      onRemove={() => handleRemovePlayerB(i)}
-                      excludeIds={excludeIdsB}
+                      onSelect={(p) => handleAddPlayer(i, p)}
+                      onRemove={() => handleRemovePlayer(i)}
+                      excludeIds={excludeIds}
                       onLabelClick={() => {
-                        setSlotTypesB((prev) => {
+                        setSlotTypes((prev) => {
                           const next = [...prev];
                           const curIdx = SLOT_TYPE_OPTIONS.findIndex(
                             (t) => t.key === next[i],
@@ -1415,15 +1938,15 @@ export default function TeamBuilder() {
                   );
                 })}
               </div>
-            </div>
-          )}
 
-          {/* ── Comparison Panel ────────────────────────────── */}
-          {isCompareMode && teamCompare.data && (
-            <ComparisonPanel
-              data={teamCompare.data}
-              isLoading={teamCompare.isLoading}
-            />
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-surface-elevated/30 text-xs text-text-muted">
+                <Info size={14} className="shrink-0 mt-0.5 text-text-muted" />
+                <span>
+                  Recommended: 5–6 batters, 4–5 bowlers, at least 1 all-rounder.
+                  Slot labels are suggestions — add any player to any slot.
+                </span>
+              </div>
+            </>
           )}
 
           {/* ── Auto-fill templates ─────────────────────────── */}
@@ -1498,9 +2021,10 @@ export default function TeamBuilder() {
           </div>
 
           {/* ── Share button ─────────────────────────────────── */}
-          {playerCount > 0 && (
+          {(isCompareMode ? team0SelectedIds.length > 0 : playerCount > 0) && (
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={handleShare}
                 className="btn-secondary btn-sm text-xs"
               >
@@ -1524,16 +2048,17 @@ export default function TeamBuilder() {
         </div>
 
         {/* ── Right: Team analysis (2/5 width) ─────────────── */}
+        {!isCompareMode && (
         <div className="lg:col-span-2 space-y-4">
           <div className="lg:sticky lg:top-20">
             <AnalysisPanel
               analysis={analysis}
               isLoading={analysisLoading}
-              playerCount={playerCount}
+              playerCount={sidebarPlayerCount}
             />
 
             {/* Player list summary — in batting order */}
-            {analysis && playerCount > 0 && (
+            {analysis && sidebarPlayerCount > 0 && (
               <div className="card p-4 mt-4 space-y-3">
                 <h3 className="text-xs text-text-muted uppercase tracking-wider">
                   Batting Order
@@ -1625,6 +2150,7 @@ export default function TeamBuilder() {
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

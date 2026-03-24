@@ -22,6 +22,7 @@ import type {
   EraResponse,
   FlatTrackParams,
   FlatTrackResponse,
+  FormBatchResponse,
   FormResponse,
   HeadToHeadResponse,
   InningsLogResponse,
@@ -45,6 +46,7 @@ import type {
   VenueListResponse,
   VenueSummary,
 } from "./types";
+import type { Format } from "@/api/formatConstants";
 
 // ── Configuration ────────────────────────────────────────────────
 
@@ -58,16 +60,15 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 // ── Global format state ──────────────────────────────────────────
 // The FormatContext calls setFormat() whenever the user toggles between
-// T20I and IPL. All API requests automatically include ?format= via
-// buildUrl().
+// men's/women's T20 and IPL. All API requests include ?format= via buildUrl().
 
-type FormatValue = "t20i" | "ipl";
+type FormatValue = Format;
 
-let _currentFormat: FormatValue = "t20i";
+let _currentFormat: FormatValue = "mens_t20i";
 
 /**
  * Set the active data format. Called by FormatContext when the user
- * toggles between T20I and IPL.
+ * switches dataset slice.
  */
 export function setClientFormat(f: FormatValue): void {
   _currentFormat = f;
@@ -120,14 +121,17 @@ export class ApiError extends Error {
 function buildUrl(
   path: string,
   params?: Record<string, string | number | boolean | null | undefined>,
+  omitFormat = false,
 ): string {
   const url = new URL(`${BASE_URL}${path}`, window.location.origin);
 
-  // Inject the global format unless the caller explicitly provided one
-  const merged: Record<string, string | number | boolean | null | undefined> = {
-    format: _currentFormat,
-    ...params,
-  };
+  const merged: Record<string, string | number | boolean | null | undefined> =
+    omitFormat
+      ? { ...params }
+      : {
+          format: _currentFormat,
+          ...params,
+        };
 
   for (const [key, value] of Object.entries(merged)) {
     if (value !== null && value !== undefined && value !== "") {
@@ -147,9 +151,11 @@ async function fetchJson<T>(
   options?: {
     timeoutMs?: number;
     signal?: AbortSignal;
+    /** Skip `format=` (used for endpoints unrelated to T20I/IPL datasets). */
+    omitFormat?: boolean;
   },
 ): Promise<T> {
-  const url = buildUrl(path, params);
+  const url = buildUrl(path, params, options?.omitFormat ?? false);
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   // Create an AbortController for timeout
@@ -408,6 +414,22 @@ async function getPlayerForm(
   });
 }
 
+/** Get form summary for multiple players (last 2 years, active flag). For leaderboard form tracker. */
+async function getFormBatch(
+  playerIds: string[],
+  role: "bat" | "bowl",
+  signal?: AbortSignal,
+): Promise<FormBatchResponse> {
+  if (playerIds.length === 0) {
+    return { results: [] };
+  }
+  return fetchJson(
+    "/api/player/form-batch",
+    { ids: playerIds.join(","), role },
+    { signal },
+  );
+}
+
 /** Get all matchups for a player (paginated). */
 async function getPlayerMatchups(
   playerId: string,
@@ -453,13 +475,15 @@ async function getBattingRankings(
   return fetchJson(
     "/api/rankings/bat",
     {
-      sort: params?.sort ?? "overall_score",
+      sort: params?.sort ?? "rating_current",
       order: params?.order ?? "desc",
       country: params?.country,
       archetype: params?.archetype,
       position_group: params?.position_group,
+      modal_slot: params?.modal_slot,
       min_innings: params?.min_innings,
       provisional: params?.provisional,
+      activity: params?.activity ?? "active",
       page: params?.page ?? 1,
       per_page: params?.per_page ?? 25,
     },
@@ -475,13 +499,14 @@ async function getBowlingRankings(
   return fetchJson(
     "/api/rankings/bowl",
     {
-      sort: params?.sort ?? "overall_score",
+      sort: params?.sort ?? "rating_current",
       order: params?.order ?? "desc",
       country: params?.country,
       archetype: params?.archetype,
       phase_group: params?.phase_group,
       min_innings: params?.min_innings,
       provisional: params?.provisional,
+      activity: params?.activity ?? "active",
       page: params?.page ?? 1,
       per_page: params?.per_page ?? 25,
     },
@@ -497,20 +522,23 @@ async function getTopPlayers(
     limit?: number;
     provisional?: boolean | null;
     min_innings?: number | null;
+    activity?: "active" | "retired" | "all";
   },
   signal?: AbortSignal,
 ): Promise<PlayerSummary[]> {
-  return fetchJson(
-    "/api/rankings/top",
-    {
-      role: params.role ?? "bat",
-      metric: params.metric ?? "overall_score",
-      limit: params.limit ?? 5,
-      provisional: params.provisional ?? false,
-      min_innings: params.min_innings,
-    },
-    { signal },
-  );
+  const q: Record<string, string | number | boolean | null | undefined> = {
+    role: params.role ?? "bat",
+    metric: params.metric ?? "rating_current",
+    limit: params.limit ?? 5,
+    activity: params.activity ?? "active",
+  };
+  if (params.provisional !== undefined) {
+    q.provisional = params.provisional;
+  }
+  if (params.min_innings !== undefined && params.min_innings !== null) {
+    q.min_innings = params.min_innings;
+  }
+  return fetchJson("/api/rankings/top", q, { signal });
 }
 
 /** Get valid sort columns for batting leaderboard. */
@@ -893,6 +921,7 @@ export const api = {
   getPlayerInnings,
   getPlayerSpells,
   getPlayerForm,
+  getFormBatch,
   getPlayerMatchups,
   getPlayerSimilar,
 

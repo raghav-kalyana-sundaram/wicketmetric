@@ -4,3 +4,8 @@
   background: color-mix(in srgb, currentColor 8%, transparent);
 }
 
+/* International T20: series `<details>` blocks */
+.scorecard-series-details summary::-webkit-details-marker {
+  display: none;
+}
+

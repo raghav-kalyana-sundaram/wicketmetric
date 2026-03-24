@@ -29,9 +29,10 @@ import {
   Users,
 } from "lucide-react";
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
+import HomeWelcomeTip from "@/components/HomeWelcomeTip";
 import { useTopPlayers, useMeta, useArchetypes } from "@/api/queries";
 import { scoreToColour } from "@/lib/colours";
-import { fmtScore, fmtInt, countryFlag } from "@/lib/format";
+import { fmtScore, fmtInt, countryFlag, primaryDisplayRating } from "@/lib/format";
 import type { PlayerSummary } from "@/api/types";
 
 // ── Popular players (quick links shown below the hero search) ────
@@ -89,6 +90,8 @@ interface LeaderboardCardConfig {
     | "career_sr"
     | "career_avg";
   valueSuffix?: string;
+  /** Short label explaining what the neon number represents. */
+  valueCaption?: string;
 }
 
 const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
@@ -96,9 +99,10 @@ const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
     title: "Top Rated Batters",
     icon: <Trophy size={18} className="text-gold" />,
     role: "bat",
-    metric: "overall_score",
-    linkTo: "/rankings?role=bat&sort=overall_score&order=desc",
+    metric: "rating_current",
+    linkTo: "/rankings?role=bat&sort=rating_current&order=desc",
     linkLabel: "View All Rankings",
+    valueCaption: "Display rating · 0–100 scale",
   },
   {
     title: "Power Hitters",
@@ -108,15 +112,17 @@ const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
     linkTo: "/rankings?role=bat&sort=score_power&order=desc",
     linkLabel: "View Power Rankings",
     valueField: "score_2",
+    valueCaption: "Power dimension score · 0–100",
   },
   {
     title: "Best Bowlers",
     icon: <Target size={18} className="text-accent" />,
     role: "bowl",
-    metric: "overall_score",
-    linkTo: "/rankings?role=bowl&sort=overall_score&order=desc",
+    metric: "rating_current",
+    linkTo: "/rankings?role=bowl&sort=rating_current&order=desc",
     linkLabel: "View All Bowlers",
     isBowling: true,
+    valueCaption: "Display rating · 0–100 scale",
   },
   {
     title: "Best Under Pressure",
@@ -127,6 +133,7 @@ const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
     linkLabel: "View Pressure Rankings",
     valueField: "overall_score",
     valueSuffix: "",
+    valueCaption: "Batting pressure score · 0–100",
   },
 ];
 
@@ -170,20 +177,22 @@ export default function Home() {
 
   return (
     <div className="app-page page-stack">
+      <HomeWelcomeTip />
+
       {/* ── Hero Section ────────────────────────────────────────── */}
       <section className="section-card section-card-body py-10 sm:py-12">
         <div className="mx-auto max-w-3xl text-center">
           {/* Title */}
           <div className="mb-8">
-            <h1 className="mb-3 flex items-center justify-center gap-3 text-h1 font-bold text-text-primary sm:text-4xl">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <h1 className="mb-3 flex items-center justify-center gap-3 text-h1 font-bold text-text-primary">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15 text-primary transition-transform duration-300 ease-out-quart motion-reduce:transition-none motion-reduce:hover:scale-100 hover:scale-105">
                 <BarChart3 size={20} />
               </span>
               <span>Cricket Metrics</span>
             </h1>
-            <p className="text-text-secondary text-base sm:text-lg">
-              T20I Player Intelligence — Search, compare, and analyse every T20I
-              cricketer
+            <p className="mx-auto max-w-xl text-pretty text-base text-text-secondary sm:text-lg">
+              T20 intelligence — search players, compare careers, and read
+              role-aware metrics from ball-by-ball data.
             </p>
           </div>
 
@@ -208,7 +217,7 @@ export default function Home() {
                 {i > 0 && <span className="text-text-muted/30 mx-0.5">·</span>}
                 <Link
                   to={`/search?q=${encodeURIComponent(p.query)}`}
-                  className="text-text-secondary hover:text-primary transition-colors"
+                  className="rounded-full border border-surface-elevated/70 bg-surface-elevated/35 px-2.5 py-1 text-text-secondary text-xs hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   {p.name}
                 </Link>
@@ -226,6 +235,14 @@ export default function Home() {
               <span>{fmtInt(meta.total_matchups)} matchups</span>
               <span className="text-text-muted/30">·</span>
               <span>{fmtInt(meta.total_venues)} venues</span>
+              {meta.data_through_date && (
+                <>
+                  <span className="text-text-muted/30">·</span>
+                  <span className="tabular-nums">
+                    Data through {meta.data_through_date}
+                  </span>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -404,23 +421,27 @@ function LeaderboardCard({ config }: { config: LeaderboardCardConfig }) {
     data: players,
     isLoading,
     error,
+    refetch,
   } = useTopPlayers({
     role: config.role,
     metric: config.metric,
     limit: 5,
-    provisional: false,
-    minInnings: 10,
   });
 
   return (
     <div className="card p-4 flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-1">
         {config.icon}
         <h3 className="text-sm font-semibold text-text-primary">
           {config.title}
         </h3>
       </div>
+      {config.valueCaption && (
+        <p className="text-[10px] text-text-muted mb-2 leading-snug">
+          {config.valueCaption}
+        </p>
+      )}
 
       {/* Player list */}
       <div className="flex-1 space-y-1.5 mb-3">
@@ -437,9 +458,16 @@ function LeaderboardCard({ config }: { config: LeaderboardCardConfig }) {
         )}
 
         {error && (
-          <p className="text-xs text-text-muted py-4 text-center">
-            Failed to load
-          </p>
+          <div className="py-4 text-center space-y-2">
+            <p className="text-xs text-text-muted">Failed to load</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="btn-secondary btn-sm"
+            >
+              Try again
+            </button>
+          </div>
         )}
 
         {players &&
@@ -466,7 +494,7 @@ function LeaderboardCard({ config }: { config: LeaderboardCardConfig }) {
                   displayValue = player.career_avg;
                   break;
                 default:
-                  displayValue = player.overall_score;
+                  displayValue = primaryDisplayRating(player);
               }
 
               return (
@@ -480,8 +508,15 @@ function LeaderboardCard({ config }: { config: LeaderboardCardConfig }) {
                     {index + 1}.
                   </span>
 
-                  {/* Name + country */}
-                  <span className="flex-1 min-w-0 flex items-center gap-1.5">
+                  {/* Name + flag (team on hover = recent side / country) */}
+                  <span
+                    className="flex-1 min-w-0 flex items-center gap-1.5"
+                    title={
+                      [(player.recent_team || "").trim(), player.country]
+                        .filter(Boolean)
+                        .join(" · ") || undefined
+                    }
+                  >
                     <span className="text-sm text-text-primary group-hover:text-primary transition-colors truncate">
                       {player.name}
                     </span>

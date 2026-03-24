@@ -41,6 +41,8 @@ import {
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import ThemeToggle from "@/components/ThemeToggle";
 import FormatToggle from "@/components/FormatToggle";
+import { useFormat } from "@/api/FormatContext";
+import { useMeta } from "@/api/queries";
 import type { PlayerSummary } from "@/api/types";
 
 // ── Navigation items ─────────────────────────────────────────────
@@ -51,10 +53,17 @@ interface NavItem {
   icon: React.ReactNode;
   /** If true, only show in the mobile menu (not in the top bar). */
   mobileOnly?: boolean;
+  /** Treat as active when this returns true (e.g. parent section). */
+  isActive?: (pathname: string) => boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Home", to: "/", icon: <Home size={16} />, mobileOnly: true },
+  {
+    label: "Home",
+    to: "/",
+    icon: <Home size={16} />,
+    isActive: (p) => p === "/" || p === "/dashboard",
+  },
   { label: "Rankings", to: "/rankings", icon: <Trophy size={16} /> },
   { label: "Compare", to: "/compare", icon: <GitCompare size={16} /> },
   { label: "Matchups", to: "/matchups", icon: <Swords size={16} /> },
@@ -66,6 +75,12 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const DESKTOP_PRIMARY_NAV: NavItem[] = [
+  {
+    label: "Home",
+    to: "/",
+    icon: <Home size={16} />,
+    isActive: (p) => p === "/" || p === "/dashboard",
+  },
   { label: "Rankings", to: "/rankings", icon: <Trophy size={16} /> },
   { label: "Compare", to: "/compare", icon: <GitCompare size={16} /> },
   { label: "Matchups", to: "/matchups", icon: <Swords size={16} /> },
@@ -83,7 +98,7 @@ const DESKTOP_SECONDARY_NAV: NavItem[] = [
 
 function navLinkClasses({ isActive }: { isActive: boolean }): string {
   const base =
-    "flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors";
+    "flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out-quart";
   if (isActive) {
     return `${base} bg-primary/10 text-primary`;
   }
@@ -92,7 +107,7 @@ function navLinkClasses({ isActive }: { isActive: boolean }): string {
 
 function mobileNavLinkClasses({ isActive }: { isActive: boolean }): string {
   const base =
-    "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors";
+    "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors duration-200 ease-out-quart";
   if (isActive) {
     return `${base} bg-primary/10 text-primary`;
   }
@@ -104,9 +119,23 @@ function isPathActive(currentPath: string, targetPath: string): boolean {
   return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`);
 }
 
+/** Dataset Men/Women × T20/IPL — below the main nav so the header stays clean. */
+function DatasetContextStrip() {
+  const { availableFormats } = useFormat();
+  if (availableFormats.length <= 1) return null;
+  return (
+    <div className="border-t border-b border-surface-elevated/60 bg-surface-elevated/15 backdrop-blur-md dark:bg-surface-elevated/25">
+      <div className="mx-auto max-w-7xl px-4 py-2.5 sm:px-6 lg:px-8">
+        <FormatToggle variant="strip" />
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────
 
 export default function Layout() {
+  const { data: apiMeta } = useMeta();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showNavSearch, setShowNavSearch] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -179,8 +208,9 @@ export default function Layout() {
     [navigate],
   );
 
-  // Don't show the nav search on the home page (it has its own hero search)
-  const isHomePage = location.pathname === "/";
+  // Dashboard has a hero search; other routes use the nav search control
+  const isDashboardPage =
+    location.pathname === "/" || location.pathname === "/dashboard";
   const isMoreActive = DESKTOP_SECONDARY_NAV.some((item) =>
     isPathActive(location.pathname, item.to)
   );
@@ -188,7 +218,8 @@ export default function Layout() {
   // Route-level page title + description for shareability and polish
   useEffect(() => {
     const routeTitleMap: Array<[RegExp, string, string]> = [
-      [/^\/$/, "Cricket Metrics | Premium T20 Analytics", "Search, compare, and analyse T20I and IPL players with role-aware metrics, pressure scoring, and matchup intelligence."],
+      [/^\/$/, "Home | Cricket Metrics", "Search, compare, and analyse men's and women's T20 and IPL with role-aware metrics and matchup intelligence."],
+      [/^\/dashboard$/, "Home | Cricket Metrics", "Search, compare, and analyse men's and women's T20 and IPL with role-aware metrics and matchup intelligence."],
       [/^\/search/, "Player Search | Cricket Metrics", "Find players instantly with filters for role, country, and archetype."],
       [/^\/rankings/, "Rankings | Cricket Metrics", "Sortable batting and bowling leaderboards with advanced metrics and filters."],
       [/^\/compare/, "Compare Players | Cricket Metrics", "Side-by-side player comparison with metric breakdowns and trend context."],
@@ -217,7 +248,7 @@ export default function Layout() {
       </a>
 
       {/* ── Navigation Bar ──────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 border-b border-surface-elevated/70 bg-background/90 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-surface-elevated/70 bg-background/90 backdrop-blur-xl transition-[border-color,background-color] duration-300 ease-out-quart">
         {/* Light mode variant */}
         <div className="hidden" aria-hidden="true">
           {/* This div exists to ensure Tailwind generates the light-mode classes */}
@@ -239,7 +270,7 @@ export default function Layout() {
                 >
                   <BarChart3 size={14} />
                 </span>
-                <span className="text-sm font-semibold tracking-tight text-text-primary transition-colors group-hover:text-primary sm:text-base">
+                <span className="font-heading text-sm font-semibold tracking-tight text-text-primary transition-colors group-hover:text-primary sm:text-base">
                   Cricket Metrics
                 </span>
               </Link>
@@ -253,7 +284,13 @@ export default function Layout() {
                   <NavLink
                     key={item.to}
                     to={item.to}
-                    className={navLinkClasses}
+                    className={(args) =>
+                      navLinkClasses({
+                        isActive:
+                          args.isActive ||
+                          (item.isActive?.(location.pathname) ?? false),
+                      })
+                    }
                     end={item.to === "/"}
                   >
                     {item.icon}
@@ -264,7 +301,7 @@ export default function Layout() {
                 <div className="relative" ref={moreMenuRef}>
                   <button
                     type="button"
-                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out-quart ${
                       isMoreActive
                         ? "bg-primary/10 text-primary"
                         : "text-text-secondary hover:bg-surface-elevated/50 hover:text-text-primary"
@@ -277,14 +314,14 @@ export default function Layout() {
                     <span>More</span>
                     <ChevronDown
                       size={14}
-                      className={`transition-transform ${showMoreMenu ? "rotate-180" : ""}`}
+                      className={`transition-transform duration-200 ease-out-quart ${showMoreMenu ? "rotate-180" : ""}`}
                     />
                   </button>
 
                   {showMoreMenu && (
                     <div
                       role="menu"
-                      className="absolute left-0 top-full z-50 mt-2 w-48 rounded-xl border border-surface-elevated bg-surface p-1.5 shadow-card-hover"
+                      className="absolute left-0 top-full z-50 mt-2 w-48 animate-fade-in rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-lg dark:border-surface-elevated dark:bg-surface dark:shadow-card-hover"
                     >
                       {DESKTOP_SECONDARY_NAV.map((item) => (
                         <NavLink
@@ -304,16 +341,13 @@ export default function Layout() {
               </nav>
             </div>
 
-            {/* Right: Search + Format Toggle + Theme Toggle + Mobile Menu */}
+            {/* Right: Search + Theme Toggle + Mobile Menu */}
             <div className="flex items-center gap-2">
-              {/* Format toggle (T20I / IPL) */}
-              <FormatToggle className="hidden sm:flex" />
-
               {/* Theme toggle */}
               <ThemeToggle size="sm" />
 
               {/* Desktop nav search toggle */}
-              {!isHomePage && (
+              {!isDashboardPage && (
                 <div className="hidden sm:block relative" ref={navSearchRef}>
                   {showNavSearch ? (
                     <div className="w-64 lg:w-80 animate-fade-in">
@@ -346,7 +380,7 @@ export default function Layout() {
               )}
 
               {/* Mobile search button */}
-              {!isHomePage && (
+              {!isDashboardPage && (
                 <button
                   onClick={() => navigate("/search")}
                   className="sm:hidden btn-ghost btn-sm"
@@ -370,6 +404,8 @@ export default function Layout() {
           </div>
         </div>
 
+        <DatasetContextStrip />
+
         {/* ── Mobile Menu ───────────────────────────────────────── */}
         {mobileMenuOpen && (
           <>
@@ -388,7 +424,7 @@ export default function Layout() {
             >
               <div className="px-4 py-4 space-y-1 max-h-[calc(100vh-3.5rem)] overflow-y-auto">
                 {/* Mobile search */}
-                {!isHomePage && (
+                {!isDashboardPage && (
                   <div className="mb-4">
                     <PlayerAutocomplete
                       onSelect={(player) => {
@@ -411,7 +447,13 @@ export default function Layout() {
                   <NavLink
                     key={item.to}
                     to={item.to}
-                    className={mobileNavLinkClasses}
+                    className={(args) =>
+                      mobileNavLinkClasses({
+                        isActive:
+                          args.isActive ||
+                          (item.isActive?.(location.pathname) ?? false),
+                      })
+                    }
                     end={item.to === "/"}
                     onClick={() => setMobileMenuOpen(false)}
                   >
@@ -423,9 +465,9 @@ export default function Layout() {
                 {/* Divider */}
                 <hr className="my-3 border-surface-elevated" />
 
-                {/* Format toggle in mobile menu */}
+                {/* Dataset (duplicate of strip — visible when menu open on small screens) */}
                 <div className="px-4 py-2">
-                  <FormatToggle />
+                  <FormatToggle variant="toolbar" />
                 </div>
 
                 {/* Theme toggle in mobile menu */}
@@ -461,8 +503,7 @@ export default function Layout() {
       {/* ── Keyboard shortcut: Ctrl+K / Cmd+K to open search ───── */}
       <KeyboardShortcutListener
         onSearchOpen={() => {
-          if (isHomePage) {
-            // On home page, focus the hero search
+          if (isDashboardPage) {
             const heroInput =
               document.querySelector<HTMLInputElement>("#hero-search input");
             heroInput?.focus();
@@ -473,19 +514,22 @@ export default function Layout() {
       />
 
       {/* ── Main Content ────────────────────────────────────────── */}
-      <main id="main-content" className="flex-1">
+      <main
+        id="main-content"
+        className="flex-1 animate-content-enter motion-reduce:animate-none"
+      >
         <Outlet />
       </main>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
       <footer className="app-footer border-t border-surface-elevated/70 bg-surface/80">
-        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="app-footer-brand flex items-center gap-2 text-sm text-text-secondary">
+        <div         className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="app-footer-brand flex min-w-0 flex-wrap items-center gap-2 text-sm text-text-secondary">
               <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-primary/15 text-primary">
                 <BarChart3 size={12} />
               </span>
-              <span className="font-medium text-text-primary">Cricket Metrics</span>
+              <span className="font-heading font-medium text-text-primary">Cricket Metrics</span>
               <span className="text-text-muted/50">·</span>
               <span className="app-footer-tagline">T20 Intelligence</span>
             </div>
@@ -513,7 +557,17 @@ export default function Layout() {
             </nav>
           </div>
           <p className="app-footer-data mt-2 text-xs text-text-muted">
-            Data source: Cricsheet ball-by-ball JSON (T20I and IPL).
+            Data source: Cricsheet ball-by-ball JSON (international T20, IPL, WPL).
+            {apiMeta?.status === "ok" && apiMeta.data_through_date && (
+              <>
+                {" "}
+                Career tables through{" "}
+                <span className="text-text-secondary font-medium tabular-nums">
+                  {apiMeta.data_through_date}
+                </span>
+                .
+              </>
+            )}
           </p>
         </div>
       </footer>
@@ -554,13 +608,18 @@ function KeyboardShortcutListener({
  */
 export function PageLoading() {
   return (
-    <div className="flex items-center justify-center py-32">
+    <div
+      className="flex items-center justify-center py-32"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
       <div className="flex flex-col items-center gap-4">
-        <div className="relative">
+        <div className="relative" aria-hidden>
           <div className="h-12 w-12 rounded-full border-4 border-surface-elevated" />
-          <div className="absolute inset-0 h-12 w-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+          <div className="absolute inset-0 h-12 w-12 rounded-full border-4 border-primary border-t-transparent animate-spin motion-reduce:animate-none" />
         </div>
-        <p className="text-sm text-text-muted">Loading…</p>
+        <p className="text-sm text-text-secondary">Loading this view…</p>
       </div>
     </div>
   );
@@ -607,8 +666,8 @@ export function NotFound() {
         <div className="text-2xl font-semibold text-primary">404</div>
         <h1 className="text-h2 text-text-primary">Page Not Found</h1>
         <p className="text-sm text-text-secondary">
-          The page you're looking for doesn't exist. It might have been removed
-          or the URL might be incorrect.
+          That URL is not part of this app. Check the address, or start again
+          from home or search.
         </p>
         <div className="flex items-center gap-3 mt-2">
           <Link to="/" className="btn-primary">

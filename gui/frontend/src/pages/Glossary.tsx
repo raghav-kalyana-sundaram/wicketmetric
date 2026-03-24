@@ -503,6 +503,16 @@ const FAQ_ITEMS: FAQItem[] = [
     answer:
       "Yes. An all-rounder like Hardik Pandya will have separate batting and bowling profiles with their own scores, grades, and archetypes. The Player Profile page shows both views with a toggle. In the compare page, batting profiles take precedence unless explicitly specified.",
   },
+  {
+    question: "What is the difference between “Current” and “Career overall”?",
+    answer:
+      "Current is what you see first: recent rolling form, stability-gated when sample is small. Career overall is the longer-horizon headline in expanded profile views; both are capped so they do not exceed the player’s historical peak on the same form composite series. See Rating System → “Current vs career overall” for detail.",
+  },
+  {
+    question: "Why does Team Builder say a player is “out of position”?",
+    answer:
+      "The app compares the slot you chose to the player’s modal (most common) batting entry position. Putting a specialist opener in a finisher slot triggers the hint; it does not change pipeline scores. All-rounders and bowlers are not flagged on batting slots the same way.",
+  },
 ];
 
 // ── Section definitions ──────────────────────────────────────────
@@ -985,6 +995,57 @@ export default function Glossary() {
                     (33/33/33). The overall grade is derived from this combined
                     score using the same grade boundaries.
                   </p>
+                </Collapsible>
+
+                <Collapsible title="Current vs career overall (dual headline)">
+                  <div className="space-y-2 text-xs text-text-secondary leading-relaxed">
+                    <p>
+                      <strong className="text-text-primary">Current</strong> is
+                      the headline number on lists, search, and cards: it
+                      reflects <strong>recent</strong> performance (latest
+                      rolling form composite), hard-capped so it never exceeds
+                      the player&apos;s historical peak on that form track. With
+                      fewer than ~10 innings/spells of data, Current aligns with
+                      the career-style number until there is enough recent
+                      sample to move it.
+                    </p>
+                    <p>
+                      <strong className="text-text-primary">Career overall</strong>{" "}
+                      (profile expanded view) blends sustained quality with peak;
+                      it is also <strong>capped</strong> by the maximum the
+                      player&apos;s form composite has ever reached—so a rating
+                      cannot sit above a level their rolling form has never
+                      touched.
+                    </p>
+                    <p>
+                      On <strong className="text-text-primary">Rankings</strong>,{" "}
+                      <strong>Cur</strong> and <strong>Ovl</strong> in the header
+                      sort by <code className="text-[11px]">rating_current</code> vs{" "}
+                      <code className="text-[11px]">rating_overall</code>. Default
+                      is Current (desc). Pipeline{" "}
+                      <code className="text-[11px]">overall_score</code> remains
+                      available under &quot;More metrics&quot;.
+                    </p>
+                  </div>
+                </Collapsible>
+
+                <Collapsible title="Batting position & “out of position”">
+                  <div className="space-y-2 text-xs text-text-secondary leading-relaxed">
+                    <p>
+                      <strong className="text-text-primary">Modal batting
+                      position</strong> is the slot (1–11) where the player most
+                      often <strong>entered</strong> the innings (inferred from
+                      order of appearance and wickets fallen at entry), not a
+                      manual label.
+                    </p>
+                    <p>
+                      In <strong>Team Builder</strong>, if you place a batter in
+                      a slot that doesn&apos;t match their usual position, the
+                      UI may show an <strong>out of position</strong> note. That
+                      is informational for now (no score penalty in manual
+                      mode); autofill will use stricter eligibility rules later.
+                    </p>
+                  </div>
                 </Collapsible>
               </div>
             </section>

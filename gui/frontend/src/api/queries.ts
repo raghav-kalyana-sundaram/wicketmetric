@@ -6,7 +6,7 @@
  * typed data to components.
  *
  * **Format-aware:** Every query key is prefixed with the active format
- * (e.g. "t20i" or "ipl") so that switching formats in the UI triggers
+ * (e.g. "mens_t20i", "womens_t20i", "womens_ipl") so that switching datasets in the UI triggers
  * fresh fetches instead of serving stale cached data from the other dataset.
  *
  * Usage:
@@ -18,6 +18,7 @@
 
 import {
   useQuery,
+  useQueries,
   // useInfiniteQuery,
   keepPreviousData,
   // type UseQueryOptions,
@@ -38,6 +39,7 @@ import type {
   HeadToHeadResponse,
   MatchupExploreResponse,
   MatchupSummary,
+  FormBatchResponse,
   FormResponse,
   SimilarityResponse,
   VenueListResponse,
@@ -49,7 +51,6 @@ import type {
   SpellsLogResponse,
   EraResponse,
   TeamAnalysis,
-  TeamCompareResponse,
   ApiMeta,
   SearchParams,
   LeaderboardParams,
@@ -150,10 +151,14 @@ export const queryKeys = {
     role?: string,
     metric?: string,
     limit?: number,
-    provisional?: boolean,
+    provisional?: boolean | null,
     minInnings?: number,
+    activity?: "active" | "retired" | "all",
   ) =>
-    ["topPlayers", { role, metric, limit, provisional, minInnings }] as const,
+    [
+      "topPlayers",
+      { role, metric, limit, provisional, minInnings, activity },
+    ] as const,
 
   // Compare
   compare: (ids: string[]) => ["compare", ...ids.sort()] as const,
@@ -469,6 +474,22 @@ export function usePlayerForm(
   });
 }
 
+/** Fetch form summary (last 2 years, active) for multiple players. For leaderboard form tracker. */
+export function useFormBatch(
+  playerIds: string[],
+  role: "bat" | "bowl",
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  const sortedIds = [...playerIds].sort();
+  return useQuery<FormBatchResponse>({
+    queryKey: [format, "form-batch", role, sortedIds.join(",")],
+    queryFn: ({ signal }) => api.getFormBatch(playerIds, role, signal),
+    staleTime: STALE_TIMES.form,
+    enabled: (options?.enabled ?? true) && playerIds.length > 0,
+  });
+}
+
 // ── Player Matchups hooks ────────────────────────────────────────
 
 /** Fetch matchups for a player (paginated). */
@@ -546,13 +567,15 @@ export function useBattingRankings(params: Partial<LeaderboardParams>) {
     queryKey: [format, ...queryKeys.battingRankings(params)],
     queryFn: () =>
       api.getBattingRankings({
-        sort: params.sort ?? "overall_score",
+        sort: params.sort ?? "rating_current",
         order: params.order ?? "desc",
         country: params.country,
         archetype: params.archetype,
         position_group: params.position_group,
+        modal_slot: params.modal_slot,
         min_innings: params.min_innings,
         provisional: params.provisional,
+        activity: params.activity ?? "active",
         page: params.page ?? 1,
         per_page: params.per_page ?? 25,
       }),
@@ -568,13 +591,14 @@ export function useBowlingRankings(params: Partial<LeaderboardParams>) {
     queryKey: [format, ...queryKeys.bowlingRankings(params)],
     queryFn: () =>
       api.getBowlingRankings({
-        sort: params.sort ?? "overall_score",
+        sort: params.sort ?? "rating_current",
         order: params.order ?? "desc",
         country: params.country,
         archetype: params.archetype,
         phase_group: params.phase_group,
         min_innings: params.min_innings,
         provisional: params.provisional,
+        activity: params.activity ?? "active",
         page: params.page ?? 1,
         per_page: params.per_page ?? 25,
       }),
@@ -608,7 +632,8 @@ export function useTopPlayers(params: {
   role?: string;
   metric?: string;
   limit?: number;
-  provisional?: boolean;
+  /** Omit to request all players (provisional + qualified). */
+  provisional?: boolean | null;
   minInnings?: number;
 }) {
   const { format } = useFormat();
@@ -621,6 +646,7 @@ export function useTopPlayers(params: {
         params.limit,
         params.provisional,
         params.minInnings,
+        "active",
       ),
     ],
     queryFn: () =>
@@ -628,8 +654,9 @@ export function useTopPlayers(params: {
         role: params?.role,
         metric: params?.metric,
         limit: params?.limit ?? 5,
-        provisional: params?.provisional ?? false,
-        min_innings: params?.minInnings,
+        provisional: params.provisional,
+        min_innings: params.minInnings,
+        activity: "active",
       }),
     staleTime: STALE_TIMES.leaderboard,
   });
@@ -955,13 +982,21 @@ export function useTeamAutoFill(params: {
   });
 }
 
-/** Compare two teams side-by-side (aggregate metrics, edge indicators). */
-export function useTeamCompare(teamAIds: string[], teamBIds: string[]) {
+/** Parallel team analyses for Team Builder compare mode (2–4 XIs). */
+export function useTeamAnalysesParallel(
+  teams: Array<{ ids: string[]; slotTypes: string[] }>,
+) {
   const { format } = useFormat();
-  return useQuery<TeamCompareResponse>({
-    queryKey: [format, ...queryKeys.teamCompare(teamAIds, teamBIds)],
-    queryFn: ({ signal }) => api.compareTeams(teamAIds, teamBIds, signal),
-    staleTime: STALE_TIMES.compare,
-    enabled: teamAIds.length > 0 && teamBIds.length > 0,
+  return useQueries({
+    queries: teams.map((t) => ({
+      queryKey: [
+        format,
+        ...queryKeys.teamAnalyse([...t.ids], t.slotTypes),
+      ] as const,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api.analyseTeam(t.ids, signal, t.slotTypes),
+      staleTime: STALE_TIMES.compare,
+      enabled: t.ids.length > 0,
+    })),
   });
 }

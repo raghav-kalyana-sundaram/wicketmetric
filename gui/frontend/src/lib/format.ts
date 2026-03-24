@@ -846,3 +846,29 @@ export function parseBoolParam(
   if (lower === "false" || lower === "0" || lower === "no") return false;
   return undefined;
 }
+
+/**
+ * Primary number for list/card views: **current** (recent rolling form) when
+ * the API sends it, else legacy `overall_score`.
+ */
+export function primaryDisplayRating(p: {
+  rating_current?: number | null;
+  overall_score?: number | null;
+}): number | null {
+  const c = p.rating_current;
+  if (c != null && !Number.isNaN(c)) return c;
+  return p.overall_score ?? null;
+}
+
+/**
+ * Career-style headline for expanded views / “overall” column: API
+ * `rating_overall` when present, else pipeline `overall_score`.
+ */
+export function careerDisplayRating(p: {
+  rating_overall?: number | null;
+  overall_score?: number | null;
+}): number | null {
+  const o = p.rating_overall;
+  if (o != null && !Number.isNaN(o)) return o;
+  return p.overall_score ?? null;
+}
