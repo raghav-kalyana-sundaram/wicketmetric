@@ -1,16 +1,19 @@
 /**
  * Rankings / Leaderboard page — sortable, filterable player rankings.
  *
- * Route: /rankings?role=bat&sort=overall_score&order=desc&country=...&archetype=...
+ * Route: /rankings?role=bat&sort=rating_current&order=desc&country=...&archetype=...&modal_slot=...
  *
  * Features (from gui.md § 6.4):
  *   - Toggle between Batting and Bowling leaderboards
  *   - Sortable column headers (click to sort, click again to reverse)
- *   - Filters: country, archetype, position/phase group, min innings, provisional
+ *   - Filters: country, archetype, position/phase group, modal batting slot (1–11),
+ *     min innings, provisional,
+ *     active vs retired (format-specific recency; default active only)
  *   - Pagination with page size selector
  *   - Checkbox column for selecting players to compare (max 4)
  *   - "Compare Selected" button appears when ≥2 selected
  *   - Each player name links to their profile
+ *   - Ratings column: Cur / Ovl header buttons sort by rating_current vs rating_overall
  *   - URL-driven state: all filters/sort/page in query params
  *   - Responsive: horizontal scroll on mobile with sticky first column
  *
@@ -20,7 +23,7 @@
  *   - useBattingSortColumns() / useBowlingSortColumns() for available sorts
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
   Trophy,
@@ -33,9 +36,13 @@ import {
   Check,
   ChevronRight,
   Columns3,
+  X,
+  Info,
 } from "lucide-react";
 import GradeBadge from "@/components/GradeBadge";
 import { ScoreBarMini } from "@/components/ScoreBar";
+import MetricTooltip from "@/components/MetricTooltip";
+import FormSparkline from "@/components/FormSparkline";
 import Pagination from "@/components/Pagination";
 import { PageError } from "@/components/Layout";
 import {
@@ -45,6 +52,10 @@ import {
   useArchetypes,
   useBattingSortColumns,
   useBowlingSortColumns,
+  useBatterProfile,
+  useBowlerProfile,
+  useFormBatch,
+  usePlayerForm,
 } from "@/api/queries";
 import { scoreToColour } from "@/lib/colours";
 import {
@@ -63,8 +74,16 @@ import {
   countryShort,
   parseIntParam,
   parseBoolParam,
+  primaryDisplayRating,
+  careerDisplayRating,
 } from "@/lib/format";
-import type { PlayerSummary, LeaderboardParams } from "@/api/types";
+import type { PlayerSummary, LeaderboardParams, FormBatchItem } from "@/api/types";
+import { useFormat } from "@/api/FormatContext";
+import { isFranchiseFormat } from "@/api/formatConstants";
+import {
+  abbreviateTeamName,
+  collapseDuplicateTeamLabel,
+} from "@/lib/teamDisplay";
 
 // ── Column definitions ───────────────────────────────────────────
 
@@ -109,6 +128,32 @@ const DEFAULT_EXTRA_COLUMNS: Record<"bat" | "bowl", string[]> = {
   bat: ["war_batting", "clutch_index", "chase_master_index"],
   bowl: ["war_bowling", "clutch_index_bowl", "career_dot_pct"],
 };
+
+// ── Leaderboard presets (Phase 2) ─────────────────────────────────
+
+type Density = "compact" | "default" | "expanded";
+
+interface LeaderboardPreset {
+  id: string;
+  label: string;
+  role: "bat" | "bowl";
+  sort: string;
+  order?: "asc" | "desc";
+  phase_group?: string | null;
+  position_group?: string | null;
+  archetype?: string | null;
+}
+
+const LEADERBOARD_PRESETS: LeaderboardPreset[] = [
+  { id: "overall", label: "Career overall", role: "bat", sort: "rating_overall", order: "desc" },
+  { id: "overall", label: "Career overall", role: "bowl", sort: "rating_overall", order: "desc" },
+  { id: "recent_form", label: "Recent form", role: "bat", sort: "peak_window_composite", order: "desc" },
+  { id: "recent_form", label: "Recent form", role: "bowl", sort: "peak_window_composite", order: "desc" },
+  { id: "power_hitters", label: "Power hitters", role: "bat", sort: "score_power", order: "desc" },
+  { id: "anchors", label: "Anchors", role: "bat", sort: "score_acceleration", order: "desc" },
+  { id: "death", label: "Death specialists", role: "bowl", sort: "rating_overall", order: "desc", phase_group: "death" },
+  { id: "powerplay", label: "Powerplay bowlers", role: "bowl", sort: "rating_overall", order: "desc", phase_group: "powerplay" },
+];
 
 const METRIC_COLUMN_CONFIG: Record<string, MetricColumnConfig> = {
   war_batting: {
@@ -340,9 +385,16 @@ function buildMetricColumn(config: MetricColumnConfig): ColumnDef {
     width: config.width ?? "w-24",
     align: "right",
     render: (player) => (
-      <span className="font-score tabular-nums text-xs">
-        {formatMetricValue(player.metrics?.[config.key], config.format)}
-      </span>
+      <MetricTooltip
+        metric={config.key}
+        mode="icon"
+        iconSize={12}
+        className="inline-flex items-center gap-1 justify-end w-full"
+      >
+        <span className="font-score tabular-nums text-xs">
+          {formatMetricValue(player.metrics?.[config.key], config.format)}
+        </span>
+      </MetricTooltip>
     ),
   };
 }
@@ -372,12 +424,52 @@ function serialiseExtraColumns(keys: string[]): string | null {
   return keys.length > 0 ? keys.join(",") : "none";
 }
 
+const COMPACT_HIDE_KEYS = new Set(["archetype", "score_1", "score_2", "score_3"]);
+
+type LeaderboardTrend = "up" | "down" | "stable" | "insufficient";
+
+function computeLeaderboardTrend(
+  formPoints: FormBatchItem["form_points"] | undefined,
+): { trend: LeaderboardTrend; title: string } {
+  const values =
+    formPoints
+      ?.map((p) => p.composite)
+      .filter((c): c is number => c != null) ?? [];
+
+  // Need 10 numeric composites in the *form series* returned by the API — not career innings.
+  // Backend sends rolling form points (e.g. last 2 years); sparse careers can have <10 points.
+  if (values.length < 10) {
+    return {
+      trend: "insufficient",
+      title:
+        "Trend needs 10 rolling-form points (last ~2y in dataset). Career innings can be higher if there are fewer form samples.",
+    };
+  }
+
+  const latest = values[values.length - 1];
+  const tenAgo = values[values.length - 10];
+  const delta = latest - tenAgo;
+
+  // User rule: flat if latest is within +/-3 of 10-innings-ago.
+  if (Math.abs(delta) <= 3) return { trend: "stable", title: "Flat (within ±3 vs 10 innings ago)" };
+  if (delta > 0) return { trend: "up", title: "Rising (last > 10 innings ago)" };
+  return { trend: "down", title: "Falling (last < 10 innings ago)" };
+}
+
 function getBattingColumns(
   compareIds: Set<string>,
   onCompareToggle: (player: PlayerSummary) => void,
   selectedMetricColumns: ColumnDef[],
+  formMap: Map<string, FormBatchItem>,
+  density: Density,
+  selectedMetricKeys: string[],
+  formLoading: boolean,
 ): ColumnDef[] {
-  return [
+  const optionalKeys = new Set(selectedMetricKeys);
+  const hideInCompact = (key: string) => COMPACT_HIDE_KEYS.has(key) || optionalKeys.has(key);
+  const showNumericInExpanded = density === "expanded";
+
+  const cols: ColumnDef[] = [
     {
       key: "compare",
       label: "",
@@ -390,7 +482,7 @@ function getBattingColumns(
             e.stopPropagation();
             onCompareToggle(player);
           }}
-          className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+          className={`min-h-11 min-w-11 h-7 w-7 sm:min-h-0 sm:min-w-0 sm:h-5 sm:w-5 rounded border flex items-center justify-center transition-colors ${
             compareIds.has(player.id)
               ? "bg-primary border-primary text-white"
               : "border-surface-elevated hover:border-primary text-transparent hover:text-primary/50"
@@ -423,11 +515,8 @@ function getBattingColumns(
       width: "min-w-[10rem]",
       align: "left",
       render: (player) => (
-        <Link
-          to={`/player/${player.id}`}
-          className="flex items-center gap-1.5 hover:text-primary transition-colors group"
-        >
-          <span className="font-medium text-text-primary group-hover:text-primary truncate max-w-[9rem]">
+        <span className="flex items-center gap-1.5">
+          <span className="font-medium text-text-primary truncate max-w-[9rem]">
             {player.name}
           </span>
           {player.is_provisional && (
@@ -438,21 +527,41 @@ function getBattingColumns(
               Prov
             </span>
           )}
-        </Link>
+        </span>
       ),
     },
     {
-      key: "country",
-      label: "Country",
-      shortLabel: "Ctry",
-      width: "w-16",
-      align: "center",
+      key: "team",
+      label: "Team",
+      shortLabel: "Tm",
+      width: "min-w-[6rem] max-w-[9rem]",
+      align: "left",
       hideOnMobile: true,
-      render: (player) => (
-        <span className="text-xs" title={player.country}>
-          {countryFlag(player.country) || countryShort(player.country)}
-        </span>
-      ),
+      render: (player) => {
+        const rawTeam = collapseDuplicateTeamLabel(
+          (player.recent_team || "").trim(),
+        );
+        const label = rawTeam || (player.country || "").trim() || "—";
+        const titleParts = [rawTeam || null, player.country].filter(
+          (x): x is string => Boolean(x && String(x).trim()),
+        );
+        const title =
+          titleParts.length > 0 ? Array.from(new Set(titleParts)).join(" · ") : label;
+        const short =
+          label === "—" ? "—" : abbreviateTeamName(rawTeam || label);
+        return (
+          <div className="min-w-0 pr-1" title={title}>
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-sm leading-none opacity-90">
+                {countryFlag(player.country) || countryShort(player.country)}
+              </span>
+              <span className="min-w-0 font-score text-xs font-semibold tabular-nums text-text-primary tracking-tight">
+                {short}
+              </span>
+            </div>
+          </div>
+        );
+      },
     },
     {
       key: "archetype",
@@ -468,6 +577,49 @@ function getBattingColumns(
         ) : (
           <span className="text-xs text-text-muted">—</span>
         ),
+    },
+    {
+      key: "trend",
+      label: "Trend",
+      width: "w-[5.5rem]",
+      align: "center",
+      hideOnMobile: false,
+      render: (player) => {
+        if (formLoading) return <span className="text-xs text-text-muted animate-pulse">…</span>;
+        const item = formMap.get(String(player.id));
+        const { trend, title } = computeLeaderboardTrend(item?.form_points);
+        const sparkData =
+          item?.form_points
+            ?.map((p) => p.composite)
+            .filter((c): c is number => c != null)
+            .slice(-8) ?? [];
+        if (trend === "insufficient") {
+          return (
+            <span className="inline-flex items-center justify-center w-full text-base font-medium text-text-muted" title={title}>
+              −
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center justify-center gap-0.5 w-full" title={title}>
+            {trend === "up" && <ArrowUp size={12} className="text-sky-400 shrink-0" aria-hidden />}
+            {trend === "down" && <ArrowDown size={12} className="text-amber-500 shrink-0" aria-hidden />}
+            {trend === "stable" && <span className="text-sm font-medium text-slate-400" aria-hidden>−</span>}
+            {sparkData.length >= 2 && (
+              <FormSparkline
+                data={sparkData}
+                width={48}
+                height={20}
+                showFill={false}
+                strokeWidth={1.25}
+                variant="formTracker"
+                className="shrink-0"
+                ariaLabel={`Form trend: ${title}`}
+              />
+            )}
+          </span>
+        );
+      },
     },
     {
       key: "innings",
@@ -521,45 +673,90 @@ function getBattingColumns(
     {
       key: "score_1",
       label: "ACL",
+      shortLabel: "ACL",
       sortKey: "score_acceleration",
-      width: "w-20",
+      metricKey: "score_acceleration",
+      width: showNumericInExpanded ? "w-24" : "w-20",
       align: "right",
-      render: (player) => <ScoreBarMini value={player.score_1} width={40} />,
+      render: (player) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <ScoreBarMini value={player.score_1} width={40} />
+          {showNumericInExpanded && (
+            <span className="text-xs tabular-nums text-text-muted w-7">{fmtScore(player.score_1)}</span>
+          )}
+        </div>
+      ),
     },
     {
       key: "score_2",
       label: "POW",
+      shortLabel: "POW",
       sortKey: "score_power",
-      width: "w-20",
+      metricKey: "score_power",
+      width: showNumericInExpanded ? "w-24" : "w-20",
       align: "right",
-      render: (player) => <ScoreBarMini value={player.score_2} width={40} />,
+      render: (player) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <ScoreBarMini value={player.score_2} width={40} />
+          {showNumericInExpanded && (
+            <span className="text-xs tabular-nums text-text-muted w-7">{fmtScore(player.score_2)}</span>
+          )}
+        </div>
+      ),
     },
     {
       key: "score_3",
       label: "CTL",
+      shortLabel: "CTL",
       sortKey: "score_control",
-      width: "w-20",
+      metricKey: "score_control",
+      width: showNumericInExpanded ? "w-24" : "w-20",
       align: "right",
-      render: (player) => <ScoreBarMini value={player.score_3} width={40} />,
+      render: (player) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <ScoreBarMini value={player.score_3} width={40} />
+          {showNumericInExpanded && (
+            <span className="text-xs tabular-nums text-text-muted w-7">{fmtScore(player.score_3)}</span>
+          )}
+        </div>
+      ),
     },
     ...selectedMetricColumns,
     {
       key: "overall",
-      label: "Overall",
-      sortKey: "overall_score",
-      width: "w-20",
+      label: "Current / Overall",
+      shortLabel: "Cur·Ovl",
+      width: "min-w-[5.25rem] w-28",
       align: "center",
-      render: (player) => (
-        <div className="flex items-center gap-1.5 justify-center">
-          <span
-            className="font-score tabular-nums text-sm font-semibold"
-            style={{ color: scoreToColour(player.overall_score) }}
+      render: (player) => {
+        const cur = primaryDisplayRating(player);
+        const ovl = careerDisplayRating(player);
+        return (
+          <div
+            className="flex items-center gap-1 justify-center flex-nowrap"
+            title="Use Cur / Ovl in the column header to sort by Current vs Career overall."
           >
-            {fmtScore(player.overall_score)}
-          </span>
-          <GradeBadge grade={player.grade_overall} size="xs" />
-        </div>
-      ),
+            <span className="inline-flex items-center gap-0.5 font-score tabular-nums">
+              <span
+                className="text-sm font-semibold"
+                style={{ color: scoreToColour(cur) }}
+              >
+                {fmtScore(cur)}
+              </span>
+              <span className="text-text-muted/45 text-[10px] font-normal px-0.5" aria-hidden>
+                /
+              </span>
+              <span
+                className="text-xs font-medium"
+                style={{ color: scoreToColour(ovl) }}
+              >
+                {fmtScore(ovl)}
+              </span>
+            </span>
+            <GradeBadge grade={player.grade_overall} size="xs" />
+          </div>
+        );
+      },
     },
     {
       key: "actions",
@@ -577,14 +774,23 @@ function getBattingColumns(
       ),
     },
   ];
+  return density === "compact" ? cols.filter((c) => !hideInCompact(c.key)) : cols;
 }
 
 function getBowlingColumns(
   compareIds: Set<string>,
   onCompareToggle: (player: PlayerSummary) => void,
   selectedMetricColumns: ColumnDef[],
+  formMap: Map<string, FormBatchItem>,
+  density: Density,
+  selectedMetricKeys: string[],
+  formLoading: boolean,
 ): ColumnDef[] {
-  return [
+  const optionalKeys = new Set(selectedMetricKeys);
+  const hideInCompact = (key: string) => COMPACT_HIDE_KEYS.has(key) || optionalKeys.has(key);
+  const showNumericInExpanded = density === "expanded";
+
+  const cols: ColumnDef[] = [
     {
       key: "compare",
       label: "",
@@ -597,7 +803,7 @@ function getBowlingColumns(
             e.stopPropagation();
             onCompareToggle(player);
           }}
-          className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${
+          className={`min-h-11 min-w-11 h-7 w-7 sm:min-h-0 sm:min-w-0 sm:h-5 sm:w-5 rounded border flex items-center justify-center transition-colors ${
             compareIds.has(player.id)
               ? "bg-primary border-primary text-white"
               : "border-surface-elevated hover:border-primary text-transparent hover:text-primary/50"
@@ -630,11 +836,8 @@ function getBowlingColumns(
       width: "min-w-[10rem]",
       align: "left",
       render: (player) => (
-        <Link
-          to={`/player/${player.id}`}
-          className="flex items-center gap-1.5 hover:text-primary transition-colors group"
-        >
-          <span className="font-medium text-text-primary group-hover:text-primary truncate max-w-[9rem]">
+        <span className="flex items-center gap-1.5">
+          <span className="font-medium text-text-primary truncate max-w-[9rem]">
             {player.name}
           </span>
           {player.is_provisional && (
@@ -645,21 +848,41 @@ function getBowlingColumns(
               Prov
             </span>
           )}
-        </Link>
+        </span>
       ),
     },
     {
-      key: "country",
-      label: "Country",
-      shortLabel: "Ctry",
-      width: "w-16",
-      align: "center",
+      key: "team",
+      label: "Team",
+      shortLabel: "Tm",
+      width: "min-w-[6rem] max-w-[9rem]",
+      align: "left",
       hideOnMobile: true,
-      render: (player) => (
-        <span className="text-xs" title={player.country}>
-          {countryFlag(player.country) || countryShort(player.country)}
-        </span>
-      ),
+      render: (player) => {
+        const rawTeam = collapseDuplicateTeamLabel(
+          (player.recent_team || "").trim(),
+        );
+        const label = rawTeam || (player.country || "").trim() || "—";
+        const titleParts = [rawTeam || null, player.country].filter(
+          (x): x is string => Boolean(x && String(x).trim()),
+        );
+        const title =
+          titleParts.length > 0 ? Array.from(new Set(titleParts)).join(" · ") : label;
+        const short =
+          label === "—" ? "—" : abbreviateTeamName(rawTeam || label);
+        return (
+          <div className="min-w-0 pr-1" title={title}>
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-sm leading-none opacity-90">
+                {countryFlag(player.country) || countryShort(player.country)}
+              </span>
+              <span className="min-w-0 font-score text-xs font-semibold tabular-nums text-text-primary tracking-tight">
+                {short}
+              </span>
+            </div>
+          </div>
+        );
+      },
     },
     {
       key: "archetype",
@@ -675,6 +898,49 @@ function getBowlingColumns(
         ) : (
           <span className="text-xs text-text-muted">—</span>
         ),
+    },
+    {
+      key: "trend",
+      label: "Trend",
+      width: "w-[5.5rem]",
+      align: "center",
+      hideOnMobile: false,
+      render: (player) => {
+        if (formLoading) return <span className="text-xs text-text-muted animate-pulse">…</span>;
+        const item = formMap.get(String(player.id));
+        const { trend, title } = computeLeaderboardTrend(item?.form_points);
+        const sparkData =
+          item?.form_points
+            ?.map((p) => p.composite)
+            .filter((c): c is number => c != null)
+            .slice(-8) ?? [];
+        if (trend === "insufficient") {
+          return (
+            <span className="inline-flex items-center justify-center w-full text-base font-medium text-text-muted" title={title}>
+              −
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center justify-center gap-0.5 w-full" title={title}>
+            {trend === "up" && <ArrowUp size={12} className="text-sky-400 shrink-0" aria-hidden />}
+            {trend === "down" && <ArrowDown size={12} className="text-amber-500 shrink-0" aria-hidden />}
+            {trend === "stable" && <span className="text-sm font-medium text-slate-400" aria-hidden>−</span>}
+            {sparkData.length >= 2 && (
+              <FormSparkline
+                data={sparkData}
+                width={48}
+                height={20}
+                showFill={false}
+                strokeWidth={1.25}
+                variant="formTracker"
+                className="shrink-0"
+                ariaLabel={`Form trend: ${title}`}
+              />
+            )}
+          </span>
+        );
+      },
     },
     {
       key: "matches",
@@ -728,45 +994,90 @@ function getBowlingColumns(
     {
       key: "score_1",
       label: "ACC",
+      shortLabel: "ACC",
       sortKey: "score_accuracy",
-      width: "w-20",
+      metricKey: "score_accuracy",
+      width: showNumericInExpanded ? "w-24" : "w-20",
       align: "right",
-      render: (player) => <ScoreBarMini value={player.score_1} width={40} />,
+      render: (player) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <ScoreBarMini value={player.score_1} width={40} />
+          {showNumericInExpanded && (
+            <span className="text-xs tabular-nums text-text-muted w-7">{fmtScore(player.score_1)}</span>
+          )}
+        </div>
+      ),
     },
     {
       key: "score_2",
       label: "CTL",
+      shortLabel: "CTL",
       sortKey: "score_control",
-      width: "w-20",
+      metricKey: "score_control",
+      width: showNumericInExpanded ? "w-24" : "w-20",
       align: "right",
-      render: (player) => <ScoreBarMini value={player.score_2} width={40} />,
+      render: (player) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <ScoreBarMini value={player.score_2} width={40} />
+          {showNumericInExpanded && (
+            <span className="text-xs tabular-nums text-text-muted w-7">{fmtScore(player.score_2)}</span>
+          )}
+        </div>
+      ),
     },
     {
       key: "score_3",
       label: "THR",
+      shortLabel: "THR",
       sortKey: "score_threat",
-      width: "w-20",
+      metricKey: "score_threat",
+      width: showNumericInExpanded ? "w-24" : "w-20",
       align: "right",
-      render: (player) => <ScoreBarMini value={player.score_3} width={40} />,
+      render: (player) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <ScoreBarMini value={player.score_3} width={40} />
+          {showNumericInExpanded && (
+            <span className="text-xs tabular-nums text-text-muted w-7">{fmtScore(player.score_3)}</span>
+          )}
+        </div>
+      ),
     },
     ...selectedMetricColumns,
     {
       key: "overall",
-      label: "Overall",
-      sortKey: "overall_score",
-      width: "w-20",
+      label: "Current / Overall",
+      shortLabel: "Cur·Ovl",
+      width: "min-w-[5.25rem] w-28",
       align: "center",
-      render: (player) => (
-        <div className="flex items-center gap-1.5 justify-center">
-          <span
-            className="font-score tabular-nums text-sm font-semibold"
-            style={{ color: scoreToColour(player.overall_score) }}
+      render: (player) => {
+        const cur = primaryDisplayRating(player);
+        const ovl = careerDisplayRating(player);
+        return (
+          <div
+            className="flex items-center gap-1 justify-center flex-nowrap"
+            title="Use Cur / Ovl in the column header to sort by Current vs Career overall."
           >
-            {fmtScore(player.overall_score)}
-          </span>
-          <GradeBadge grade={player.grade_overall} size="xs" />
-        </div>
-      ),
+            <span className="inline-flex items-center gap-0.5 font-score tabular-nums">
+              <span
+                className="text-sm font-semibold"
+                style={{ color: scoreToColour(cur) }}
+              >
+                {fmtScore(cur)}
+              </span>
+              <span className="text-text-muted/45 text-[10px] font-normal px-0.5" aria-hidden>
+                /
+              </span>
+              <span
+                className="text-xs font-medium"
+                style={{ color: scoreToColour(ovl) }}
+              >
+                {fmtScore(ovl)}
+              </span>
+            </span>
+            <GradeBadge grade={player.grade_overall} size="xs" />
+          </div>
+        );
+      },
     },
     {
       key: "actions",
@@ -784,17 +1095,20 @@ function getBowlingColumns(
       ),
     },
   ];
+  return density === "compact" ? cols.filter((c) => !hideInCompact(c.key)) : cols;
 }
 
 // ── Default sort columns per role ────────────────────────────────
 
 const DEFAULT_SORT: Record<string, string> = {
-  bat: "overall_score",
-  bowl: "overall_score",
+  bat: "rating_current",
+  bowl: "rating_current",
 };
 
 const SORT_LABEL_MAP: Record<string, string> = {
-  overall_score: "Overall Score",
+  rating_current: "Current rating",
+  rating_overall: "Career overall (display)",
+  overall_score: "Overall Score (pipeline)",
   score_acceleration: "Acceleration",
   score_power: "Power",
   score_control: "Control",
@@ -831,6 +1145,292 @@ const SORT_LABEL_MAP: Record<string, string> = {
   peak_window_composite: "Peak Window Composite",
 };
 
+// ── Leaderboard preview panel (Phase 2) ───────────────────────────
+
+interface LeaderboardPreviewPanelProps {
+  playerId: string;
+  isBowling: boolean;
+  onClose: () => void;
+}
+
+function LeaderboardPreviewPanel({
+  playerId,
+  isBowling,
+  onClose,
+}: LeaderboardPreviewPanelProps) {
+  const { data: batProfile, isLoading: batLoading } = useBatterProfile(
+    isBowling ? undefined : playerId,
+    { enabled: !isBowling },
+  );
+  const { data: bowlProfile, isLoading: bowlLoading } = useBowlerProfile(
+    isBowling ? playerId : undefined,
+    { enabled: isBowling },
+  );
+  const { data: formData, isLoading: formLoading } = usePlayerForm(
+    playerId,
+    isBowling ? "bowl" : "bat",
+    { enabled: true },
+  );
+  const isLoading = isBowling ? bowlLoading : batLoading;
+  const profile = isBowling ? bowlProfile : batProfile;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/30 z-40"
+        aria-hidden
+        onClick={onClose}
+      />
+      <div
+        className="fixed top-0 right-0 bottom-0 w-full max-w-md bg-surface border-l border-surface-elevated shadow-xl z-50 flex flex-col animate-slide-up"
+        role="dialog"
+        aria-label="Player preview"
+      >
+        <div className="flex items-center justify-between p-3 border-b border-surface-elevated">
+          <span className="text-sm font-medium text-text-secondary">
+            Quick preview
+          </span>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
+            aria-label="Close preview"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {isLoading && (
+            <div className="space-y-3">
+              <div className="skeleton h-6 w-3/4 rounded" />
+              <div className="skeleton h-4 w-1/2 rounded" />
+              <div className="skeleton h-20 w-full rounded" />
+            </div>
+          )}
+          {!isLoading && profile && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary">
+                  {profile.name}
+                </h2>
+                <p className="text-sm text-text-secondary flex items-center gap-2 mt-0.5 flex-wrap">
+                  {countryFlag(profile.country)}
+                  <span>
+                    {(profile.recent_team || "").trim() || profile.country}
+                  </span>
+                  {(profile.recent_team || "").trim() &&
+                    profile.country &&
+                    (profile.recent_team || "").trim().toLowerCase() !==
+                      profile.country.trim().toLowerCase() && (
+                      <span className="text-xs text-text-muted">
+                        · {profile.country}
+                      </span>
+                    )}
+                  {"overall_grade" in profile && (
+                    <GradeBadge grade={profile.overall_grade ?? "D"} size="sm" />
+                  )}
+                </p>
+                {profile.archetype && (
+                  <p className="text-xs text-text-muted mt-1">
+                    {profile.archetype}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 rounded-lg bg-surface-elevated/50 p-2 text-sm">
+                <div>
+                  <span className="text-text-muted block text-xs">Current</span>
+                  <span
+                    className="font-score tabular-nums font-semibold text-base"
+                    style={{
+                      color: scoreToColour(primaryDisplayRating(profile)),
+                    }}
+                  >
+                    {fmtScore(primaryDisplayRating(profile))}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-text-muted block text-xs">Overall</span>
+                  <span
+                    className="font-score tabular-nums font-semibold text-base"
+                    style={{
+                      color: scoreToColour(careerDisplayRating(profile)),
+                    }}
+                  >
+                    {fmtScore(careerDisplayRating(profile))}
+                  </span>
+                </div>
+              </div>
+
+              {!isBowling && batProfile && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">Runs</span>
+                      <span className="font-score tabular-nums">{fmtInt(batProfile.total_runs, "0")}</span>
+                    </div>
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">SR</span>
+                      <span className="font-score tabular-nums">{fmtSR(batProfile.career_sr)}</span>
+                    </div>
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">Innings</span>
+                      <span className="font-score tabular-nums">{fmtInt(batProfile.innings_count, "0")}</span>
+                    </div>
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">Avg</span>
+                      <span className="font-score tabular-nums">{fmtAvg(batProfile.career_avg)}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">Dimensions</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-text-muted w-8">ACL</span>
+                      <ScoreBarMini value={batProfile.score_acceleration} width={56} />
+                    </div>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[10px] text-text-muted w-8">POW</span>
+                      <ScoreBarMini value={batProfile.score_power} width={56} />
+                    </div>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[10px] text-text-muted w-8">CTL</span>
+                      <ScoreBarMini value={batProfile.score_control} width={56} />
+                    </div>
+                  </div>
+                  {(batProfile.war_batting != null || batProfile.war_batting_rate != null) && (
+                    <div className="rounded-lg bg-surface-elevated/50 p-2 text-sm">
+                      <span className="text-text-muted block text-xs">WAR</span>
+                      <span className="font-score tabular-nums">
+                        {fmtWAR(batProfile.war_batting)}
+                        {batProfile.war_batting_rate != null && (
+                          <span className="text-text-muted ml-1 text-xs">({fmtWAR(batProfile.war_batting_rate)}/50)</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">Form</span>
+                    {formLoading && <span className="text-xs text-text-muted">…</span>}
+                    {!formLoading && formData?.series && formData.series.length > 0 && (
+                      <FormSparkline
+                        data={formData.series.map((p) => p.composite).filter((c): c is number => c != null)}
+                        width={200}
+                        height={56}
+                        variant="formTracker"
+                        showMedianLine
+                        showEndDot={true}
+                        interactive={true}
+                        ariaLabel="Form (composite 0–100)"
+                      />
+                    )}
+                    {!formLoading && (!formData?.series || formData.series.length === 0) && (
+                      <span className="text-xs text-text-muted">No form data</span>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {isBowling && bowlProfile && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">Wickets</span>
+                      <span className="font-score tabular-nums">{fmtInt(bowlProfile.total_wickets ?? 0, "0")}</span>
+                    </div>
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">Econ</span>
+                      <span className="font-score tabular-nums">{fmtEcon(bowlProfile.career_economy)}</span>
+                    </div>
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">Matches</span>
+                      <span className="font-score tabular-nums">{fmtInt(bowlProfile.matches ?? 0, "0")}</span>
+                    </div>
+                    <div className="rounded-lg bg-surface-elevated/50 p-2">
+                      <span className="text-text-muted block text-xs">SR</span>
+                      <span className="font-score tabular-nums">{fmtInt(bowlProfile.career_sr_bowl ?? null, "—")}</span>
+                    </div>
+                  </div>
+                  {bowlProfile.phase_group && (
+                    <div className="text-xs text-text-muted">
+                      <span className="uppercase tracking-wider">Phase</span>{" "}
+                      <span className="capitalize text-text-secondary">{bowlProfile.phase_group}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">Dimensions</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-text-muted w-8">ACC</span>
+                      <ScoreBarMini value={bowlProfile.score_accuracy} width={56} />
+                    </div>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[10px] text-text-muted w-8">CTL</span>
+                      <ScoreBarMini value={bowlProfile.score_control} width={56} />
+                    </div>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[10px] text-text-muted w-8">THR</span>
+                      <ScoreBarMini value={bowlProfile.score_threat} width={56} />
+                    </div>
+                  </div>
+                  {(bowlProfile.career_dot_pct != null || bowlProfile.war_bowling != null) && (
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {bowlProfile.career_dot_pct != null && (
+                        <div className="rounded-lg bg-surface-elevated/50 p-2">
+                          <span className="text-text-muted block text-xs">Dot %</span>
+                          <span className="font-score tabular-nums">{fmtPct(bowlProfile.career_dot_pct, 1)}</span>
+                        </div>
+                      )}
+                      {(bowlProfile.war_bowling != null || bowlProfile.war_bowling_rate != null) && (
+                        <div className="rounded-lg bg-surface-elevated/50 p-2">
+                          <span className="text-text-muted block text-xs">WAR</span>
+                          <span className="font-score tabular-nums">
+                            {fmtWAR(bowlProfile.war_bowling)}
+                            {bowlProfile.war_bowling_rate != null && (
+                              <span className="text-text-muted ml-1 text-xs">({fmtWAR(bowlProfile.war_bowling_rate)}/50)</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">Form</span>
+                    {formLoading && <span className="text-xs text-text-muted">…</span>}
+                    {!formLoading && formData?.series && formData.series.length > 0 && (
+                      <FormSparkline
+                        data={formData.series.map((p) => p.composite).filter((c): c is number => c != null)}
+                        width={200}
+                        height={56}
+                        variant="formTracker"
+                        showMedianLine
+                        showEndDot={true}
+                        interactive={true}
+                        ariaLabel="Form (composite 0–100)"
+                      />
+                    )}
+                    {!formLoading && (!formData?.series || formData.series.length === 0) && (
+                      <span className="text-xs text-text-muted">No form data</span>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <Link
+                to={`/player/${playerId}`}
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover font-medium"
+              >
+                View full profile
+                <ChevronRight size={14} />
+              </Link>
+            </div>
+          )}
+          {!isLoading && !profile && (
+            <p className="text-sm text-text-muted">Could not load player.</p>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Rankings Page Component ──────────────────────────────────────
 
 export default function RankingsPage() {
@@ -840,30 +1440,59 @@ export default function RankingsPage() {
   // ── Parse URL state ────────────────────────────────────────
   const role = searchParams.get("role") ?? "bat";
   const sort =
-    searchParams.get("sort") ?? DEFAULT_SORT[role] ?? "overall_score";
+    searchParams.get("sort") ?? DEFAULT_SORT[role] ?? "rating_current";
   const order = searchParams.get("order") ?? "desc";
   const country = searchParams.get("country") ?? undefined;
   const archetype = searchParams.get("archetype") ?? undefined;
   const positionGroup = searchParams.get("position_group") ?? undefined;
+  const rawModalSlot = searchParams.get("modal_slot");
+  const modalSlotParsed = rawModalSlot ? parseInt(rawModalSlot, 10) : NaN;
+  const modalSlot =
+    role !== "bowl" &&
+    Number.isFinite(modalSlotParsed) &&
+    modalSlotParsed >= 1 &&
+    modalSlotParsed <= 11
+      ? modalSlotParsed
+      : undefined;
   const phaseGroup = searchParams.get("phase_group") ?? undefined;
   const page = parseIntParam(searchParams.get("page"), 1);
   const perPage = parseIntParam(searchParams.get("per_page"), 25);
   const minInnings = parseIntParam(searchParams.get("min_innings"), 0);
   const provisional = parseBoolParam(searchParams.get("provisional"));
+  const rawActivity = searchParams.get("activity");
+  const activity: "active" | "retired" | "all" =
+    rawActivity === "retired" || rawActivity === "all" ? rawActivity : "active";
+  const densityParam = searchParams.get("density");
+  const { format } = useFormat();
+  const density: Density =
+    densityParam === "compact" || densityParam === "expanded"
+      ? densityParam
+      : "default";
 
   // ── Local state ────────────────────────────────────────────
+  const [previewPlayerId, setPreviewPlayerId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(
     Boolean(
       country ||
       archetype ||
       positionGroup ||
       phaseGroup ||
+      modalSlot != null ||
       provisional !== undefined ||
-      minInnings > 0,
+      minInnings > 0 ||
+      activity !== "active",
     ),
   );
   const [showColumns, setShowColumns] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
+  const [sortAnnouncement, setSortAnnouncement] = useState("");
+
+  useEffect(() => {
+    const label = SORT_LABEL_MAP[sort] ?? sort;
+    setSortAnnouncement(
+      `Sorted by ${label}, ${order === "desc" ? "descending" : "ascending"}`,
+    );
+  }, [sort, order]);
 
   // ── Reference data ─────────────────────────────────────────
   const { data: countries = [] } = useCountries();
@@ -928,9 +1557,11 @@ export default function RankingsPage() {
     country,
     archetype,
     position_group: isBowling ? undefined : positionGroup,
+    modal_slot: isBowling ? undefined : modalSlot,
     phase_group: isBowling ? phaseGroup : undefined,
     min_innings: minInnings > 0 ? minInnings : undefined,
     provisional,
+    activity,
     page,
     per_page: perPage,
   };
@@ -946,6 +1577,15 @@ export default function RankingsPage() {
   const totalPlayers = data?.total ?? 0;
   const totalPages =
     data?.total_pages ?? (Math.ceil(totalPlayers / perPage) || 1);
+
+  const playerIds = useMemo(() => players.map((p) => p.id), [players]);
+  const { data: formBatchData, isLoading: formLoading } = useFormBatch(playerIds, roleKey, {
+    enabled: playerIds.length > 0,
+  });
+  const formMap = useMemo(() => {
+    const results = Array.isArray(formBatchData?.results) ? formBatchData.results : [];
+    return new Map(results.map((r) => [String(r.player_id), r]));
+  }, [formBatchData?.results]);
 
   // ── URL update helper ──────────────────────────────────────
   const updateParams = useCallback(
@@ -970,7 +1610,7 @@ export default function RankingsPage() {
   const handleRoleToggle = useCallback(
     (newRole: string) => {
       // Reset page, sort, and role-specific filters
-      const newSort = DEFAULT_SORT[newRole] ?? "overall_score";
+      const newSort = DEFAULT_SORT[newRole] ?? "rating_current";
       const next = new URLSearchParams({
         role: newRole,
         sort: newSort,
@@ -983,10 +1623,11 @@ export default function RankingsPage() {
         ],
       );
       if (cols) next.set("cols", cols);
+      if (activity !== "active") next.set("activity", activity);
       setSearchParams(next);
       setCompareIds(new Set());
     },
-    [perPage, setSearchParams],
+    [perPage, setSearchParams, activity],
   );
 
   const handleSort = useCallback(
@@ -1045,7 +1686,7 @@ export default function RankingsPage() {
   const handleClearFilters = useCallback(() => {
     const next = new URLSearchParams({
       role,
-      sort: DEFAULT_SORT[role] ?? "overall_score",
+      sort: DEFAULT_SORT[role] ?? "rating_current",
       order: "desc",
       per_page: String(perPage),
     });
@@ -1053,6 +1694,29 @@ export default function RankingsPage() {
     if (cols) next.set("cols", cols);
     setSearchParams(next);
   }, [role, perPage, selectedMetricKeys, setSearchParams]);
+
+  const handlePreset = useCallback(
+    (preset: LeaderboardPreset) => {
+      const updates: Record<string, string | null> = {
+        sort: preset.sort,
+        order: preset.order ?? "desc",
+        page: "1",
+        phase_group: preset.phase_group ?? null,
+        position_group: preset.position_group ?? null,
+        archetype: preset.archetype ?? null,
+        modal_slot: null,
+      };
+      updateParams(updates);
+    },
+    [updateParams],
+  );
+
+  const handleDensityChange = useCallback(
+    (d: Density) => {
+      updateParams({ density: d === "default" ? null : d });
+    },
+    [updateParams],
+  );
 
   const handleMetricToggle = useCallback(
     (metricKey: string) => {
@@ -1074,10 +1738,21 @@ export default function RankingsPage() {
     if (country) count++;
     if (archetype) count++;
     if (positionGroup || phaseGroup) count++;
+    if (modalSlot != null) count++;
     if (provisional !== undefined) count++;
     if (minInnings > 0) count++;
+    if (activity !== "active") count++;
     return count;
-  }, [country, archetype, positionGroup, phaseGroup, provisional, minInnings]);
+  }, [
+    country,
+    archetype,
+    positionGroup,
+    phaseGroup,
+    modalSlot,
+    provisional,
+    minInnings,
+    activity,
+  ]);
 
   // Provisional display value
   const provisionalValue = useMemo(() => {
@@ -1094,143 +1769,306 @@ export default function RankingsPage() {
             compareIds,
             handleCompareToggle,
             selectedMetricColumns,
+            formMap,
+            density,
+            selectedMetricKeys,
+            formLoading,
           )
         : getBattingColumns(
             compareIds,
             handleCompareToggle,
             selectedMetricColumns,
+            formMap,
+            density,
+            selectedMetricKeys,
+            formLoading,
           ),
-    [isBowling, compareIds, handleCompareToggle, selectedMetricColumns],
+    [isBowling, compareIds, handleCompareToggle, selectedMetricColumns, formMap, density, selectedMetricKeys, formLoading],
   );
 
   // Compute the rank offset for the current page
   const rankOffset = (page - 1) * perPage;
 
+  const presetOptionsForRole = useMemo(
+    () => LEADERBOARD_PRESETS.filter((p) => p.role === roleKey),
+    [roleKey],
+  );
+
+  const activePresetKey = useMemo(() => {
+    const found = presetOptionsForRole.find(
+      (p) =>
+        sort === p.sort &&
+        (order === (p.order ?? "desc")) &&
+        (p.phase_group == null || phaseGroup === p.phase_group) &&
+        (p.position_group == null || positionGroup === p.position_group),
+    );
+    return found ? `${found.id}-${found.role}` : "";
+  }, [presetOptionsForRole, sort, order, phaseGroup, positionGroup]);
+
+  // ── Micro-insights (Phase 2: data-driven storytelling) ──────
+  const microInsights = useMemo(() => {
+    const lines: string[] = [];
+    if (isBowling && phaseGroup === "death") {
+      lines.push("Death specialists: bowling impact in overs 17–20.");
+    }
+    if (isBowling && phaseGroup === "powerplay") {
+      lines.push("Powerplay bowlers: impact in overs 1–6.");
+    }
+    if (!isBowling && sort === "score_power") {
+      lines.push("Power hitters: ranked by power score.");
+    }
+    if (!isBowling && sort === "score_acceleration") {
+      lines.push("Anchors: ranked by acceleration score.");
+    }
+    if (sort === "peak_window_composite") {
+      lines.push("Recent form: ranked by peak-window composite.");
+    }
+    if (sort === "rating_current" && !phaseGroup && !positionGroup) {
+      lines.push("Sorted by Current (recent rolling form, form-capped).");
+    }
+    if (sort === "rating_overall" && !phaseGroup && !positionGroup) {
+      lines.push("Sorted by Career overall (display rating, form-capped).");
+    }
+    if (sort === "overall_score" && !phaseGroup && !positionGroup) {
+      lines.push(
+        "Sorted by pipeline overall_score (raw composite — use header Cur/Ovl for display ratings).",
+      );
+    }
+    return lines;
+  }, [isBowling, sort, phaseGroup, positionGroup]);
+
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div className="app-page page-stack">
-      {/* ── Page Header ──────────────────────────────────────── */}
-      <div className="page-header sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <Trophy size={24} className="text-gold shrink-0" />
-          <div>
-            <h1 className="page-title">Leaderboards</h1>
-            {sort && sort !== "overall_score" && (
-              <p className="text-xs text-text-muted mt-0.5">
-                Sorted by {SORT_LABEL_MAP[sort] ?? sort}
-              </p>
-            )}
+    <div className="app-page page-stack rankings-page">
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {sortAnnouncement}
+      </span>
+      {/* ── Unified toolbar (dataset, role, sort, table tools) ─ */}
+      <section className="section-card overflow-hidden rounded-2xl border border-surface-elevated shadow-sm">
+        <div className="section-card-body space-y-5 p-4 md:p-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="flex shrink-0 items-start gap-3">
+                <Trophy
+                  size={28}
+                  className="text-gold mt-0.5 shrink-0"
+                  aria-hidden
+                />
+                <div>
+                  <h1 className="page-title">Leaderboards</h1>
+                  {(sort !== (DEFAULT_SORT[role] ?? "rating_current") ||
+                    order !== "desc") && (
+                    <p className="mt-1 text-xs text-text-muted">
+                      Sorted by {SORT_LABEL_MAP[sort] ?? sort}
+                      {order === "asc" ? " (ascending)" : ""}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <div
+                className="inline-flex rounded-xl border border-surface-elevated bg-surface-elevated/25 p-1 dark:bg-surface-elevated/40"
+                role="group"
+                aria-label="Batting or bowling leaderboard"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleRoleToggle("bat")}
+                  className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ease-out-quart ${
+                    !isBowling
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-text-secondary hover:text-text-primary"
+                  }`}
+                  aria-pressed={!isBowling}
+                >
+                  Batting
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRoleToggle("bowl")}
+                  className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ease-out-quart ${
+                    isBowling
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-text-secondary hover:text-text-primary"
+                  }`}
+                  aria-pressed={isBowling}
+                >
+                  Bowling
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* Role toggle */}
-        <div className="flex items-center gap-1 p-1 bg-surface rounded-lg">
-          <button
-            onClick={() => handleRoleToggle("bat")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              !isBowling
-                ? "bg-primary text-white shadow-sm"
-                : "text-text-secondary hover:text-text-primary hover:bg-surface-elevated/50"
-            }`}
-            aria-pressed={!isBowling}
-          >
-            Batting
-          </button>
-          <button
-            onClick={() => handleRoleToggle("bowl")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              isBowling
-                ? "bg-primary text-white shadow-sm"
-                : "text-text-secondary hover:text-text-primary hover:bg-surface-elevated/50"
-            }`}
-            aria-pressed={isBowling}
-          >
-            Bowling
-          </button>
-        </div>
-      </div>
+          <div className="border-t border-surface-elevated/70 pt-5">
+            <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
+              <div className="flex min-w-0 flex-1 flex-col gap-4 lg:flex-row lg:items-end lg:gap-6">
+                <div className="flex w-full flex-col gap-1.5 sm:max-w-[14rem]">
+                  <label
+                    htmlFor="rk-quick-view"
+                    className="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+                  >
+                    Quick view
+                  </label>
+                  <select
+                    id="rk-quick-view"
+                    value={activePresetKey}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      const preset = presetOptionsForRole.find(
+                        (p) => `${p.id}-${p.role}` === v,
+                      );
+                      if (preset) handlePreset(preset);
+                    }}
+                    className="filter-select h-10 w-full text-sm"
+                  >
+                    <option value="">Custom sort…</option>
+                    {presetOptionsForRole.map((p) => (
+                      <option key={`${p.id}-${p.role}`} value={`${p.id}-${p.role}`}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-      {/* ── Sort pills + filter toggle ───────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        {/* Quick sort pills */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-text-muted mr-1">Sort by:</span>
-          {getQuickSortOptions(isBowling).map((opt) => (
-            <button
-              key={opt.key}
-              onClick={() => handleSort(opt.key)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1 ${
-                sort === opt.key
-                  ? "bg-primary/10 text-primary ring-1 ring-primary/30"
-                  : "bg-surface-elevated/50 text-text-secondary hover:text-text-primary hover:bg-surface-elevated"
-              }`}
-              title={`Sort by ${opt.label}`}
-            >
-              {opt.shortLabel ?? opt.label}
-              {sort === opt.key &&
-                (order === "desc" ? (
-                  <ArrowDown size={10} />
-                ) : (
-                  <ArrowUp size={10} />
-                ))}
-            </button>
-          ))}
-          {availableMetricColumns.length > 0 && (
-            <select
-              value={sortSelectValue}
-              onChange={(e) => {
-                if (!e.target.value) return;
-                handleSort(e.target.value);
-              }}
-              className="filter-select h-8 min-w-[11rem] text-xs"
-              aria-label="Sort by another metric"
-            >
-              <option value="">More metrics…</option>
-              {availableMetricColumns.map((metric) => (
-                <option key={metric.key} value={metric.key}>
-                  {metric.label}
-                </option>
-              ))}
-            </select>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                    Sort metric
+                  </div>
+                  <div className="rounded-2xl border border-surface-elevated/80 bg-surface-elevated/15 p-2 dark:bg-surface-elevated/25">
+                    <div className="flex flex-wrap gap-1.5">
+                      {getQuickSortOptions(isBowling).map((opt) => (
+                        <MetricTooltip
+                          key={opt.key}
+                          metric={opt.key}
+                          mode="wrap"
+                          className="inline-flex"
+                          delay={200}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleSort(opt.key)}
+                            className={`flex min-h-10 items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors duration-200 ease-out-quart sm:min-h-0 sm:py-1.5 ${
+                              sort === opt.key
+                                ? "bg-primary text-white shadow-sm"
+                                : "bg-surface/90 text-text-secondary hover:bg-surface-elevated hover:text-text-primary dark:bg-surface/50"
+                            }`}
+                            title={`Sort by ${opt.label}`}
+                          >
+                            {opt.shortLabel ?? opt.label}
+                            {sort === opt.key &&
+                              (order === "desc" ? (
+                                <ArrowDown size={11} strokeWidth={2.5} />
+                              ) : (
+                                <ArrowUp size={11} strokeWidth={2.5} />
+                              ))}
+                          </button>
+                        </MetricTooltip>
+                      ))}
+                      {availableMetricColumns.length > 0 && (
+                        <select
+                          value={sortSelectValue}
+                          onChange={(e) => {
+                            if (!e.target.value) return;
+                            handleSort(e.target.value);
+                          }}
+                          className="filter-select h-9 min-w-[10.5rem] flex-1 text-xs sm:flex-none"
+                          aria-label="Sort by another metric"
+                        >
+                          <option value="">More metrics…</option>
+                          {availableMetricColumns.map((metric) => (
+                            <option key={metric.key} value={metric.key}>
+                              {metric.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 border-t border-surface-elevated/50 pt-4 2xl:border-t-0 2xl:pt-0">
+                <div
+                  className="flex items-center gap-0.5 rounded-xl border border-surface-elevated/80 bg-surface-elevated/15 p-1 dark:bg-surface-elevated/25"
+                  role="group"
+                  aria-label="Table density"
+                >
+                  {(["compact", "default", "expanded"] as const).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => handleDensityChange(d)}
+                      className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors duration-200 ease-out-quart ${
+                        density === d
+                          ? "bg-primary text-white shadow-sm"
+                          : "text-text-secondary hover:text-text-primary"
+                      }`}
+                      title={
+                        d === "compact"
+                          ? "Compact rows"
+                          : d === "expanded"
+                            ? "Expanded rows"
+                            : "Default row height"
+                      }
+                    >
+                      {d === "compact"
+                        ? "Compact"
+                        : d === "expanded"
+                          ? "Expanded"
+                          : "Default"}
+                    </button>
+                  ))}
+                </div>
+
+                {availableMetricColumns.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowColumns(!showColumns)}
+                    className={`btn-secondary btn-sm relative shrink-0 ${
+                      showColumns ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
+                    }`}
+                    aria-expanded={showColumns}
+                  >
+                    <Columns3 size={14} />
+                    <span>Columns</span>
+                    {selectedMetricKeys.length > 0 && (
+                      <span className="absolute -right-1 -top-1 flex min-w-[1.125rem] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+                        {selectedMetricKeys.length}
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`btn-secondary btn-sm relative shrink-0 ${
+                    showFilters ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
+                  }`}
+                  aria-expanded={showFilters}
+                >
+                  <SlidersHorizontal size={14} />
+                  <span>Filters</span>
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {microInsights.length > 0 && (
+            <p className="border-t border-surface-elevated/60 pt-4 text-xs leading-relaxed text-text-secondary">
+              {microInsights.join(" · ")}
+            </p>
           )}
         </div>
-
-        <div className="flex items-center gap-2">
-          {availableMetricColumns.length > 0 && (
-            <button
-              onClick={() => setShowColumns(!showColumns)}
-              className={`btn-secondary btn-sm relative shrink-0 ${
-                showColumns ? "ring-2 ring-primary" : ""
-              }`}
-              aria-expanded={showColumns}
-            >
-              <Columns3 size={14} />
-              <span>Columns</span>
-              {selectedMetricKeys.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-primary px-1 text-white text-[10px] font-bold flex items-center justify-center">
-                  {selectedMetricKeys.length}
-                </span>
-              )}
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`btn-secondary btn-sm relative shrink-0 ${
-              showFilters ? "ring-2 ring-primary" : ""
-            }`}
-            aria-expanded={showFilters}
-          >
-            <SlidersHorizontal size={14} />
-            <span>Filters</span>
-            {activeFilterCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
+      </section>
 
       {/* ── Column Picker ────────────────────────────────────── */}
       {showColumns && availableMetricColumns.length > 0 && (
@@ -1354,33 +2192,63 @@ export default function RankingsPage() {
               </select>
             </div>
 
-            {/* Position (batting) / Phase (bowling) */}
+            {/* Position + modal slot (batting) / Phase (bowling) */}
             {!isBowling ? (
-              <div>
-                <label
-                  htmlFor="rk-filter-position"
-                  className="text-xs text-text-muted uppercase tracking-wider mb-1 block"
-                >
-                  Position
-                </label>
-                <select
-                  id="rk-filter-position"
-                  value={positionGroup ?? ""}
-                  onChange={(e) =>
-                    updateParams({
-                      position_group: e.target.value || null,
-                      page: "1",
-                    })
-                  }
-                  className="filter-select w-full"
-                >
-                  <option value="">All Positions</option>
-                  <option value="top_order">Top Order</option>
-                  <option value="middle_order">Middle Order</option>
-                  <option value="lower_order">Lower Order</option>
-                  <option value="opener">Opener</option>
-                </select>
-              </div>
+              <>
+                <div>
+                  <label
+                    htmlFor="rk-filter-position"
+                    className="text-xs text-text-muted uppercase tracking-wider mb-1 block"
+                  >
+                    Position
+                  </label>
+                  <select
+                    id="rk-filter-position"
+                    value={positionGroup ?? ""}
+                    onChange={(e) =>
+                      updateParams({
+                        position_group: e.target.value || null,
+                        page: "1",
+                      })
+                    }
+                    className="filter-select w-full"
+                  >
+                    <option value="">All Positions</option>
+                    <option value="top_order">Top Order</option>
+                    <option value="middle_order">Middle Order</option>
+                    <option value="lower_order">Lower Order</option>
+                    <option value="opener">Opener</option>
+                  </select>
+                </div>
+                <div>
+                  <label
+                    htmlFor="rk-filter-modal-slot"
+                    className="text-xs text-text-muted uppercase tracking-wider mb-1 block"
+                  >
+                    Modal slot
+                  </label>
+                  <select
+                    id="rk-filter-modal-slot"
+                    value={modalSlot != null ? String(modalSlot) : ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateParams({
+                        modal_slot: v ? v : null,
+                        page: "1",
+                      });
+                    }}
+                    className="filter-select w-full"
+                    title="Filter by most common batting-order position (1–11) in the dataset"
+                  >
+                    <option value="">All slots</option>
+                    {Array.from({ length: 11 }, (_, i) => i + 1).map((n) => (
+                      <option key={n} value={String(n)}>
+                        #{n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
             ) : (
               <div>
                 <label
@@ -1407,6 +2275,37 @@ export default function RankingsPage() {
                 </select>
               </div>
             )}
+
+            {/* Active / retired (format-specific recency) */}
+            <div>
+              <label
+                htmlFor="rk-filter-activity"
+                className="text-xs text-text-muted uppercase tracking-wider mb-1 block"
+              >
+                Player pool
+              </label>
+              <select
+                id="rk-filter-activity"
+                value={activity}
+                onChange={(e) => {
+                  const val = e.target.value as "active" | "retired" | "all";
+                  updateParams({
+                    activity: val === "active" ? null : val,
+                    page: "1",
+                  });
+                }}
+                className="filter-select w-full"
+              >
+                <option value="active">Active only</option>
+                <option value="retired">Retired / inactive</option>
+                <option value="all">Everyone</option>
+              </select>
+              <p className="text-[10px] text-text-muted mt-1 leading-snug">
+                {isFranchiseFormat(format)
+                  ? "Active = at least one franchise match in the last 2 years."
+                  : "Active = at least one international T20 in the last year."}
+              </p>
+            </div>
 
             {/* Provisional */}
             <div>
@@ -1492,7 +2391,7 @@ export default function RankingsPage() {
       )}
 
       {/* ── Summary row ──────────────────────────────────────── */}
-      <div className="flex items-center justify-between text-sm text-text-secondary">
+      <div className="flex items-center justify-between text-sm text-text-secondary pt-2">
         <span>
           {isLoading ? (
             <span className="skeleton-text w-32 h-4 inline-block" />
@@ -1578,12 +2477,93 @@ export default function RankingsPage() {
 
       {/* ── Data Table ───────────────────────────────────────── */}
       {!isLoading && !error && players.length > 0 && (
-        <div className="card p-0 overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="card p-0 overflow-hidden pt-6">
+          <p className="sm:hidden px-4 pb-2 text-xs text-text-muted">
+            Swipe horizontally to see all columns.
+          </p>
+          <div className="overflow-x-auto overscroll-x-contain">
             <table className="sortable-table" role="grid">
               <thead>
                 <tr>
                   {columns.map((col) => {
+                    if (col.key === "overall") {
+                      const curActive = sort === "rating_current";
+                      const ovlActive = sort === "rating_overall";
+                      const ratingsSortActive = curActive || ovlActive;
+                      return (
+                        <th
+                          key={col.key}
+                          className={`text-center ${col.width ?? ""} ${
+                            col.hideOnMobile ? "hidden lg:table-cell" : ""
+                          }`}
+                          scope="col"
+                          aria-sort={
+                            ratingsSortActive
+                              ? order === "asc"
+                                ? "ascending"
+                                : "descending"
+                              : undefined
+                          }
+                        >
+                          <div className="flex flex-col items-center gap-0.5 px-0.5">
+                            <div className="flex items-center justify-center gap-0.5 flex-wrap">
+                              <button
+                                type="button"
+                                className={`inline-flex items-center gap-0.5 rounded px-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                                  curActive
+                                    ? "text-primary"
+                                    : "text-text-muted hover:text-text-primary"
+                                }`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSort("rating_current");
+                                }}
+                                title="Sort by Current (recent form)"
+                              >
+                                Cur
+                                {curActive &&
+                                  (order === "desc" ? (
+                                    <ArrowDown size={10} className="shrink-0" />
+                                  ) : (
+                                    <ArrowUp size={10} className="shrink-0" />
+                                  ))}
+                              </button>
+                              <span
+                                className="text-text-muted/40 text-[10px]"
+                                aria-hidden
+                              >
+                                /
+                              </span>
+                              <button
+                                type="button"
+                                className={`inline-flex items-center gap-0.5 rounded px-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                                  ovlActive
+                                    ? "text-primary"
+                                    : "text-text-muted hover:text-text-primary"
+                                }`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSort("rating_overall");
+                                }}
+                                title="Sort by Career overall (display rating)"
+                              >
+                                Ovl
+                                {ovlActive &&
+                                  (order === "desc" ? (
+                                    <ArrowDown size={10} className="shrink-0" />
+                                  ) : (
+                                    <ArrowUp size={10} className="shrink-0" />
+                                  ))}
+                              </button>
+                            </div>
+                            <span className="text-[9px] text-text-muted/70 normal-case font-normal hidden sm:block">
+                              ratings
+                            </span>
+                          </div>
+                        </th>
+                      );
+                    }
+
                     const isSortable = !!col.sortKey;
                     const isCurrentSort = col.sortKey && sort === col.sortKey;
                     const alignClass =
@@ -1617,22 +2597,53 @@ export default function RankingsPage() {
                             : undefined
                         }
                       >
-                        <span className="inline-flex items-center gap-1">
-                          {col.shortLabel ?? col.label}
-                          {isSortable && (
-                            <>
-                              {isCurrentSort ? (
-                                order === "desc" ? (
-                                  <ArrowDown size={10} />
-                                ) : (
-                                  <ArrowUp size={10} />
-                                )
-                              ) : (
-                                <ArrowUpDown size={10} className="opacity-30" />
+                        {col.metricKey ? (
+                          <span className="inline-flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1">
+                              {col.shortLabel ?? col.label}
+                              {isSortable && (
+                                <>
+                                  {isCurrentSort ? (
+                                    order === "desc" ? (
+                                      <ArrowDown size={10} />
+                                    ) : (
+                                      <ArrowUp size={10} />
+                                    )
+                                  ) : (
+                                    <ArrowUpDown size={10} className="opacity-30" />
+                                  )}
+                                </>
                               )}
-                            </>
-                          )}
-                        </span>
+                            </span>
+                            <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+                              <MetricTooltip
+                                metric={col.metricKey}
+                                mode="icon"
+                                iconSize={12}
+                                className="cursor-help text-text-muted hover:text-text-secondary"
+                              >
+                                <Info size={12} aria-hidden />
+                              </MetricTooltip>
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1">
+                            {col.shortLabel ?? col.label}
+                            {isSortable && (
+                              <>
+                                {isCurrentSort ? (
+                                  order === "desc" ? (
+                                    <ArrowDown size={10} />
+                                  ) : (
+                                    <ArrowUp size={10} />
+                                  )
+                                ) : (
+                                  <ArrowUpDown size={10} className="opacity-30" />
+                                )}
+                              </>
+                            )}
+                          </span>
+                        )}
                       </th>
                     );
                   })}
@@ -1642,13 +2653,20 @@ export default function RankingsPage() {
                 {players.map((player, index) => {
                   const rank = rankOffset + index + 1;
                   const isSelected = compareIds.has(player.id);
+                  const cellPaddingStyle =
+                    density === "compact"
+                      ? { paddingTop: 7, paddingBottom: 7 }
+                      : density === "expanded"
+                        ? { paddingTop: 18, paddingBottom: 18 }
+                        : { paddingTop: 12, paddingBottom: 12 };
 
                   return (
                     <tr
                       key={player.id}
-                      className={`transition-colors ${
-                        isSelected ? "bg-primary/5" : ""
-                      }`}
+                      onClick={() => setPreviewPlayerId(player.id)}
+                      className={`cursor-pointer transition-colors ${
+                        isSelected ? "bg-primary/5" : "hover:bg-surface-elevated/50"
+                      } ${previewPlayerId === player.id ? "bg-primary/10" : ""}`}
                     >
                       {columns.map((col) => {
                         const alignClass =
@@ -1664,6 +2682,7 @@ export default function RankingsPage() {
                             className={`${alignClass} ${col.width ?? ""} ${
                               col.hideOnMobile ? "hidden lg:table-cell" : ""
                             } ${col.key === "name" ? "sticky-col-first" : ""}`}
+                            style={cellPaddingStyle}
                           >
                             {col.render(player, rank)}
                           </td>
@@ -1692,6 +2711,15 @@ export default function RankingsPage() {
           perPageOptions={[10, 25, 50, 100]}
         />
       )}
+
+      {/* ── Right-side preview panel (Phase 2) ────────────────── */}
+      {previewPlayerId && (
+        <LeaderboardPreviewPanel
+          playerId={previewPlayerId}
+          isBowling={isBowling}
+          onClose={() => setPreviewPlayerId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1707,7 +2735,8 @@ interface QuickSortOption {
 function getQuickSortOptions(isBowling: boolean): QuickSortOption[] {
   if (isBowling) {
     return [
-      { key: "overall_score", label: "Overall", shortLabel: "Overall" },
+      { key: "rating_current", label: "Current", shortLabel: "Current" },
+      { key: "rating_overall", label: "Career overall", shortLabel: "Overall" },
       { key: "score_accuracy", label: "Accuracy", shortLabel: "ACC" },
       { key: "score_control", label: "Control", shortLabel: "CTL" },
       { key: "score_threat", label: "Threat", shortLabel: "THR" },
@@ -1717,7 +2746,8 @@ function getQuickSortOptions(isBowling: boolean): QuickSortOption[] {
     ];
   }
   return [
-    { key: "overall_score", label: "Overall", shortLabel: "Overall" },
+    { key: "rating_current", label: "Current", shortLabel: "Current" },
+    { key: "rating_overall", label: "Career overall", shortLabel: "Overall" },
     { key: "score_acceleration", label: "Acceleration", shortLabel: "ACL" },
     { key: "score_power", label: "Power", shortLabel: "POW" },
     { key: "score_control", label: "Control", shortLabel: "CTL" },

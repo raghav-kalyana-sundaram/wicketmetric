@@ -6,21 +6,22 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Dark mode palette (primary)
+        // Hex palette: opacity modifiers (/30, /80) must resolve in @apply — keep hex here;
+        // ambient tint comes from body gradients in globals.css (OKLCH).
         background: {
-          DEFAULT: "#06080C",
-          light: "#EEF1F5",
+          DEFAULT: "#0a0d12",
+          light: "#eef1f5",
         },
         surface: {
-          DEFAULT: "#0F141D",
-          elevated: "#1D2633",
-          light: "#F7F9FC",
+          DEFAULT: "#0f141d",
+          elevated: "#1d2633",
+          light: "#f7f9fc",
         },
         primary: {
-          DEFAULT: "#8AB4F8",
-          hover: "#78A6F0",
-          light: "#A9C7FA",
-          dark: "#5F8DE0",
+          DEFAULT: "#8ab4f8",
+          hover: "#78a6f0",
+          light: "#a9c7fa",
+          dark: "#5f8de0",
         },
         accent: {
           DEFAULT: "#10B981",
@@ -58,16 +59,16 @@ const config: Config = {
         // Text colours
         text: {
           primary: {
-            DEFAULT: "#E8EDF5",
+            DEFAULT: "#e8edf5",
             light: "#121926",
           },
           secondary: {
-            DEFAULT: "#A2AEBD",
-            light: "#4D5B70",
+            DEFAULT: "#b8c4d4",
+            light: "#4d5b70",
           },
           muted: {
-            DEFAULT: "#75859A",
-            light: "#7A889A",
+            DEFAULT: "#94a3b8",
+            light: "#7a889a",
           },
         },
 
@@ -91,15 +92,21 @@ const config: Config = {
 
       fontFamily: {
         sans: [
-          "Inter",
+          "Manrope",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
           "BlinkMacSystemFont",
           "Segoe UI",
-          "Roboto",
           "Helvetica Neue",
           "Arial",
+          "sans-serif",
+        ],
+        heading: [
+          "Bricolage Grotesque",
+          "Manrope",
+          "ui-sans-serif",
+          "system-ui",
           "sans-serif",
         ],
         mono: [
@@ -116,18 +123,23 @@ const config: Config = {
       },
 
       fontSize: {
-        // Typography scale from gui.md
-        h1: ["2rem", { lineHeight: "2.5rem", fontWeight: "700" }],
-        h2: ["1.5rem", { lineHeight: "2rem", fontWeight: "600" }],
-        h3: ["1.25rem", { lineHeight: "1.75rem", fontWeight: "600" }],
-        body: ["1rem", { lineHeight: "1.5rem", fontWeight: "400" }],
-        small: ["0.875rem", { lineHeight: "1.25rem", fontWeight: "500" }],
+        h1: ["clamp(1.75rem, 1.5rem + 1vw, 2.125rem)", { lineHeight: "1.2", fontWeight: "700", letterSpacing: "-0.02em" }],
+        h2: ["clamp(1.35rem, 1.2rem + 0.6vw, 1.5rem)", { lineHeight: "1.3", fontWeight: "600", letterSpacing: "-0.015em" }],
+        h3: ["1.25rem", { lineHeight: "1.4", fontWeight: "600", letterSpacing: "-0.01em" }],
+        body: ["1rem", { lineHeight: "1.55", fontWeight: "400" }],
+        small: ["0.875rem", { lineHeight: "1.35", fontWeight: "500" }],
+      },
+
+      transitionTimingFunction: {
+        "out-quart": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "out-quint": "cubic-bezier(0.22, 1, 0.36, 1)",
       },
 
       animation: {
-        "fade-in": "fadeIn 0.3s ease-out",
-        "slide-up": "slideUp 0.3s ease-out",
-        "slide-in-right": "slideInRight 0.3s ease-out",
+        "fade-in": "fadeIn 0.35s cubic-bezier(0.25, 1, 0.5, 1)",
+        "slide-up": "slideUp 0.4s cubic-bezier(0.25, 1, 0.5, 1)",
+        "slide-in-right": "slideInRight 0.35s cubic-bezier(0.25, 1, 0.5, 1)",
+        "content-enter": "contentEnter 0.5s cubic-bezier(0.25, 1, 0.5, 1) both",
         "pulse-score": "pulseScore 2s ease-in-out infinite",
         "spin-slow": "spin 3s linear infinite",
       },
@@ -138,12 +150,16 @@ const config: Config = {
           "100%": { opacity: "1" },
         },
         slideUp: {
-          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "0%": { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
         slideInRight: {
-          "0%": { opacity: "0", transform: "translateX(10px)" },
+          "0%": { opacity: "0", transform: "translateX(8px)" },
           "100%": { opacity: "1", transform: "translateX(0)" },
+        },
+        contentEnter: {
+          "0%": { opacity: "0", transform: "translateY(12px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
         },
         pulseScore: {
           "0%, 100%": { opacity: "1" },

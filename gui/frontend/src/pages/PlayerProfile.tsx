@@ -4,7 +4,7 @@
  * Route: /player/:id
  *
  * Surfaces everything known about a player (from gui.md § 6.3):
- *   - Identity header: name, country, archetype, overall grade, summary stats
+ *   - Identity header: name, recent team (latest match) + country, archetype, grade
  *   - Metric scores: 3 score bars with grades + radar chart
  *   - Advanced metrics: WAR, Clutch Index, Chase Master, Flat Track, etc.
  *   - Component breakdown: stacked bars showing sub-metric contributions
@@ -82,6 +82,7 @@ import {
   fmtSigned,
   fmtWAR,
   fmtDate,
+  primaryDisplayRating,
   fmtDateRange,
   fmtOvers,
   countryFlag,
@@ -416,6 +417,12 @@ function BatterProfileView({
   navigate,
 }: BatterProfileViewProps) {
   const flag = countryFlag(p.country);
+  const teamPrimary =
+    (p.recent_team || "").trim() || p.country || "";
+  const showAlsoCountry =
+    (p.recent_team || "").trim() &&
+    p.country &&
+    (p.recent_team || "").trim().toLowerCase() !== p.country.trim().toLowerCase();
 
   return (
     <>
@@ -430,7 +437,10 @@ function BatterProfileView({
                   {flag}
                 </span>
               )}
-              <span className="text-text-secondary text-lg">{p.country}</span>
+              <span className="text-text-secondary text-lg">{teamPrimary}</span>
+              {showAlsoCountry && (
+                <span className="text-text-muted text-sm">· {p.country}</span>
+              )}
             </div>
 
             <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -471,18 +481,33 @@ function BatterProfileView({
             </div>
           </div>
 
-          {/* Overall grade */}
+          {/* Current (simple) + career overall (spec) */}
           <div className="flex flex-col items-center gap-1 shrink-0">
             <span className="text-xs text-text-muted uppercase tracking-wider">
-              Overall
+              Current
             </span>
             <GradeBadge grade={p.overall_grade} size="xl" />
             <span
               className="text-2xl font-score font-bold tabular-nums mt-1"
-              style={{ color: scoreToColour(p.overall_score) }}
+              style={{
+                color: scoreToColour(primaryDisplayRating(p)),
+              }}
             >
-              {fmtScore(p.overall_score)}
+              {fmtScore(primaryDisplayRating(p))}
             </span>
+            {p.rating_overall != null && (
+              <div className="text-center mt-2 pt-2 border-t border-surface-elevated/80 w-full min-w-[7rem]">
+                <span className="text-[10px] text-text-muted uppercase tracking-wider block">
+                  Career overall
+                </span>
+                <span
+                  className="text-lg font-score tabular-nums font-semibold"
+                  style={{ color: scoreToColour(p.rating_overall) }}
+                >
+                  {fmtScore(p.rating_overall)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -560,13 +585,13 @@ function BatterProfileView({
               <tbody>
                 <PeakRow
                   label="Composite"
-                  current={p.overall_score}
+                  current={primaryDisplayRating(p)}
                   peak={p.peak_composite_batting}
                 />
                 {p.peak_window_composite != null && (
                   <PeakRow
                     label="Peak Window"
-                    current={p.overall_score}
+                    current={primaryDisplayRating(p)}
                     peak={p.peak_window_composite}
                   />
                 )}
@@ -907,6 +932,12 @@ function BowlerProfileView({
   navigate,
 }: BowlerProfileViewProps) {
   const flag = countryFlag(p.country);
+  const teamPrimary =
+    (p.recent_team || "").trim() || p.country || "";
+  const showAlsoCountry =
+    (p.recent_team || "").trim() &&
+    p.country &&
+    (p.recent_team || "").trim().toLowerCase() !== p.country.trim().toLowerCase();
 
   return (
     <>
@@ -921,7 +952,10 @@ function BowlerProfileView({
                   {flag}
                 </span>
               )}
-              <span className="text-text-secondary text-lg">{p.country}</span>
+              <span className="text-text-secondary text-lg">{teamPrimary}</span>
+              {showAlsoCountry && (
+                <span className="text-text-muted text-sm">· {p.country}</span>
+              )}
             </div>
 
             <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -966,15 +1000,30 @@ function BowlerProfileView({
 
           <div className="flex flex-col items-center gap-1 shrink-0">
             <span className="text-xs text-text-muted uppercase tracking-wider">
-              Overall
+              Current
             </span>
             <GradeBadge grade={p.overall_grade} size="xl" />
             <span
               className="text-2xl font-score font-bold tabular-nums mt-1"
-              style={{ color: scoreToColour(p.overall_score) }}
+              style={{
+                color: scoreToColour(primaryDisplayRating(p)),
+              }}
             >
-              {fmtScore(p.overall_score)}
+              {fmtScore(primaryDisplayRating(p))}
             </span>
+            {p.rating_overall != null && (
+              <div className="text-center mt-2 pt-2 border-t border-surface-elevated/80 w-full min-w-[7rem]">
+                <span className="text-[10px] text-text-muted uppercase tracking-wider block">
+                  Career overall
+                </span>
+                <span
+                  className="text-lg font-score tabular-nums font-semibold"
+                  style={{ color: scoreToColour(p.rating_overall) }}
+                >
+                  {fmtScore(p.rating_overall)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </section>

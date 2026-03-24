@@ -17,6 +17,9 @@
   }
 
   :root {
+    --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+    --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+
     /* 8-point rhythm */
     --space-1: 0.5rem; /* 8 */
     --space-2: 1rem; /* 16 */
@@ -36,8 +39,30 @@
   }
 
   body {
-    @apply bg-background text-text-primary font-sans;
+    @apply bg-background text-text-primary font-sans antialiased;
     min-height: 100vh;
+    text-rendering: optimizeLegibility;
+  }
+
+  :where(
+      a,
+      button,
+      input,
+      select,
+      textarea,
+      [role="button"],
+      [tabindex]:not([tabindex="-1"])
+    ):focus-visible {
+    @apply rounded-sm outline-2 outline-offset-2 outline-primary;
+  }
+
+  .dark body {
+    background-image: radial-gradient(
+      ellipse 120% 80% at 50% -20%,
+      oklch(0.22 0.04 264 / 0.35),
+      transparent 55%
+    );
+    background-attachment: fixed;
   }
 
   /* Respect reduced motion preference */
@@ -50,11 +75,22 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+
+    body {
+      background-image: none !important;
+      background-attachment: scroll !important;
+    }
   }
 
   /* ── Light mode overrides ─────────────────────────────────── */
   html:not(.dark) body {
     @apply bg-background-light text-text-primary-light;
+    background-image: radial-gradient(
+      ellipse 100% 60% at 100% 0%,
+      oklch(0.94 0.02 248 / 0.45),
+      transparent 50%
+    );
+    background-attachment: fixed;
   }
 
   /* Remap shared utility tokens so light mode stays readable */
@@ -91,11 +127,11 @@
   }
 
   html:not(.dark) .bg-background\/90 {
-    background-color: rgb(238 241 245 / 0.9);
+    background-color: rgb(238 241 245 / 0.92);
   }
 
   html:not(.dark) .bg-background\/80 {
-    background-color: rgb(238 241 245 / 0.8);
+    background-color: rgb(238 241 245 / 0.85);
   }
 
   html:not(.dark) .bg-surface {
@@ -247,13 +283,13 @@
 
   /* ── Typography defaults ──────────────────────────────────── */
   h1 {
-    @apply text-h1;
+    @apply text-h1 font-heading;
   }
   h2 {
-    @apply text-h2;
+    @apply text-h2 font-heading;
   }
   h3 {
-    @apply text-h3;
+    @apply text-h3 font-heading;
   }
 
   /* Monospace numbers for scores / stats */
@@ -267,7 +303,7 @@
 @layer components {
   /* ── Card ──────────────────────────────────────────────────── */
   .card {
-    @apply rounded-xl bg-surface p-4 shadow-card transition-shadow duration-200;
+    @apply rounded-xl bg-surface p-4 shadow-card transition-shadow duration-200 ease-out-quart;
   }
 
   .card:hover {
@@ -352,11 +388,13 @@
 
   /* ── Archetype badge ──────────────────────────────────────── */
   .archetype-badge {
-    @apply inline-flex items-center gap-1 rounded-full bg-surface-elevated px-3 py-1 text-xs font-medium text-text-secondary;
+    @apply inline-flex items-center gap-1 rounded-full border border-surface-elevated/80 bg-surface-elevated/60 px-3 py-1.5 text-xs font-medium text-text-secondary;
+    @apply transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary;
+    @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
   }
 
   html:not(.dark) .archetype-badge {
-    @apply bg-slate-100 text-slate-700;
+    @apply border-slate-200 bg-slate-100 text-slate-700;
   }
 
   /* ── Provisional badge ────────────────────────────────────── */
@@ -379,11 +417,11 @@
     @apply relative h-4 w-full overflow-hidden rounded-full;
     background: linear-gradient(
       to right,
-      #ef4444 0%,
-      #ef4444 25%,
+      #2563eb 0%,
+      #3b82f6 25%,
       #64748b 50%,
-      #22c55e 75%,
-      #22c55e 100%
+      #ea580c 75%,
+      #d97706 100%
     );
   }
 
@@ -457,9 +495,10 @@
 
   /* ── Buttons ──────────────────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium;
+    @apply transition-[color,background-color,border-color,transform,box-shadow] duration-200 ease-out-quart;
     @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
-    @apply disabled:cursor-not-allowed disabled:opacity-50;
+    @apply disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98];
   }
 
   .btn-primary {
@@ -497,6 +536,10 @@
     @apply py-6 md:py-8;
   }
 
+  .rankings-page {
+    max-width: min(100%, 1680px);
+  }
+
   .page-stack {
     @apply space-y-6 md:space-y-8;
   }
@@ -506,7 +549,7 @@
   }
 
   .page-title {
-    @apply text-h2 text-text-primary;
+    @apply font-heading text-h2 text-text-primary;
   }
 
   .page-subtitle {

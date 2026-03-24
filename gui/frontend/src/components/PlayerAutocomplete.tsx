@@ -60,6 +60,7 @@ import {
   fmtInt,
   fmtSR,
   fmtEcon,
+  primaryDisplayRating,
 } from "@/lib/format";
 import { scoreToColour } from "@/lib/colours";
 
@@ -418,7 +419,14 @@ export default function PlayerAutocomplete({
           {showIcon && (
             <Search size={iconSize} className="text-text-muted shrink-0" />
           )}
-          <span className="flex items-center gap-1.5 flex-1 min-w-0 truncate">
+          <span
+            className="flex items-center gap-1.5 flex-1 min-w-0 truncate"
+            title={
+              [(value.recent_team || "").trim(), value.country]
+                .filter(Boolean)
+                .join(" · ") || undefined
+            }
+          >
             <span className="font-medium text-text-primary truncate">
               {value.name}
             </span>
@@ -427,6 +435,9 @@ export default function PlayerAutocomplete({
                 {countryFlag(value.country)}
               </span>
             )}
+            <span className="text-xs text-text-muted truncate max-w-[6rem] hidden sm:inline">
+              {(value.recent_team || "").trim() || value.country}
+            </span>
           </span>
           <GradeBadge grade={value.grade_overall} size="xs" />
           {showClear && !disabled && (
@@ -695,6 +706,10 @@ function DefaultAutocompleteItem({
           </div>
 
           <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5">
+            <span className="truncate max-w-[9rem]" title={(player.recent_team || "").trim() || player.country}>
+              {(player.recent_team || "").trim() || player.country || "—"}
+            </span>
+            <span className="text-text-muted/40">·</span>
             {player.archetype ? (
               <span className="truncate">{player.archetype}</span>
             ) : (
@@ -750,14 +765,23 @@ function DefaultAutocompleteItem({
             )}
           </div>
 
-          {/* Overall score */}
+          {/* Headline score (current when API sends it) */}
           <span
             className="text-xs font-score tabular-nums w-7 text-right"
-            style={{ color: scoreToColour(player.overall_score) }}
+            title="Current rating when available; see Glossary"
+            style={{
+              color: scoreToColour(
+                primaryDisplayRating(player) ?? player.overall_score,
+              ),
+            }}
           >
-            {player.overall_score != null
-              ? Math.round(player.overall_score)
-              : "—"}
+            {(() => {
+              const v = primaryDisplayRating(player);
+              if (v != null) return Math.round(v);
+              return player.overall_score != null
+                ? Math.round(player.overall_score)
+                : "—";
+            })()}
           </span>
 
           {/* Grade badge */}

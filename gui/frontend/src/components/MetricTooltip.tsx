@@ -43,7 +43,18 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { Link } from "react-router-dom";
 import { Info } from "lucide-react";
+
+/** localStorage key for "WAR tooltip seen" (Phase 2: first-use tooltip). */
+const WAR_FIRST_USE_STORAGE_KEY = "cricket_metrics_war_tooltip_seen";
+
+const WAR_METRIC_KEYS = new Set([
+  "war_batting",
+  "war_bowling",
+  "war_batting_rate",
+  "war_bowling_rate",
+]);
 
 // ── Metric definitions ───────────────────────────────────────────
 // Pre-built explanations for all key metrics in the system.
@@ -175,7 +186,7 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   war_batting: {
     name: "WAR (Batting)",
     description:
-      "Wins Above Replacement — estimates how many additional wins a batter provides compared to a replacement-level player over their career.",
+      "Wins Above Replacement — estimates how many additional wins a batter provides compared to a replacement-level player over their career. Built from run value, context adjustments (venue, era, opposition), and a replacement-level baseline.",
     interpretation:
       "Higher is better. A WAR of 3+ over a career is excellent. WAR accounts for innings count, so longevity matters.",
     range: "0+",
@@ -186,7 +197,7 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   war_bowling: {
     name: "WAR (Bowling)",
     description:
-      "Wins Above Replacement for bowling — estimates additional wins provided compared to a replacement-level bowler.",
+      "Wins Above Replacement for bowling — estimates additional wins provided compared to a replacement-level bowler. Built from wicket and run-restriction value, context adjustments, and a replacement-level baseline.",
     interpretation:
       "Higher is better. Bowlers accumulate WAR through consistent wicket-taking and run restriction.",
     range: "0+",
@@ -314,6 +325,20 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     name: "Overall Score",
     description:
       "Weighted composite of all three dimension scores (e.g. Acceleration + Power + Control for batters). Includes a superstar bonus for players who excel across all dimensions.",
+    range: "0–100",
+    category: "general",
+  },
+  rating_current: {
+    name: "Current rating",
+    description:
+      "Recent performance from the latest rolling form composite, capped so it never exceeds the player’s historical peak on that form track. With fewer than ~10 innings/spells, it matches the career display rating until the sample is large enough.",
+    range: "0–100",
+    category: "general",
+  },
+  rating_overall: {
+    name: "Career overall (display)",
+    description:
+      "Career-style headline shown in expanded views: pipeline overall score capped by the maximum the player’s form composite has ever reached.",
     range: "0–100",
     category: "general",
   },
@@ -464,8 +489,17 @@ export default function MetricTooltip({
   const [resolvedPosition, setResolvedPosition] = useState<
     "above" | "below" | "left" | "right"
   >("above");
+  const [warFirstUseSeen, setWarFirstUseSeen] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      !!localStorage.getItem(WAR_FIRST_USE_STORAGE_KEY),
+  );
   const triggerRef = useRef<HTMLSpanElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isWarMetric = metric != null && WAR_METRIC_KEYS.has(metric);
+  const showWarFirstUseFooter =
+    isVisible && isWarMetric && !warFirstUseSeen;
 
   // Look up the metric definition
   const definition = metric ? METRIC_DEFINITIONS[metric] : undefined;
@@ -539,6 +573,14 @@ export default function MetricTooltip({
     setIsVisible(false);
   }, []);
 
+  const handleWarFirstUseAck = useCallback(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(WAR_FIRST_USE_STORAGE_KEY, "1");
+    }
+    setWarFirstUseSeen(true);
+    hide();
+  }, [hide]);
+
   // Hide on Escape key
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -577,7 +619,8 @@ export default function MetricTooltip({
   const tooltipElement = hasContent && isVisible && (
     <span
       className={[
-        "absolute z-50 pointer-events-none rounded-lg px-3 py-2.5",
+        "absolute z-50 rounded-lg px-3 py-2.5",
+        showWarFirstUseFooter ? "pointer-events-auto" : "pointer-events-none",
         "bg-surface-elevated text-text-primary shadow-lg",
         "border border-surface-elevated/80",
         "text-xs leading-relaxed font-normal",
@@ -628,6 +671,27 @@ export default function MetricTooltip({
               <span>{tooltipLow}</span>
             </span>
           )}
+        </span>
+      )}
+
+      {/* WAR first-use footer (Phase 2) */}
+      {showWarFirstUseFooter && (
+        <span className="block mt-2 pt-2 border-t border-surface-elevated/80 flex items-center gap-2 flex-wrap">
+          <span className="text-text-muted text-[11px]">First time here?</span>
+          <Link
+            to="/glossary#advanced"
+            className="text-primary hover:text-primary-hover text-[11px] font-medium"
+            onClick={handleWarFirstUseAck}
+          >
+            Glossary
+          </Link>
+          <button
+            type="button"
+            onClick={handleWarFirstUseAck}
+            className="text-[11px] font-medium px-2 py-0.5 rounded bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+          >
+            Got it
+          </button>
         </span>
       )}
 
