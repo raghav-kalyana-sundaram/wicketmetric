@@ -47,9 +47,9 @@ import { Link } from "react-router-dom";
 import { Info } from "lucide-react";
 
 /** localStorage key for "WAR tooltip seen" (Phase 2: first-use tooltip). */
-const WAR_FIRST_USE_STORAGE_KEY = "cricket_metrics_war_tooltip_seen";
+export const WAR_FIRST_USE_STORAGE_KEY = "cricket_metrics_war_tooltip_seen";
 
-const WAR_METRIC_KEYS = new Set([
+export const WAR_METRIC_KEYS = new Set([
   "war_batting",
   "war_bowling",
   "war_batting_rate",
@@ -74,6 +74,12 @@ export interface MetricDefinition {
   lowMeaning?: string;
   /** The category this metric belongs to. */
   category?: "batting" | "bowling" | "advanced" | "context" | "general";
+  /** Text after the acronym in column header mini-cards, e.g. "Wins Above Replacement". */
+  headerSubtitle?: string;
+  /** 1–2 sentences: what a strong value looks like (header tooltip body). */
+  goodGuide?: string;
+  /** One-line simplified calculation / logic (muted footer). */
+  calculationLine?: string;
 }
 
 export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
@@ -97,6 +103,11 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
       "Higher is better. Elite batters consistently score faster than the match par rate.",
     range: "0–100",
     category: "batting",
+    headerSubtitle: "Acceleration",
+    goodGuide:
+      "Higher is better. Top accelerators shift gears quickly—especially in the death—and routinely score above par for the match situation.",
+    calculationLine:
+      "Combines strike rate vs par, SR progression through the innings, death-over impact, and high-impact innings frequency (0–100 scale).",
   },
   power: {
     name: "Power",
@@ -113,8 +124,15 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     name: "Power",
     description:
       "Quantifies boundary-hitting ability. Combines boundary %, six rate, boundaries vs par, peak SR, and burst scoring.",
+    interpretation:
+      "Higher is better. Power hitters (roughly 80+) clear the rope often and score in large chunks; low scores usually mean rotation-first batters.",
     range: "0–100",
     category: "batting",
+    headerSubtitle: "Power",
+    goodGuide:
+      "Higher is better. Look for players who combine a high boundary and six rate with strong peak scoring bursts versus par.",
+    calculationLine:
+      "Boundary percentage, six rate, boundaries vs expected, peak strike-rate bursts, and burst scoring consistency (0–100 scale).",
   },
   control: {
     name: "Control (Batting)",
@@ -131,8 +149,15 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     name: "Control",
     description:
       "Measures innings management: dot ball avoidance, rotation, runs contribution, average, and dismissal quality.",
+    interpretation:
+      "Higher is better. High-control batters (roughly 80+) avoid getting stuck, rotate well, and tend to fall to good balls rather than loose shots.",
     range: "0–100",
     category: "batting",
+    headerSubtitle: "Control",
+    goodGuide:
+      "Higher is better. Strong values mean low dot-ball drag, reliable rotation, useful average, and dismissals that look like execution errors less often.",
+    calculationLine:
+      "Dot ball rate, strike rotation, runs contribution, batting average, and dismissal quality vs loose shots (0–100 scale).",
   },
 
   // ── Core bowling metrics ─────────────────────────────────────
@@ -151,8 +176,15 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     name: "Accuracy",
     description:
       "Measures scoring restriction: economy vs par, dot ball %, and boundary prevention.",
+    interpretation:
+      "Higher is better. Accurate bowlers keep economy below par for the phase and build pressure with dots.",
     range: "0–100",
     category: "bowling",
+    headerSubtitle: "Accuracy",
+    goodGuide:
+      "Higher is better. Strong values mean economy under par, healthy dot-ball share, and fewer boundary leaks.",
+    calculationLine:
+      "Economy vs expected, dot ball percentage, and boundary suppression vs par (0–100 scale).",
   },
   control_bowl: {
     name: "Control (Bowling)",
@@ -162,6 +194,11 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
       "Higher is better. Controlled bowlers execute their plans consistently across different phases.",
     range: "0–100",
     category: "bowling",
+    headerSubtitle: "Control (Bowling)",
+    goodGuide:
+      "Higher is better. Look for disciplined lengths, low extras, and plans that hold up across powerplay, middle, and death.",
+    calculationLine:
+      "Length consistency, wide/no-ball rate, and phase-specific execution vs par (0–100 scale).",
   },
   threat: {
     name: "Threat",
@@ -178,8 +215,15 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     name: "Threat",
     description:
       "Wicket-taking ability: strike rate, wicket quality (bowled/LBW %), top-order scalps, and pressure sequences.",
+    interpretation:
+      "Higher is better. Threatening bowlers strike regularly, take quality wickets, and dent top orders.",
     range: "0–100",
     category: "bowling",
+    headerSubtitle: "Threat",
+    goodGuide:
+      "Higher is better. Elite threats combine a strong strike rate with bowled/LBW-heavy wickets and big-moment breakthroughs.",
+    calculationLine:
+      "Strike rate, wicket quality, top-order impact, and pressure-over sequences (0–100 scale).",
   },
 
   // ── Advanced metrics ─────────────────────────────────────────
@@ -193,6 +237,11 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     highMeaning: "Significantly better than replacement level",
     lowMeaning: "Close to or below replacement level",
     category: "advanced",
+    headerSubtitle: "Wins Above Replacement",
+    goodGuide:
+      "Higher is better. Career WAR around 3+ is excellent for batters; negative values sit below a replacement-level baseline.",
+    calculationLine:
+      "Batting run value vs a replacement-level batter, adjusted for venue, era, and opposition strength.",
   },
   war_bowling: {
     name: "WAR (Bowling)",
@@ -202,19 +251,37 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
       "Higher is better. Bowlers accumulate WAR through consistent wicket-taking and run restriction.",
     range: "0+",
     category: "advanced",
+    headerSubtitle: "Wins Above Replacement",
+    goodGuide:
+      "Higher is better. Elite careers add several wins above what an average domestic-standard bowler would produce in the same contexts.",
+    calculationLine:
+      "Wickets and economy vs par vs replacement-level bowling, with context adjustments.",
   },
   war_batting_rate: {
     name: "WAR Rate (Batting)",
     description:
       "WAR per 50 innings — normalises WAR by sample size to allow comparison between players with different career lengths.",
+    interpretation:
+      "Higher is better. Compares players fairly when one has many more innings than another.",
     range: "0+",
     category: "advanced",
+    headerSubtitle: "Wins Above Replacement (per 50 innings)",
+    goodGuide:
+      "Higher is better. Use it to spot high-impact batters with shorter samples versus steady accumulators with long careers.",
+    calculationLine:
+      "Batting WAR expressed per 50 innings so sample size does not dominate the ranking.",
   },
   war_bowling_rate: {
     name: "WAR Rate (Bowling)",
     description: "WAR per 50 spells — normalises bowling WAR by sample size.",
+    interpretation:
+      "Higher is better. Normalises bowling WAR so you can compare different career lengths.",
     range: "0+",
     category: "advanced",
+    headerSubtitle: "Wins Above Replacement (per 50 spells)",
+    goodGuide:
+      "Higher is better. Strong rates mean outsized win contribution per spell even before career volume stacks up.",
+    calculationLine: "Bowling WAR scaled to a 50-spell equivalent.",
   },
   clutch_index: {
     name: "Pressure Score",
@@ -289,6 +356,171 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     category: "advanced",
   },
 
+  clutch_sr_delta: {
+    name: "Pressure strike-rate delta",
+    description:
+      "How much a batter’s strike rate moves in high-pressure situations compared to their usual baseline.",
+    interpretation:
+      "Positive is better: the batter speeds up when it matters. Strongly negative values suggest pressure slows their scoring.",
+    range: "Varies (SR points vs baseline)",
+    category: "advanced",
+    headerSubtitle: "SR change under pressure",
+    goodGuide:
+      "Look for positive deltas — the batter attacks when the game tightens — versus large negatives where tempo drops in big moments.",
+    calculationLine: "Pressure-phase strike rate minus baseline strike rate, aggregated across qualifying innings.",
+  },
+  chase_master_full: {
+    name: "Chase Master+",
+    description:
+      "Extended chase index: volume and outcomes in second-innings chases beyond the core Chase Master score.",
+    interpretation:
+      "Higher is better — rewards batters who are often in chases and lift their game when batting second to a target.",
+    range: "0–15+",
+    category: "advanced",
+    headerSubtitle: "Extended chase impact",
+    goodGuide:
+      "Prefer players with high readings who repeatedly help finish chases, not one-off outliers.",
+    calculationLine: "Builds on chase average, strike rate vs baseline when chasing, and contributions to successful chases.",
+  },
+  avg_balls_to_par: {
+    name: "Balls to par",
+    description:
+      "Average balls needed to reach a modelled par contribution for the match situation — lower usually means quicker impact.",
+    interpretation:
+      "Lower is generally better: reaching par in fewer balls implies efficient scoring versus expectation.",
+    range: "Context-dependent",
+    category: "advanced",
+    headerSubtitle: "Efficiency vs expected",
+    goodGuide:
+      "Lower numbers mean you reach par output for the phase and match state in fewer deliveries.",
+    calculationLine: "Balls faced to reach expected run contribution for situation and opposition.",
+  },
+  avg_dominance: {
+    name: "Average matchup edge (batting)",
+    description:
+      "Career-average 0–100 score for how often the batter has controlled ball-by-ball contests against bowlers faced.",
+    interpretation:
+      "Above 50 means the batter usually wins matchups on average; below 50 tilts toward bowlers.",
+    range: "0–100",
+    category: "advanced",
+    headerSubtitle: "Matchup control (bat)",
+    goodGuide:
+      "Mid-50s+ suggests you generally get the better of the bowlers you’ve faced; mid-40s often means they edge you.",
+    calculationLine: "Mean of matchup-win scores from SR vs expectation, dismissals, and pressure sequences.",
+  },
+  pct_dominant: {
+    name: "% dominant innings",
+    description:
+      "Share of innings where the batter posted a clearly dominant matchup profile versus bowlers faced.",
+    interpretation:
+      "Higher is better — more innings where you controlled matchups rather than only surviving.",
+    range: "0–100%",
+    category: "advanced",
+    headerSubtitle: "Share of dominant innings",
+    goodGuide:
+      "Elite batters show a high share of innings where they decisively won matchup battles, not just one big score.",
+    calculationLine: "Fraction of innings classified as dominant under the batting matchup model.",
+  },
+  matchup_consistency: {
+    name: "Matchup consistency",
+    description:
+      "How stable matchup performance is from innings to innings — less volatility implies more dependable outcomes.",
+    interpretation:
+      "Higher often means steadier matchup control; very low can indicate feast-or-famine.",
+    range: "0–100",
+    category: "advanced",
+    headerSubtitle: "Innings-to-innings stability",
+    goodGuide:
+      "High scores mean your matchup edge doesn’t swing wildly between games — useful when picking reliable finishers or anchors.",
+    calculationLine: "Inverse volatility of inning-level matchup edge scores.",
+  },
+  peak_composite_batting: {
+    name: "Peak batting rating",
+    description:
+      "Best sustained composite batting score from the player’s career — a ceiling snapshot, not a longevity measure.",
+    interpretation: "Higher is better — reflects how good your best stretch was on the model scale.",
+    range: "0–100",
+    category: "advanced",
+    headerSubtitle: "Career peak composite",
+    goodGuide:
+      "Use to compare ceilings: two players with similar career ratings can differ sharply on how high their peak window reached.",
+    calculationLine: "Maximum (or near-maximum) of rolling composite batting score over a qualifying window.",
+  },
+  peak_window_composite: {
+    name: "Peak window composite",
+    description:
+      "Composite from the player’s strongest recent rolling window — how close current best form is to career peak.",
+    interpretation: "Higher is better — strong values mean recent peaks still rival all-time personal highs.",
+    range: "0–100",
+    category: "advanced",
+    headerSubtitle: "Recent peak window",
+    goodGuide:
+      "Compare with career peak: if this stays high, your best recent block is still near your historical ceiling.",
+    calculationLine: "Best composite over a sliding recent-innings window.",
+  },
+  avg_dominance_bowl: {
+    name: "Average matchup edge (bowling)",
+    description:
+      "Career-average 0–100 for how often the bowler has controlled contests against batters faced.",
+    interpretation:
+      "Above 50 means the bowler usually wins matchup battles on average; below 50 favours batters.",
+    range: "0–100",
+    category: "advanced",
+    headerSubtitle: "Matchup control (bowl)",
+    goodGuide:
+      "Mid-50s+ suggests you usually suppress the batters you’ve bowled to; mid-40s means they often get on top.",
+    calculationLine: "Mean of matchup scores from economy vs expectation, wickets, and pressure balls.",
+  },
+  pct_dominant_bowl: {
+    name: "% dominant spells",
+    description:
+      "Share of spells classified as matchup-dominant (bowler controlled most contest balls).",
+    interpretation: "Higher is better — more spells where you were the aggressor in head-to-head balls.",
+    range: "0–100%",
+    category: "advanced",
+    headerSubtitle: "Share of dominant spells",
+    goodGuide:
+      "High values mean a large fraction of your spells are ones where you repeatedly win the ball-by-ball battle.",
+    calculationLine: "Fraction of spells flagged dominant by the bowling matchup model.",
+  },
+  bowled_lbw_pct: {
+    name: "Bowled / LBW share",
+    description:
+      "Percentage of wickets taken bowled or LBW — often signals attacking the stumps and beating the bat.",
+    interpretation:
+      "Higher shares often correlate with hitting the stumps (context- and role-dependent).",
+    range: "0–100%",
+    category: "bowling",
+    headerSubtitle: "Stump-jarring wickets",
+    goodGuide:
+      "For similar wicket counts, a higher bowled/LBW share often means more wickets from beating the bat than from catches.",
+    calculationLine: "(Bowled + LBW dismissals) ÷ total wickets.",
+  },
+  career_dot_pct: {
+    name: "Career dot-ball %",
+    description:
+      "Percentage of balls bowled that were dots — higher generally means more pressure built without runs.",
+    interpretation: "Higher is usually better for bowlers; compare within era and role.",
+    range: "Roughly 25–55%",
+    category: "bowling",
+    headerSubtitle: "Dot-ball rate",
+    goodGuide:
+      "Among peers with similar economy, a higher dot share usually means you’re squeezing batters harder between boundaries.",
+    calculationLine: "Career dots ÷ balls bowled.",
+  },
+  peak_composite_bowling: {
+    name: "Peak bowling rating",
+    description:
+      "Best sustained composite bowling score from the player’s career — a ceiling snapshot.",
+    interpretation: "Higher is better — reflects how good your best stretch was, not volume alone.",
+    range: "0–100",
+    category: "advanced",
+    headerSubtitle: "Career peak composite",
+    goodGuide:
+      "Use to compare how devastating a bowler’s peak window was versus others, independent of career length.",
+    calculationLine: "Maximum (or near-maximum) of rolling composite bowling score over a qualifying window.",
+  },
+
   // ── Context adjustments ──────────────────────────────────────
   sr_vs_par: {
     name: "SR vs Par",
@@ -353,28 +585,51 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     name: "Career Strike Rate",
     description:
       "Runs scored per 100 balls faced across all T20I innings. A basic counting stat — the composite scores provide a more nuanced view.",
+    interpretation:
+      "Higher usually means more aggressive scoring; pair with average and role (opener vs finisher).",
     range: "80–200+",
     category: "general",
+    headerSubtitle: "Strike rate",
+    goodGuide:
+      "Openers often run 130–150+ in T20; finishers can be higher with smaller samples. Context (era, format) matters.",
+    calculationLine: "(Runs ÷ balls faced) × 100 across qualifying innings.",
   },
   career_avg: {
     name: "Career Average",
     description:
       "Runs per dismissal across all T20I innings. Higher is better, but in T20s a high average with a low SR can indicate overly cautious batting.",
+    interpretation:
+      "Higher is better for run volume per out, but a high average with a low strike rate can mean too few risks.",
     range: "10–60+",
     category: "general",
+    headerSubtitle: "Batting average",
+    goodGuide:
+      "28+ at a healthy SR is strong in T20; very high average with sluggish SR often signals anchor-style trade-offs.",
+    calculationLine: "Total runs ÷ dismissals in the dataset.",
   },
   career_economy: {
     name: "Career Economy",
     description:
       "Runs conceded per over across all T20I spells. Lower is better.",
+    interpretation: "Lower is better — fewer runs per six balls on average.",
     range: "4–12+",
     category: "general",
+    headerSubtitle: "Economy rate",
+    goodGuide:
+      "Under ~7.5 in high-scoring leagues is often strong; death specialists may accept higher economy for wickets.",
+    calculationLine: "Runs conceded ÷ overs bowled.",
   },
   innings_count: {
     name: "Innings",
     description:
       "Total number of batting innings played in T20Is. Used to determine provisional status and as a weighting factor in several metrics.",
+    interpretation: "More innings usually means more reliable ratings; low counts can be noisy or provisional.",
+    range: "1+",
     category: "general",
+    headerSubtitle: "Innings played",
+    goodGuide:
+      "Use alongside ratings: very few innings can make composites volatile until the sample grows.",
+    calculationLine: "Count of completed batting innings in the selected format and filters.",
   },
   is_provisional: {
     name: "Provisional Status",
@@ -420,6 +675,143 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     highMeaning: "Very similar statistical profile",
     lowMeaning: "Very different statistical profile",
     category: "general",
+  },
+
+  // ── Leaderboard column helpers (Rankings table headers) ────────
+  leaderboard_rank: {
+    name: "Rank",
+    description: "Position on the current leaderboard page after filters and sort order.",
+    interpretation: "Updates when you change sort, filters, or pagination — it is not a career award ranking by itself.",
+    category: "general",
+    headerSubtitle: "Leaderboard position",
+    goodGuide:
+      "Shows where this row sits on this view only; use filters to compare apples-to-apples cohorts.",
+    calculationLine: "Index in the sorted result set for the current page.",
+  },
+  leaderboard_player: {
+    name: "Player",
+    description: "Player name for the row. Provisional markers indicate smaller sample sizes.",
+    category: "general",
+    headerSubtitle: "Player identity",
+    goodGuide: "Click the row or chevron to open a fuller profile; provisional tags mean ratings are still stabilising.",
+    calculationLine: "Display name from the roster; sample flags come from innings/spell thresholds.",
+  },
+  leaderboard_team: {
+    name: "Team / country",
+    description: "Recent franchise or primary team label with country — space-efficient in dense tables.",
+    interpretation: "Abbreviation keeps columns narrow; hover or profile has full detail when available.",
+    category: "general",
+    headerSubtitle: "Squad hint",
+    goodGuide:
+      "Use as a quick geographic or franchise cue — not all leagues encode franchise the same way.",
+    calculationLine: "Derived from recent team string and country code.",
+  },
+  leaderboard_archetype: {
+    name: "Archetype",
+    description:
+      "Model-assigned playing style label (e.g. power hitter, anchor) summarising metric balance.",
+    category: "general",
+    headerSubtitle: "Style bucket",
+    goodGuide:
+      "Helpful for filtering similar profiles; edge cases can sit between two archetypes.",
+    calculationLine: "Cluster or rule label from composite score geometry and role priors.",
+  },
+  leaderboard_form_trend: {
+    name: "Form trend",
+    description:
+      "Direction of recent rolling composite scores from the form track (last several meaningful samples).",
+    interpretation:
+      "Up means the latest composites are higher than ~10 samples ago; down means lower; flat is within a small band. A dash means not enough rolling points yet.",
+    category: "general",
+    headerSubtitle: "Recent trajectory",
+    goodGuide:
+      "Needs enough recent form points (~10); sparse careers may show “insufficient” until data accumulates.",
+    calculationLine: "Compare latest composite to value ten form steps prior on the same track.",
+  },
+  leaderboard_compare: {
+    name: "Compare",
+    description: "Select up to four players, then use Compare to open a side-by-side stat view.",
+    category: "general",
+    headerSubtitle: "Selection",
+    goodGuide: "Tick boxes for any players you want in the comparison tray — row click still opens the preview panel.",
+    calculationLine: "Client-side selection only; does not change sort or filters.",
+  },
+  leaderboard_open_profile: {
+    name: "Profile",
+    description: "Shortcut to this player’s full analytics profile page.",
+    category: "general",
+    headerSubtitle: "Navigate",
+    goodGuide: "Opens the detailed breakdown: charts, logs, and matchup views where available.",
+    calculationLine: "Client route to the player ID.",
+  },
+  leaderboard_ratings_column: {
+    name: "Display ratings",
+    description:
+      "Current (Cur) is recent rolling-form composite (capped by your peak on that track). Overall (Ovl) is the career-style display rating capped by the best the form composite has ever reached.",
+    interpretation:
+      "Use Cur to spot who is hot now; use Ovl for the headline career number. Sort via the Cur / Ovl buttons in this header.",
+    category: "general",
+    headerSubtitle: "Cur vs Ovl",
+    goodGuide:
+      "Both are 0–100 style display scores with form caps — not raw pipeline sums.",
+    calculationLine: "See rating_current and rating_overall tooltips for full formulas.",
+  },
+  leaderboard_batting_innings: {
+    name: "Innings (batting)",
+    description: "Count of qualifying batting innings in the active dataset and format filters.",
+    category: "general",
+    headerSubtitle: "Innings",
+    goodGuide: "Higher counts stabilise ratings; min-innings filters trim low-sample players.",
+    calculationLine: "Number of batting innings included after format and activity filters.",
+  },
+  total_runs_batting: {
+    name: "Career runs",
+    description: "Total runs scored across those qualifying batting innings.",
+    interpretation: "Higher is more volume — read with strike rate and role.",
+    range: "0+",
+    category: "general",
+    headerSubtitle: "Runs",
+    goodGuide: "Big totals with strong SR matter more than the same runs at a crawl.",
+    calculationLine: "Sum of runs in counted innings.",
+  },
+  leaderboard_bowling_matches: {
+    name: "Matches / spells",
+    description: "Count of qualifying bowling spells (or appearances) under current filters.",
+    category: "general",
+    headerSubtitle: "Appearances",
+    goodGuide: "Same idea as batting innings: more spells make model scores less noisy.",
+    calculationLine: "Spell count after format and activity filters.",
+  },
+  bowling_career_wickets: {
+    name: "Wickets",
+    description: "Total wickets in qualifying spells — the same field as batting runs, presented for bowlers.",
+    interpretation: "Higher is more volume; pair with economy and strike rate.",
+    range: "0+",
+    category: "general",
+    headerSubtitle: "Wickets",
+    goodGuide: "Wicket mass with poor economy can mean high-risk plans; elite lines balance both.",
+    calculationLine: "Sum of dismissals credited in counted spells.",
+  },
+  leaderboard_bowling_economy: {
+    name: "Economy (leaderboard)",
+    description:
+      "Runs conceded per over — the column sorts by the same career economy field used in profiles.",
+    interpretation: "Lower is better; phase role (powerplay vs death) moves acceptable bands.",
+    range: "4–12+",
+    category: "general",
+    headerSubtitle: "Economy",
+    goodGuide: "Sub-8 in high-scoring contexts is often elite; compare peers in the same era bucket.",
+    calculationLine: "Runs given ÷ overs bowled, career aggregate.",
+  },
+  leaderboard_bowling_strike_rate: {
+    name: "Bowling strike rate",
+    description: "Balls bowled per wicket on average — lower means wickets come more often.",
+    interpretation: "Lower is better: fewer balls per dismissal.",
+    range: "roughly 12–40 balls/wkt",
+    category: "general",
+    headerSubtitle: "Strike rate",
+    goodGuide: "Match wicket-takers might sit in the teens; containing bowlers can be higher with good economy.",
+    calculationLine: "Balls bowled ÷ wickets in the dataset.",
   },
 };
 
@@ -621,8 +1013,8 @@ export default function MetricTooltip({
       className={[
         "absolute z-50 rounded-lg px-3 py-2.5",
         showWarFirstUseFooter ? "pointer-events-auto" : "pointer-events-none",
-        "bg-surface-elevated text-text-primary shadow-lg",
-        "border border-surface-elevated/80",
+        "border border-surface-elevated/80 bg-surface-elevated text-text-primary shadow-lg",
+        "dark:border-white/15 dark:bg-surface dark:shadow-xl dark:backdrop-blur-none",
         "text-xs leading-relaxed font-normal",
         "animate-fade-in",
         positionClasses[resolvedPosition],
@@ -632,7 +1024,7 @@ export default function MetricTooltip({
     >
       {/* Title */}
       {tooltipTitle && (
-        <span className="block font-semibold text-text-primary mb-1">
+        <span className="mb-1 block font-semibold text-text-primary dark:text-white">
           {tooltipTitle}
           {tooltipRange && (
             <span className="font-normal text-text-muted ml-1">
@@ -660,14 +1052,18 @@ export default function MetricTooltip({
       {(tooltipHigh || tooltipLow) && (
         <span className="block mt-1.5 space-y-0.5">
           {tooltipHigh && (
-            <span className="flex items-center gap-1 text-accent text-[10px]">
-              <span>▲</span>
+            <span className="flex items-center gap-1 text-[10px] text-text-muted">
+              <span className="text-text-secondary" aria-hidden>
+                ▲
+              </span>
               <span>{tooltipHigh}</span>
             </span>
           )}
           {tooltipLow && (
-            <span className="flex items-center gap-1 text-danger text-[10px]">
-              <span>▼</span>
+            <span className="flex items-center gap-1 text-[10px] text-text-muted">
+              <span className="text-text-secondary" aria-hidden>
+                ▼
+              </span>
               <span>{tooltipLow}</span>
             </span>
           )}
@@ -676,7 +1072,7 @@ export default function MetricTooltip({
 
       {/* WAR first-use footer (Phase 2) */}
       {showWarFirstUseFooter && (
-        <span className="block mt-2 pt-2 border-t border-surface-elevated/80 flex items-center gap-2 flex-wrap">
+        <span className="mt-2 flex flex-wrap items-center gap-2 border-t border-surface-elevated/80 pt-2 dark:border-white/10">
           <span className="text-text-muted text-[11px]">First time here?</span>
           <Link
             to="/glossary#advanced"
@@ -698,8 +1094,9 @@ export default function MetricTooltip({
       {/* Arrow */}
       <span
         className={[
-          "absolute w-2 h-2 rotate-45",
-          "bg-surface-elevated border-surface-elevated/80",
+          "absolute h-2 w-2 rotate-45",
+          "border-surface-elevated/80 bg-surface-elevated",
+          "dark:border-white/15 dark:bg-surface",
           arrowClasses[resolvedPosition],
         ].join(" ")}
         aria-hidden="true"

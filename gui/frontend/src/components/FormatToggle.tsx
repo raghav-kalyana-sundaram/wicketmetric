@@ -47,9 +47,9 @@ export default function FormatToggle({
     ? "min-h-10 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors duration-200 ease-out-quart whitespace-nowrap sm:min-h-0 sm:py-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     : "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 ease-out whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
   const segActive =
-    "bg-primary/18 text-primary shadow-sm ring-1 ring-primary/25 dark:text-primary-light";
+    "bg-slate-200/90 text-primary shadow-sm ring-1 ring-slate-300/80 dark:bg-surface dark:text-primary-light dark:ring-1 dark:ring-white/10";
   const segIdle =
-    "text-text-secondary hover:text-text-primary hover:bg-surface-elevated/45 dark:hover:bg-surface-elevated/55";
+    "text-text-secondary hover:text-text-primary hover:bg-surface-elevated/45 dark:hover:bg-[#101010]";
 
   const gBtn = (g: Gender, label: string) => {
     const active = gender === g;

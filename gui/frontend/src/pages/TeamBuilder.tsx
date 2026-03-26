@@ -23,9 +23,9 @@ import {
   useMemo,
   useEffect,
   useRef,
-  type ReactNode,
 } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import type { LucideIcon } from "lucide-react";
 import {
   Users,
   X,
@@ -42,6 +42,18 @@ import {
   Check,
   Info,
   Swords,
+  Copy,
+  Layers,
+  BarChart2,
+  Timer,
+  CircleDot,
+  Combine,
+  User,
+  Crosshair,
+  Sunrise,
+  RefreshCw,
+  Flame,
+  Anchor,
 } from "lucide-react";
 
 import {
@@ -56,8 +68,9 @@ import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import GradeBadge from "@/components/GradeBadge";
 import ScoreBar from "@/components/ScoreBar";
 import PlayerAvatar from "@/components/PlayerAvatar";
+import MetricTooltip from "@/components/MetricTooltip";
 import { countryFlag } from "@/lib/format";
-import { chartColour, scoreToColour } from "@/lib/colours";
+import { chartColour, chartColourAlpha, scoreToColour } from "@/lib/colours";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -68,20 +81,62 @@ const LOCALSTORAGE_KEY = "cricket-metrics-team-builder";
 type TeamDraft = {
   slots: (PlayerSummary | null)[];
   slotTypes: SlotTypeKey[];
+  /** Per-slot bowling phase override for composition (pp | middle | death | "") */
+  bowlingPhases: string[];
 };
 
 // ── Slot type constants ──────────────────────────────────────────
 
-const SLOT_TYPE_OPTIONS = [
-  { key: "opener", label: "Opener", icon: "BAT" },
-  { key: "top_order", label: "Top Order", icon: "BAT" },
-  { key: "middle_order", label: "Middle Order", icon: "BAT" },
-  { key: "finisher_wk", label: "Finisher / WK", icon: "WK" },
-  { key: "allrounder", label: "All-rounder", icon: "AR" },
-  { key: "bowler", label: "Bowler", icon: "BWL" },
-] as const;
+type SlotTypeKey =
+  | "opener"
+  | "top_order"
+  | "middle_order"
+  | "finisher_wk"
+  | "allrounder"
+  | "bowler";
 
-type SlotTypeKey = (typeof SLOT_TYPE_OPTIONS)[number]["key"];
+const SLOT_TYPE_META: Record<
+  SlotTypeKey,
+  { label: string; Icon: LucideIcon; iconAriaLabel: string }
+> = {
+  opener: { label: "Opener", Icon: Zap, iconAriaLabel: "Opener slot" },
+  top_order: {
+    label: "Top Order",
+    Icon: Layers,
+    iconAriaLabel: "Top order batter slot",
+  },
+  middle_order: {
+    label: "Middle Order",
+    Icon: BarChart2,
+    iconAriaLabel: "Middle order batter slot",
+  },
+  finisher_wk: {
+    label: "Finisher / WK",
+    Icon: Timer,
+    iconAriaLabel: "Finisher or wicket-keeper slot",
+  },
+  allrounder: {
+    label: "All-rounder",
+    Icon: Combine,
+    iconAriaLabel: "All-rounder slot",
+  },
+  bowler: {
+    label: "Bowler",
+    Icon: CircleDot,
+    iconAriaLabel: "Bowler slot",
+  },
+};
+
+const SLOT_TYPE_OPTIONS = (
+  [
+    "opener",
+    "top_order",
+    "middle_order",
+    "finisher_wk",
+    "allrounder",
+    "bowler",
+  ] as const satisfies readonly SlotTypeKey[]
+).map((key) => ({ key, ...SLOT_TYPE_META[key] }));
 
 const DEFAULT_SLOT_TYPES: SlotTypeKey[] = [
   "opener",
@@ -109,10 +164,45 @@ const SHORT_CODE_TO_TYPE: Record<string, SlotTypeKey> = Object.fromEntries(
   Object.entries(TYPE_SHORT_CODES).map(([k, v]) => [v, k as SlotTypeKey]),
 );
 
+function decodeBowlingPhaseCode(c: string): string {
+  if (c === "p") return "pp";
+  if (c === "m") return "middle";
+  if (c === "d") return "death";
+  return "";
+}
+
+function encodeBowlingPhaseTag(t: string): string {
+  if (t === "pp") return "p";
+  if (t === "middle") return "m";
+  if (t === "death") return "d";
+  return "0";
+}
+
+/** Sort bowlers PP → middle → death for “suggested order”. */
+function bowlerPhaseSortKey(p: PlayerSummary): number {
+  const g = (p.phase_group || "").toLowerCase();
+  if (g.includes("pp")) return 0;
+  if (g.includes("death")) return 2;
+  return 1;
+}
+
+function emptyBowlingPhases(): string[] {
+  return Array(MAX_PLAYERS).fill("");
+}
+
 function emptyCompareTeam(): TeamDraft {
   return {
     slots: Array(MAX_PLAYERS).fill(null) as (PlayerSummary | null)[],
     slotTypes: [...DEFAULT_SLOT_TYPES],
+    bowlingPhases: emptyBowlingPhases(),
+  };
+}
+
+function cloneTeamDraft(t: TeamDraft): TeamDraft {
+  return {
+    slots: [...t.slots],
+    slotTypes: [...t.slotTypes],
+    bowlingPhases: [...t.bowlingPhases],
   };
 }
 
@@ -139,20 +229,62 @@ function battingSlotOutOfPosition(
   return !allowed.includes(mp);
 }
 
+function archetypeIconMeta(
+  archetype: string | undefined,
+  role: PlayerSummary["role"],
+): { Icon: LucideIcon; ariaLabel: string } {
+  const raw = archetype?.trim() || (role === "bowl" ? "Bowler" : "Batter");
+  const a = raw.toLowerCase();
+
+  if (a.includes("death")) return { Icon: Crosshair, ariaLabel: raw };
+  if (a.includes("powerplay")) return { Icon: Sunrise, ariaLabel: raw };
+  if (a.includes("spin") || a.includes("spinner"))
+    return { Icon: RefreshCw, ariaLabel: raw };
+  if (a.includes("strike") || a.includes("enforcer"))
+    return { Icon: Zap, ariaLabel: raw };
+  if (a.includes("econom") || a.includes("restrict"))
+    return { Icon: Shield, ariaLabel: raw };
+  if (a.includes("all-round") || a.includes("all round"))
+    return { Icon: Combine, ariaLabel: raw };
+  if (a.includes("opener") || a.includes("explosive"))
+    return { Icon: Zap, ariaLabel: raw };
+  if (a.includes("anchor") || a.includes("accumul"))
+    return { Icon: Anchor, ariaLabel: raw };
+  if (a.includes("finish")) return { Icon: Flame, ariaLabel: raw };
+  if (a.includes("middle")) return { Icon: BarChart2, ariaLabel: raw };
+
+  if (role === "bowl") return { Icon: CircleDot, ariaLabel: raw };
+
+  return { Icon: User, ariaLabel: raw };
+}
+
+function outOfPositionTooltipText(player: PlayerSummary): string {
+  const mp = player.modal_position;
+  if (mp == null) return "";
+  return `Usually bats #${mp}; this slot is atypical for that role (you can keep them here).`;
+}
+
 // ── localStorage helpers ─────────────────────────────────────────
 
 interface SavedTeam {
   slots: (PlayerSummary | null)[];
   slotTypes?: SlotTypeKey[];
+  bowlingPhases?: string[];
   savedAt: number;
 }
 
 function saveTeamToStorage(
   slots: (PlayerSummary | null)[],
   slotTypes?: SlotTypeKey[],
+  bowlingPhases?: string[],
 ) {
   try {
-    const data: SavedTeam = { slots, slotTypes, savedAt: Date.now() };
+    const data: SavedTeam = {
+      slots,
+      slotTypes,
+      bowlingPhases,
+      savedAt: Date.now(),
+    };
     localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(data));
   } catch {
     // localStorage may be full or unavailable — silently ignore
@@ -175,7 +307,16 @@ function loadTeamFromStorage(): SavedTeam | null {
     for (let i = 0; i < Math.min(data.slots.length, MAX_PLAYERS); i++) {
       slots[i] = data.slots[i] ?? null;
     }
-    return { slots, slotTypes: data.slotTypes, savedAt: data.savedAt };
+    const bp = Array.isArray(data.bowlingPhases)
+      ? [...data.bowlingPhases]
+      : emptyBowlingPhases();
+    while (bp.length < MAX_PLAYERS) bp.push("");
+    return {
+      slots,
+      slotTypes: data.slotTypes,
+      bowlingPhases: bp.slice(0, MAX_PLAYERS),
+      savedAt: data.savedAt,
+    };
   } catch {
     return null;
   }
@@ -199,6 +340,28 @@ interface AutoFillStrategy {
 }
 
 const AUTO_FILL_STRATEGIES: AutoFillStrategy[] = [
+  {
+    key: "balanced",
+    label: "Balanced T20 XI",
+    shortLabel: "Balanced",
+    icon: <Layers size={14} />,
+    description:
+      "Shape-constrained XI with powerplay and death bowling diversity plus WAR",
+  },
+  {
+    key: "bat_heavy",
+    label: "Batting-heavy XI",
+    shortLabel: "Bat-heavy",
+    icon: <BarChart2 size={14} />,
+    description: "Five bowlers and six bat-first picks (WAR-ordered)",
+  },
+  {
+    key: "bowl_heavy",
+    label: "Bowling-heavy XI",
+    shortLabel: "Bowl-heavy",
+    icon: <Shield size={14} />,
+    description: "Six bowlers and five batters for low-scoring conditions",
+  },
   {
     key: "war",
     label: "Best XI by WAR",
@@ -241,11 +404,11 @@ interface RadarAxis {
 function TeamRadar({
   axes,
   size = 300,
-  accent = "#3B82F6",
+  accent = "#d4d4dc",
 }: {
   axes: RadarAxis[];
   size?: number;
-  /** Stroke/fill colour (hex). Defaults to primary blue. */
+  /** Stroke/fill colour (hex). Defaults to monochrome chrome. */
   accent?: string;
 }) {
   const center = size / 2;
@@ -375,54 +538,126 @@ function TeamRadar({
 interface PlayerSlotProps {
   index: number;
   slotLabel: string;
-  slotIcon: string;
   slotType: SlotTypeKey;
   player: PlayerSummary | null;
   onSelect: (player: PlayerSummary) => void;
   onRemove: () => void;
   excludeIds: string[];
   onLabelClick?: () => void;
+  bowlingPhaseTag?: string;
+  onBowlingPhaseChange?: (value: string) => void;
+  onDropOnSlot?: (fromIndex: number, toIndex: number) => void;
 }
 
 function PlayerSlot({
   index,
   slotLabel,
-  slotIcon,
   slotType,
   player,
   onSelect,
   onRemove,
   excludeIds,
   onLabelClick,
+  bowlingPhaseTag = "",
+  onBowlingPhaseChange,
+  onDropOnSlot,
 }: PlayerSlotProps) {
+  const SlotTypeIcon = SLOT_TYPE_META[slotType].Icon;
+  const slotTypeAria = SLOT_TYPE_META[slotType].iconAriaLabel;
+
   if (player) {
     const isBowler = player.role === "bowl";
     const flag = countryFlag(player.country);
     const oop = battingSlotOutOfPosition(player, slotType);
+    const archMeta = archetypeIconMeta(player.archetype, player.role);
+    const ArchIcon = archMeta.Icon;
+    const oopTip = outOfPositionTooltipText(player);
+
+    const showPhase =
+      (slotType === "bowler" || slotType === "allrounder") &&
+      !!onBowlingPhaseChange;
+    const ar = player.allrounder_class;
 
     return (
-      <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-elevated/50 hover:bg-surface-elevated/70 transition-colors group">
+      <div
+        className="flex items-center gap-3 p-3 rounded-lg bg-surface-elevated/50 hover:bg-surface-elevated/70 transition-colors group"
+        draggable={!!onDropOnSlot}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", String(index));
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const raw = e.dataTransfer.getData("text/plain");
+          const from = parseInt(raw, 10);
+          if (!Number.isNaN(from) && onDropOnSlot) onDropOnSlot(from, index);
+        }}
+      >
         {/* Slot number */}
-        <span className="w-6 h-6 flex items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-semibold shrink-0">
+        <span
+          className="flex h-6 w-6 shrink-0 cursor-grab items-center justify-center rounded-full bg-white/[0.08] text-xs font-semibold text-primary active:cursor-grabbing"
+          title="Drag to reorder"
+        >
           {index + 1}
         </span>
 
         {/* Player info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {flag && <span className="text-sm">{flag}</span>}
             <span className="text-sm font-medium text-text-primary truncate">
               {player.name}
             </span>
             <GradeBadge grade={player.grade_overall} size="xs" />
+            {ar === "genuine" && (
+              <span className="rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                AR
+              </span>
+            )}
+            {ar === "batting" && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">
+                Bat AR
+              </span>
+            )}
+            {ar === "bowling" && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-200 font-medium">
+                Bowl AR
+              </span>
+            )}
+            {oop && (
+              <MetricTooltip
+                title="Unusual slot"
+                content={oopTip}
+                helpCursor={false}
+                showInterpretation={false}
+                className="shrink-0 rounded p-0.5 text-amber-600 hover:bg-amber-500/15 dark:text-amber-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+              >
+                <AlertTriangle size={14} strokeWidth={2} aria-hidden />
+              </MetricTooltip>
+            )}
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <span className="text-xs text-text-muted truncate max-w-[10rem]">
               {(player.recent_team || "").trim() || player.country || "—"}
             </span>
             <span className="text-xs text-text-muted">·</span>
-            <span className="text-xs text-text-muted">
-              {player.archetype || (isBowler ? "Bowler" : "Batter")}
+            <span
+              className="inline-flex items-center gap-1 text-xs text-text-muted"
+              title={archMeta.ariaLabel}
+            >
+              <ArchIcon
+                size={12}
+                className="shrink-0 text-text-muted opacity-80"
+                aria-hidden
+              />
+              <span className="sr-only">{archMeta.ariaLabel}. </span>
+              <span>
+                {player.archetype || (isBowler ? "Bowler" : "Batter")}
+              </span>
             </span>
             <span className="text-xs text-text-muted">·</span>
             <span className="text-xs text-text-muted">
@@ -430,19 +665,38 @@ function PlayerSlot({
                 ? `${player.total_runs} wkts`
                 : `${player.total_runs} runs`}
             </span>
+            {player.phase_group && (
+              <>
+                <span className="text-xs text-text-muted">·</span>
+                <span className="text-[10px] uppercase tracking-wide text-text-muted">
+                  {player.phase_group.replace("_heavy", "").replace("_", " ")}
+                </span>
+              </>
+            )}
           </div>
-          {oop && (
-            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-              <AlertTriangle size={12} className="shrink-0" />
-              Usually bats #{player.modal_position}; this slot is atypical (you
-              can keep them here).
-            </p>
+          {showPhase && (
+            <div className="mt-1.5">
+              <label className="sr-only" htmlFor={`bowl-phase-${index}`}>
+                Bowling phase tag
+              </label>
+              <select
+                id={`bowl-phase-${index}`}
+                value={bowlingPhaseTag}
+                onChange={(e) => onBowlingPhaseChange?.(e.target.value)}
+                className="filter-select text-[10px] py-0.5 max-w-[9rem]"
+              >
+                <option value="">Phase (use data)</option>
+                <option value="pp">Powerplay</option>
+                <option value="middle">Middle</option>
+                <option value="death">Death</option>
+              </select>
+            </div>
           )}
         </div>
 
         {/* Score bars (compact) */}
         <div className="hidden sm:flex items-center gap-3 shrink-0">
-          <div className="text-center">
+          <div className="text-center w-11">
             <span className="text-[10px] text-text-muted uppercase block">
               {player.score_1_label?.slice(0, 3) ?? "S1"}
             </span>
@@ -452,8 +706,15 @@ function PlayerSlot({
             >
               {player.score_1 != null ? Math.round(player.score_1) : "—"}
             </span>
+            <ScoreBar
+              value={player.score_1}
+              variant="minimal"
+              size="xs"
+              decorative
+              className="mt-0.5 w-full"
+            />
           </div>
-          <div className="text-center">
+          <div className="text-center w-11">
             <span className="text-[10px] text-text-muted uppercase block">
               {player.score_2_label?.slice(0, 3) ?? "S2"}
             </span>
@@ -463,8 +724,15 @@ function PlayerSlot({
             >
               {player.score_2 != null ? Math.round(player.score_2) : "—"}
             </span>
+            <ScoreBar
+              value={player.score_2}
+              variant="minimal"
+              size="xs"
+              decorative
+              className="mt-0.5 w-full"
+            />
           </div>
-          <div className="text-center">
+          <div className="text-center w-11">
             <span className="text-[10px] text-text-muted uppercase block">
               {player.score_3_label?.slice(0, 3) ?? "S3"}
             </span>
@@ -474,6 +742,13 @@ function PlayerSlot({
             >
               {player.score_3 != null ? Math.round(player.score_3) : "—"}
             </span>
+            <ScoreBar
+              value={player.score_3}
+              variant="minimal"
+              size="xs"
+              decorative
+              className="mt-0.5 w-full"
+            />
           </div>
         </div>
 
@@ -492,7 +767,7 @@ function PlayerSlot({
 
   // Empty slot — show autocomplete
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed border-surface-elevated hover:border-primary/30 transition-colors">
+    <div className="flex items-center gap-3 p-3 rounded-lg border border-border/35 bg-surface-elevated/25 dark:bg-surface-elevated/18 hover:border-primary/25 transition-colors">
       {/* Slot number */}
       <span className="w-6 h-6 flex items-center justify-center rounded-full bg-surface-elevated text-text-muted text-xs font-semibold shrink-0">
         {index + 1}
@@ -501,10 +776,12 @@ function PlayerSlot({
       {/* Slot label — click to cycle role */}
       <button
         onClick={onLabelClick}
-        className="text-xs text-text-muted hover:text-primary transition-colors cursor-pointer select-none shrink-0 w-20 text-left"
+        className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors cursor-pointer select-none shrink-0 min-w-[5.5rem] text-left"
         title="Click to change slot role"
+        aria-label={`${slotTypeAria}. Click to cycle role.`}
       >
-        {slotIcon} {slotLabel}
+        <SlotTypeIcon size={12} className="shrink-0 opacity-70" aria-hidden />
+        <span>{slotLabel}</span>
       </button>
 
       {/* Autocomplete */}
@@ -521,6 +798,18 @@ function PlayerSlot({
 }
 
 // ── Analysis panel component ─────────────────────────────────────
+
+const COMPOSITION_SUMMARY_BOOLS: { key: string; label: string }[] = [
+  { key: "sixth_bowler_ok", label: "Six viable bowling options" },
+  { key: "death_covered", label: "Death-phase bowling" },
+  { key: "pp_bowling_covered", label: "Powerplay bowling" },
+  { key: "pp_batting_covered", label: "Powerplay batting intent" },
+  { key: "finisher_depth_ok", label: "Finisher / late-order depth" },
+];
+
+function compositionBoolOk(v: boolean | string | undefined): boolean {
+  return v === true || v === "true";
+}
 
 interface AnalysisPanelProps {
   analysis: TeamAnalysis | undefined;
@@ -616,6 +905,124 @@ function AnalysisPanel({
       {/* Radar chart */}
       <TeamRadar axes={radarAxes} size={368} />
 
+      {/* Composition checklist + slot/role notes */}
+      {(analysis.composition_summary &&
+        Object.keys(analysis.composition_summary).length > 0) ||
+      (analysis.composition_critical && analysis.composition_critical.length > 0) ||
+      (analysis.composition_advisory && analysis.composition_advisory.length > 0) ||
+      (analysis.role_fit_warnings && analysis.role_fit_warnings.length > 0) ? (
+        <div className="space-y-3 rounded-xl border border-border/40 bg-surface-elevated/25 p-3">
+          <h3 className="text-xs text-text-muted uppercase tracking-wider">
+            Composition
+          </h3>
+          {analysis.composition_summary &&
+            Object.keys(analysis.composition_summary).length > 0 && (
+              <div className="space-y-2">
+                {typeof analysis.composition_summary.bowling_options_count ===
+                  "string" && (
+                  <p className="text-xs text-text-secondary">
+                    Bowling pool:{" "}
+                    <span className="font-medium text-text-primary tabular-nums">
+                      {analysis.composition_summary.bowling_options_count}
+                    </span>{" "}
+                    options counted for phase checks
+                  </p>
+                )}
+                <ul className="space-y-1">
+                  {COMPOSITION_SUMMARY_BOOLS.map(({ key, label }) => {
+                    const raw = analysis.composition_summary?.[key];
+                    const ok = compositionBoolOk(raw);
+                    return (
+                      <li
+                        key={key}
+                        className="flex items-center gap-2 text-xs text-text-secondary"
+                      >
+                        {ok ? (
+                          <Check
+                            size={14}
+                            className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                            aria-hidden
+                          />
+                        ) : (
+                          <X
+                            size={14}
+                            className="shrink-0 text-rose-500 dark:text-rose-400"
+                            aria-hidden
+                          />
+                        )}
+                        <span>{label}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          {analysis.composition_critical &&
+            analysis.composition_critical.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                  Must fix
+                </span>
+                <ul className="space-y-1">
+                  {analysis.composition_critical.map((c, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2 text-sm text-rose-800 dark:text-rose-200/95 bg-rose-500/10 rounded-lg px-2.5 py-1.5 border border-rose-500/20"
+                    >
+                      <AlertTriangle
+                        size={13}
+                        className="shrink-0 mt-0.5 text-rose-600 dark:text-rose-400"
+                      />
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          {analysis.composition_advisory &&
+            analysis.composition_advisory.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                  Advisory
+                </span>
+                <ul className="space-y-1">
+                  {analysis.composition_advisory.map((c, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/90 px-2.5 py-1.5 text-xs text-text-secondary dark:border-white/[0.1] dark:bg-surface dark:text-text-secondary"
+                    >
+                      <Info
+                        size={12}
+                        className="mt-0.5 shrink-0 text-text-muted"
+                      />
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          {analysis.role_fit_warnings &&
+            analysis.role_fit_warnings.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                  Slot fit
+                </span>
+                <ul className="space-y-1">
+                  {analysis.role_fit_warnings.map((c, i) => (
+                    <li
+                      key={i}
+                      className="text-xs text-text-secondary flex items-start gap-2"
+                    >
+                      <span className="text-text-muted shrink-0">·</span>
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+        </div>
+      ) : null}
+
       {/* Aggregate stats */}
       <button
         onClick={() => setShowDetails(!showDetails)}
@@ -663,8 +1070,11 @@ function AnalysisPanel({
           <div>
             <h3 className="text-xs text-text-muted uppercase tracking-wider mb-2">
               Bowling Strength (
-              {analysis.genuine_bowler_count ?? analysis.bowlers.length}{" "}
-              bowlers)
+              {analysis.genuine_bowler_count ?? analysis.bowlers.length} listed
+              {analysis.bowling_aggregate_count != null
+                ? ` · ${analysis.bowling_aggregate_count} in averages`
+                : ""}
+              )
             </h3>
             <div className="space-y-1.5">
               <ScoreBar
@@ -822,6 +1232,20 @@ function winnerIndices(
   return new Set([atExtreme[0].i]);
 }
 
+function deltaToneClass(delta: number, higherIsBetter: boolean): string {
+  if (delta === 0) return "text-text-muted";
+  const good = higherIsBetter ? delta > 0 : delta < 0;
+  const bad = higherIsBetter ? delta < 0 : delta > 0;
+  if (good) return "text-emerald-600 dark:text-emerald-400";
+  if (bad) return "text-rose-600 dark:text-rose-400";
+  return "text-text-muted";
+}
+
+function formatSignedDelta(delta: number, decimals: number): string {
+  const sign = delta > 0 ? "+" : "";
+  return `${sign}${delta.toFixed(decimals)}`;
+}
+
 interface CompareSlotCellProps {
   slotIndex: number;
   slotType: SlotTypeKey;
@@ -845,14 +1269,19 @@ function CompareSlotCell({
 }: CompareSlotCellProps) {
   const typeOption =
     SLOT_TYPE_OPTIONS.find((t) => t.key === slotType) ?? SLOT_TYPE_OPTIONS[0];
+  const TypeIcon = typeOption.Icon;
 
   if (player) {
     const isBowler = player.role === "bowl";
     const flag = countryFlag(player.country);
     const oop = battingSlotOutOfPosition(player, slotType);
+    const archMeta = archetypeIconMeta(player.archetype, player.role);
+    const ArchIcon = archMeta.Icon;
+    const oopTip = outOfPositionTooltipText(player);
+
     return (
       <div
-        className="rounded-xl border border-border/60 bg-surface-elevated/40 p-2.5 min-h-[5.5rem] flex flex-col gap-1 transition-shadow hover:shadow-sm"
+        className="rounded-xl border border-border/60 bg-surface-elevated/40 p-2.5 min-h-[6.25rem] flex flex-col gap-1 transition-shadow hover:shadow-sm"
         style={{ borderTopColor: accent, borderTopWidth: 3 }}
       >
         <div className="flex items-start justify-between gap-1">
@@ -869,40 +1298,78 @@ function CompareSlotCell({
           </button>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1 flex-wrap">
             <PlayerAvatar name={player.name} playerId={player.id} size="sm" />
             {flag && <span className="text-xs">{flag}</span>}
             <Link
               to={`/player/${player.id}`}
-              className="text-xs font-medium text-text-primary hover:text-primary truncate"
+              className="text-xs font-medium text-text-primary hover:text-primary truncate min-w-0"
             >
               {player.name}
             </Link>
             <GradeBadge grade={player.grade_overall} size="xs" />
+            {oop && (
+              <MetricTooltip
+                title="Unusual slot"
+                content={oopTip}
+                helpCursor={false}
+                showInterpretation={false}
+                className="shrink-0 rounded p-0.5 text-amber-600 hover:bg-amber-500/15 dark:text-amber-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+              >
+                <AlertTriangle size={11} strokeWidth={2} aria-hidden />
+              </MetricTooltip>
+            )}
           </div>
-          <p className="text-[10px] text-text-muted truncate mt-0.5">
-            {typeOption.icon} {typeOption.label} ·{" "}
-            {player.archetype || (isBowler ? "Bowler" : "Batter")}
+          <p className="text-[10px] text-text-muted truncate mt-0.5 inline-flex items-center gap-1 max-w-full">
+            <TypeIcon size={10} className="shrink-0 opacity-70" aria-hidden />
+            <span className="sr-only">{typeOption.iconAriaLabel}. </span>
+            <span className="truncate">
+              {typeOption.label} ·{" "}
+              <span className="inline-flex items-center gap-0.5">
+                <ArchIcon size={10} className="shrink-0 opacity-70" aria-hidden />
+                <span className="sr-only">{archMeta.ariaLabel}. </span>
+                {player.archetype || (isBowler ? "Bowler" : "Batter")}
+              </span>
+            </span>
           </p>
-          <div className="flex gap-2 mt-1.5 text-[10px] tabular-nums">
-            <span style={{ color: scoreToColour(player.score_1) }}>
-              {player.score_1 != null ? Math.round(player.score_1) : "—"}
-            </span>
-            <span className="text-text-muted">/</span>
-            <span style={{ color: scoreToColour(player.score_2) }}>
-              {player.score_2 != null ? Math.round(player.score_2) : "—"}
-            </span>
-            <span className="text-text-muted">/</span>
-            <span style={{ color: scoreToColour(player.score_3) }}>
-              {player.score_3 != null ? Math.round(player.score_3) : "—"}
-            </span>
+          <div className="flex gap-1.5 mt-1.5 justify-between text-[10px] tabular-nums">
+            <div className="flex flex-col items-center min-w-0 flex-1">
+              <span style={{ color: scoreToColour(player.score_1) }}>
+                {player.score_1 != null ? Math.round(player.score_1) : "—"}
+              </span>
+              <ScoreBar
+                value={player.score_1}
+                variant="minimal"
+                size="xs"
+                decorative
+                className="mt-0.5 w-full max-w-[2.25rem]"
+              />
+            </div>
+            <div className="flex flex-col items-center min-w-0 flex-1">
+              <span style={{ color: scoreToColour(player.score_2) }}>
+                {player.score_2 != null ? Math.round(player.score_2) : "—"}
+              </span>
+              <ScoreBar
+                value={player.score_2}
+                variant="minimal"
+                size="xs"
+                decorative
+                className="mt-0.5 w-full max-w-[2.25rem]"
+              />
+            </div>
+            <div className="flex flex-col items-center min-w-0 flex-1">
+              <span style={{ color: scoreToColour(player.score_3) }}>
+                {player.score_3 != null ? Math.round(player.score_3) : "—"}
+              </span>
+              <ScoreBar
+                value={player.score_3}
+                variant="minimal"
+                size="xs"
+                decorative
+                className="mt-0.5 w-full max-w-[2.25rem]"
+              />
+            </div>
           </div>
-          {oop && (
-            <p className="text-[9px] text-amber-700/90 dark:text-amber-200/85 mt-1 flex items-center gap-0.5">
-              <AlertTriangle size={9} className="shrink-0" />
-              Modal #{player.modal_position}
-            </p>
-          )}
         </div>
       </div>
     );
@@ -910,8 +1377,8 @@ function CompareSlotCell({
 
   return (
     <div
-      className="rounded-xl border border-dashed border-border/50 bg-surface-elevated/20 p-2 min-h-[5.5rem] flex flex-col gap-1"
-      style={{ borderTopColor: accent, borderTopWidth: 2, opacity: 0.95 }}
+      className="rounded-xl border border-border/40 bg-surface-elevated/22 dark:bg-surface-elevated/16 p-2 min-h-[5.5rem] flex flex-col gap-1"
+      style={{ borderTopColor: accent, borderTopWidth: 2 }}
     >
       <div className="flex items-center gap-1.5">
         <span className="text-[10px] font-semibold text-text-muted w-4">
@@ -920,9 +1387,11 @@ function CompareSlotCell({
         <button
           type="button"
           onClick={onTypeCycle}
-          className="text-[9px] text-text-muted hover:text-primary truncate text-left"
+          className="inline-flex items-center gap-1 text-[9px] text-text-muted hover:text-primary truncate text-left min-w-0"
+          aria-label={`${typeOption.iconAriaLabel}. Click to cycle role.`}
         >
-          {typeOption.icon} {typeOption.label}
+          <TypeIcon size={10} className="shrink-0 opacity-70" aria-hidden />
+          <span className="truncate">{typeOption.label}</span>
         </button>
       </div>
       <PlayerAutocomplete
@@ -983,28 +1452,68 @@ function MultiTeamComparisonPanel({
     true,
   );
 
-  const specRow = (
+  const specMetricRow = (
     label: string,
     winners: Set<number>,
-    cells: (ReactNode | null)[],
-  ) => (
-    <div
-      className="grid gap-x-3 gap-y-1 items-center py-2 border-b border-border/30 last:border-b-0 text-sm"
-      style={{ gridTemplateColumns: gridCols }}
-    >
-      <div className="text-xs text-text-muted pr-1">{label}</div>
-      {cells.map((cell, i) => (
-        <div
-          key={i}
-          className={`text-right font-score tabular-nums ${
-            winners.has(i) ? "font-semibold text-text-primary ring-1 ring-gold/30 rounded-md px-1 py-0.5 -my-0.5" : "text-text-secondary"
-          }`}
-        >
-          {cell ?? "—"}
-        </div>
-      ))}
-    </div>
-  );
+    rawValues: (number | null)[],
+    formatValue: (v: number) => string,
+    higherIsBetter: boolean,
+    deltaDecimals: number,
+  ) => {
+    const baseline = rawValues[0];
+    return (
+      <div
+        className="grid gap-x-3 gap-y-1 items-stretch py-2 border-b border-border/30 last:border-b-0 text-sm"
+        style={{ gridTemplateColumns: gridCols }}
+      >
+        <div className="text-xs text-text-muted pr-1 self-center">{label}</div>
+        {Array.from({ length: visibleTeams }, (_, i) => {
+          const raw = rawValues[i];
+          if (raw == null || Number.isNaN(raw)) {
+            return (
+              <div
+                key={i}
+                className="text-right text-text-secondary self-center font-score tabular-nums"
+              >
+                —
+              </div>
+            );
+          }
+          const delta =
+            i > 0 && baseline != null && !Number.isNaN(baseline)
+              ? raw - baseline
+              : null;
+          const win = winners.has(i);
+          return (
+            <div
+              key={i}
+              className={`text-right font-score tabular-nums flex flex-col items-end justify-center gap-0.5 rounded-md py-0.5 pr-0.5 ${
+                win ? "font-semibold text-text-primary" : "text-text-secondary"
+              }`}
+              style={
+                win
+                  ? {
+                      borderLeft: `3px solid ${chartColour(i)}`,
+                      paddingLeft: "0.35rem",
+                      backgroundColor: chartColourAlpha(i, 0.14),
+                    }
+                  : undefined
+              }
+            >
+              <span>{formatValue(raw)}</span>
+              {delta != null && (
+                <span
+                  className={`text-[10px] font-medium ${deltaToneClass(delta, higherIsBetter)}`}
+                >
+                  vs T1 {formatSignedDelta(delta, deltaDecimals)}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="card p-4 md:p-6 space-y-6 mt-4">
@@ -1014,8 +1523,9 @@ function MultiTeamComparisonPanel({
           Compare teams
         </h3>
         <p className="text-xs text-text-muted max-w-md">
-          Same batting-order row across columns. Highlights show the single best
-          value per metric when differences are clear.
+          Same batting-order row across columns. Winners use each team&apos;s
+          colour; other columns show delta vs Team 1 (green / red when higher is
+          better). Highlights apply when one team strictly wins (no ties).
         </p>
       </div>
 
@@ -1024,34 +1534,37 @@ function MultiTeamComparisonPanel({
           Summary
         </h4>
         <div className="rounded-xl border border-border/40 overflow-hidden bg-surface-elevated/20">
-          {specRow(
+          {specMetricRow(
             "Bat profile Σ",
             wBat,
-            analyses.slice(0, visibleTeams).map((a) => {
-              if (!a) return null;
-              const v = teamBatProfileSum(a);
-              return v != null ? v.toFixed(1) : null;
-            }),
+            analyses
+              .slice(0, visibleTeams)
+              .map((a) => (a ? teamBatProfileSum(a) : null)),
+            (v) => v.toFixed(1),
+            true,
+            1,
           )}
-          {specRow(
+          {specMetricRow(
             "Bowl profile Σ",
             wBowl,
-            analyses.slice(0, visibleTeams).map((a) => {
-              if (!a) return null;
-              const v = teamBowlProfileSum(a);
-              return v != null ? v.toFixed(1) : null;
-            }),
+            analyses
+              .slice(0, visibleTeams)
+              .map((a) => (a ? teamBowlProfileSum(a) : null)),
+            (v) => v.toFixed(1),
+            true,
+            1,
           )}
-          {specRow(
+          {specMetricRow(
             "Total WAR",
             wWar,
-            analyses.slice(0, visibleTeams).map((a) =>
-              a && teamTotalWarSum(a) != null
-                ? teamTotalWarSum(a)!.toFixed(1)
-                : null,
-            ),
+            analyses
+              .slice(0, visibleTeams)
+              .map((a) => (a ? teamTotalWarSum(a) : null)),
+            (v) => v.toFixed(1),
+            true,
+            1,
           )}
-          {specRow(
+          {specMetricRow(
             "Bat WAR",
             winnerIndices(
               analyses,
@@ -1059,13 +1572,14 @@ function MultiTeamComparisonPanel({
               (x) => x.total_war_batting,
               true,
             ),
-            analyses.slice(0, visibleTeams).map((a) =>
-              a?.total_war_batting != null
-                ? a.total_war_batting.toFixed(1)
-                : null,
-            ),
+            analyses
+              .slice(0, visibleTeams)
+              .map((a) => a?.total_war_batting ?? null),
+            (v) => v.toFixed(1),
+            true,
+            1,
           )}
-          {specRow(
+          {specMetricRow(
             "Bowl WAR",
             winnerIndices(
               analyses,
@@ -1073,20 +1587,22 @@ function MultiTeamComparisonPanel({
               (x) => x.total_war_bowling,
               true,
             ),
-            analyses.slice(0, visibleTeams).map((a) =>
-              a?.total_war_bowling != null
-                ? a.total_war_bowling.toFixed(1)
-                : null,
-            ),
+            analyses
+              .slice(0, visibleTeams)
+              .map((a) => a?.total_war_bowling ?? null),
+            (v) => v.toFixed(1),
+            true,
+            1,
           )}
-          {specRow(
+          {specMetricRow(
             "Avg clutch",
             wClutch,
-            analyses.slice(0, visibleTeams).map((a) =>
-              a?.avg_clutch != null ? a.avg_clutch.toFixed(1) : null,
-            ),
+            analyses.slice(0, visibleTeams).map((a) => a?.avg_clutch ?? null),
+            (v) => v.toFixed(1),
+            true,
+            1,
           )}
-          {specRow(
+          {specMetricRow(
             "Batters",
             winnerIndices(
               analyses,
@@ -1095,10 +1611,13 @@ function MultiTeamComparisonPanel({
               true,
             ),
             analyses.slice(0, visibleTeams).map((a) =>
-              a ? String(a.genuine_batter_count ?? a.batters.length) : null,
+              a ? (a.genuine_batter_count ?? a.batters.length) : null,
             ),
+            (v) => String(Math.round(v)),
+            true,
+            0,
           )}
-          {specRow(
+          {specMetricRow(
             "Bowlers",
             winnerIndices(
               analyses,
@@ -1107,8 +1626,11 @@ function MultiTeamComparisonPanel({
               true,
             ),
             analyses.slice(0, visibleTeams).map((a) =>
-              a ? String(a.genuine_bowler_count ?? a.bowlers.length) : null,
+              a ? (a.genuine_bowler_count ?? a.bowlers.length) : null,
             ),
+            (v) => String(Math.round(v)),
+            true,
+            0,
           )}
         </div>
       </div>
@@ -1166,6 +1688,80 @@ function MultiTeamComparisonPanel({
               </div>
             ) : null,
           )}
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-xs text-text-muted uppercase tracking-wider mb-2">
+          Composition
+        </h4>
+        <div
+          className="grid gap-3"
+          style={{
+            gridTemplateColumns: `repeat(${Math.min(visibleTeams, 4)}, minmax(0, 1fr))`,
+          }}
+        >
+          {analyses.slice(0, visibleTeams).map((a, i) => (
+            <div
+              key={i}
+              className="rounded-lg border border-border/40 bg-surface-elevated/30 p-3 text-xs space-y-2"
+            >
+              <div
+                className="font-medium flex items-center gap-2"
+                style={{ color: chartColour(i) }}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: chartColour(i) }}
+                />
+                Team {i + 1}
+              </div>
+              {!a ? (
+                <span className="text-text-muted">Add players…</span>
+              ) : (
+                <>
+                  {a.composition_critical &&
+                  a.composition_critical.length > 0 ? (
+                    <ul className="space-y-1">
+                      {a.composition_critical.map((c, ci) => (
+                        <li
+                          key={ci}
+                          className="text-rose-700 dark:text-rose-300 flex items-start gap-1"
+                        >
+                          <AlertTriangle
+                            size={11}
+                            className="shrink-0 mt-0.5 opacity-90"
+                          />
+                          <span>{c}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-emerald-600/90 dark:text-emerald-400/90">
+                      No critical gaps
+                    </span>
+                  )}
+                  {a.composition_advisory &&
+                    a.composition_advisory.length > 0 && (
+                      <ul className="space-y-1 pt-1 border-t border-border/30">
+                        {a.composition_advisory.map((c, ai) => (
+                          <li
+                            key={ai}
+                            className="flex items-start gap-1 text-text-secondary"
+                          >
+                            <Info
+                              size={10}
+                              className="shrink-0 mt-0.5 opacity-90"
+                            />
+                            <span>{c}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -1243,6 +1839,13 @@ export default function TeamBuilder() {
     return [...DEFAULT_SLOT_TYPES];
   });
 
+  const [bowlingPhases, setBowlingPhases] = useState<string[]>(() => {
+    const saved = loadTeamFromStorage();
+    if (saved?.bowlingPhases && saved.bowlingPhases.length === MAX_PLAYERS)
+      return saved.bowlingPhases;
+    return emptyBowlingPhases();
+  });
+
   const [copied, setCopied] = useState(false);
   const [autoFillStrategy, setAutoFillStrategy] = useState<string | null>(null);
   const [autoFillCountry, setAutoFillCountry] = useState<string | null>(null);
@@ -1261,11 +1864,15 @@ export default function TeamBuilder() {
   // ── Persist primary XI (team 1) ─────────────────────────────
   useEffect(() => {
     if (isCompareMode) {
-      saveTeamToStorage(compareTeams[0].slots, compareTeams[0].slotTypes);
+      saveTeamToStorage(
+        compareTeams[0].slots,
+        compareTeams[0].slotTypes,
+        compareTeams[0].bowlingPhases,
+      );
     } else {
-      saveTeamToStorage(slots, slotTypes);
+      saveTeamToStorage(slots, slotTypes, bowlingPhases);
     }
-  }, [isCompareMode, slots, slotTypes, compareTeams]);
+  }, [isCompareMode, slots, slotTypes, bowlingPhases, compareTeams]);
 
   // ── URL pre-fill: load from ?ids= on mount ────────────────
   // When the page loads with ?ids=id1,id2,..., fetch each player's
@@ -1286,6 +1893,15 @@ export default function TeamBuilder() {
       while (decoded.length < MAX_PLAYERS)
         decoded.push(DEFAULT_SLOT_TYPES[decoded.length] ?? "bowler");
       setSlotTypes(decoded.slice(0, MAX_PLAYERS));
+    }
+
+    const bpParam = searchParams.get("bp");
+    if (bpParam) {
+      const bp = [...bpParam].map((c) => decodeBowlingPhaseCode(c));
+      while (bp.length < MAX_PLAYERS) bp.push("");
+      setBowlingPhases(bp.slice(0, MAX_PLAYERS));
+    } else {
+      setBowlingPhases(emptyBowlingPhases());
     }
 
     const ids = idsParam
@@ -1380,6 +1996,15 @@ export default function TeamBuilder() {
     [slots, slotTypes],
   );
 
+  const selectedBowlingPhases = useMemo(
+    () =>
+      slots.reduce<string[]>((acc, s, i) => {
+        if (s !== null) acc.push(bowlingPhases[i] ?? "");
+        return acc;
+      }, []),
+    [slots, bowlingPhases],
+  );
+
   const playerCount = selectedIds.length;
 
   const allCompareSelectedIds = useMemo(() => {
@@ -1402,6 +2027,7 @@ export default function TeamBuilder() {
       return Array.from({ length: MAX_COMPARE_TEAMS }, () => ({
         ids: [] as string[],
         slotTypes: [] as string[],
+        bowlingPhases: [] as string[],
       }));
     }
     return compareTeams.map((t) => {
@@ -1412,7 +2038,11 @@ export default function TeamBuilder() {
         if (s !== null) acc.push(t.slotTypes[i]);
         return acc;
       }, []);
-      return { ids, slotTypes: st };
+      const bp = t.slots.reduce<string[]>((acc, s, i) => {
+        if (s !== null) acc.push(t.bowlingPhases[i] ?? "");
+        return acc;
+      }, []);
+      return { ids, slotTypes: st, bowlingPhases: bp };
     });
   }, [isCompareMode, compareTeams]);
 
@@ -1445,22 +2075,35 @@ export default function TeamBuilder() {
     [compareTeams],
   );
 
+  const team0BowlingPhasesAligned = useMemo(
+    () =>
+      compareTeams[0].slots.reduce<string[]>((acc, s, i) => {
+        if (s !== null) acc.push(compareTeams[0].bowlingPhases[i] ?? "");
+        return acc;
+      }, []),
+    [compareTeams],
+  );
+
   // ── Team analysis query (sidebar: team 1 in compare mode) ───
   const analysisIds = isCompareMode ? team0SelectedIds : selectedIds;
   const analysisSlotTypes = isCompareMode
     ? team0SlotTypesAligned
     : selectedSlotTypes;
+  const analysisBowlingPhases = isCompareMode
+    ? team0BowlingPhasesAligned
+    : selectedBowlingPhases;
 
   const { data: analysis, isLoading: analysisLoading } = useTeamAnalysis(
     analysisIds,
     analysisSlotTypes,
+    analysisBowlingPhases,
   );
 
   // ── Auto-fill query (only when triggered) ──────────────────
   const [autoFillEnabled, setAutoFillEnabled] = useState(false);
 
   const { data: autoFillData, isLoading: autoFillLoading } = useTeamAutoFill({
-    strategy: autoFillStrategy ?? "war",
+    strategy: autoFillStrategy ?? "balanced",
     country: autoFillCountry,
     exclude: [],
     enabled: autoFillEnabled && !!autoFillStrategy,
@@ -1470,36 +2113,46 @@ export default function TeamBuilder() {
   useEffect(() => {
     if (!autoFillData || !autoFillEnabled) return;
 
-    // Merge batters and bowlers into slots
-    const allPlayers: PlayerSummary[] = [
+    const pool: PlayerSummary[] = [
       ...autoFillData.batters,
       ...autoFillData.bowlers,
     ];
-
-    // Deduplicate by ID
-    const seen = new Set<string>();
-    const unique: PlayerSummary[] = [];
-    for (const p of allPlayers) {
-      if (!seen.has(p.id)) {
-        seen.add(p.id);
-        unique.push(p);
-      }
+    const byId = new Map<string, PlayerSummary>();
+    for (const p of pool) {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    }
+    const order =
+      autoFillData.player_ids_ordered && autoFillData.player_ids_ordered.length > 0
+        ? autoFillData.player_ids_ordered
+        : [...byId.keys()];
+    const ordered: PlayerSummary[] = [];
+    for (const id of order) {
+      const p = byId.get(id);
+      if (p) ordered.push(p);
     }
 
-    // Fill slots
     const newSlots: (PlayerSummary | null)[] = Array(MAX_PLAYERS).fill(null);
-    for (let i = 0; i < Math.min(unique.length, MAX_PLAYERS); i++) {
-      newSlots[i] = unique[i];
+    for (let i = 0; i < Math.min(ordered.length, MAX_PLAYERS); i++) {
+      newSlots[i] = ordered[i];
     }
+    const newSlotTypes = [...DEFAULT_SLOT_TYPES];
+    const newBp = emptyBowlingPhases();
 
     if (isCompareMode) {
       setCompareTeams((prev) => {
         const next = [...prev];
-        next[0] = { ...next[0], slots: newSlots };
+        next[0] = {
+          ...next[0],
+          slots: newSlots,
+          slotTypes: newSlotTypes,
+          bowlingPhases: newBp,
+        };
         return next;
       });
     } else {
       setSlots(newSlots);
+      setSlotTypes(newSlotTypes);
+      setBowlingPhases(newBp);
     }
     setAutoFillEnabled(false);
   }, [autoFillData, autoFillEnabled, isCompareMode]);
@@ -1526,26 +2179,28 @@ export default function TeamBuilder() {
       const next = Array.from({ length: MAX_COMPARE_TEAMS }, () =>
         emptyCompareTeam(),
       );
-      next[0] = { slots: [...slots], slotTypes: [...slotTypes] };
+      next[0] = {
+        slots: [...slots],
+        slotTypes: [...slotTypes],
+        bowlingPhases: [...bowlingPhases],
+      };
       return next;
     });
     setCompareTeamCount(2);
     setIsCompareMode(true);
-  }, [slots, slotTypes]);
+  }, [slots, slotTypes, bowlingPhases]);
 
   const handleExitCompareMode = useCallback(() => {
     setSlots(compareTeams[0].slots);
     setSlotTypes(compareTeams[0].slotTypes);
+    setBowlingPhases([...compareTeams[0].bowlingPhases]);
     setIsCompareMode(false);
   }, [compareTeams]);
 
   const handleAddComparePlayer = useCallback(
     (teamIdx: number, slotIdx: number, player: PlayerSummary) => {
       setCompareTeams((prev) => {
-        const next = prev.map((t) => ({
-          slots: [...t.slots],
-          slotTypes: [...t.slotTypes],
-        }));
+        const next = prev.map((t) => cloneTeamDraft(t));
         next[teamIdx].slots[slotIdx] = player;
         const isBowlingArchetype =
           player.role === "bowl" ||
@@ -1571,7 +2226,7 @@ export default function TeamBuilder() {
   const handleRemoveComparePlayer = useCallback(
     (teamIdx: number, slotIdx: number) => {
       setCompareTeams((prev) => {
-        const next = prev.map((t) => ({ ...t, slots: [...t.slots] }));
+        const next = prev.map((t) => cloneTeamDraft(t));
         next[teamIdx].slots[slotIdx] = null;
         return next;
       });
@@ -1587,13 +2242,18 @@ export default function TeamBuilder() {
     });
   }, []);
 
+  const handleDuplicateTeam1ToTeam2 = useCallback(() => {
+    setCompareTeams((prev) => {
+      const next = prev.map((t) => cloneTeamDraft(t));
+      next[1] = cloneTeamDraft(prev[0]);
+      return next;
+    });
+  }, []);
+
   const handleCompareSlotTypeCycle = useCallback(
     (teamIdx: number, slotIdx: number) => {
       setCompareTeams((prev) => {
-        const next = prev.map((t) => ({
-          ...t,
-          slotTypes: [...t.slotTypes],
-        }));
+        const next = prev.map((t) => cloneTeamDraft(t));
         const curIdx = SLOT_TYPE_OPTIONS.findIndex(
           (opt) => opt.key === next[teamIdx].slotTypes[slotIdx],
         );
@@ -1656,8 +2316,48 @@ export default function TeamBuilder() {
   const handleClearAll = useCallback(() => {
     setSlots(Array(MAX_PLAYERS).fill(null));
     setSlotTypes([...DEFAULT_SLOT_TYPES]);
+    setBowlingPhases(emptyBowlingPhases());
     clearTeamStorage();
   }, []);
+
+  const handleSwapSlots = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    setSlots((prev) => {
+      const n = [...prev];
+      [n[from], n[to]] = [n[to], n[from]];
+      return n;
+    });
+    setSlotTypes((prev) => {
+      const n = [...prev];
+      [n[from], n[to]] = [n[to], n[from]];
+      return n;
+    });
+    setBowlingPhases((prev) => {
+      const n = [...prev];
+      [n[from], n[to]] = [n[to], n[from]];
+      return n;
+    });
+  }, []);
+
+  const handleSuggestedOrder = useCallback(() => {
+    const pairs = slots
+      .map((s, i) => (s ? { s, i } : null))
+      .filter((x): x is { s: PlayerSummary; i: number } => x != null);
+    const batPart = pairs
+      .filter((x) => x.s.role === "bat")
+      .sort(
+        (a, b) => (a.s.modal_position ?? 99) - (b.s.modal_position ?? 99),
+      );
+    const bowlPart = pairs
+      .filter((x) => x.s.role === "bowl")
+      .sort((a, b) => bowlerPhaseSortKey(a.s) - bowlerPhaseSortKey(b.s));
+    const ordered = [...batPart, ...bowlPart].map((x) => x.s);
+    const next: (PlayerSummary | null)[] = Array(MAX_PLAYERS).fill(null);
+    for (let i = 0; i < ordered.length; i++) next[i] = ordered[i];
+    setSlots(next);
+    setSlotTypes([...DEFAULT_SLOT_TYPES]);
+    setBowlingPhases(emptyBowlingPhases());
+  }, [slots]);
 
   const handleAutoFill = useCallback(
     (strategy: string, country?: string | null) => {
@@ -1683,6 +2383,17 @@ export default function TeamBuilder() {
       "types",
       shareTypes.map((t) => TYPE_SHORT_CODES[t]).join(""),
     );
+    const shareBp = isCompareMode
+      ? compareTeams[0].bowlingPhases
+      : bowlingPhases;
+    if (shareBp.some((x) => x && x.length > 0)) {
+      url.searchParams.set(
+        "bp",
+        shareBp.map((t) => encodeBowlingPhaseTag(t || "")).join(""),
+      );
+    } else {
+      url.searchParams.delete("bp");
+    }
     const shareUrl = url.toString();
 
     if (navigator.clipboard) {
@@ -1691,7 +2402,7 @@ export default function TeamBuilder() {
         setTimeout(() => setCopied(false), 2000);
       });
     }
-  }, [isCompareMode, compareTeams, slots, slotTypes]);
+  }, [isCompareMode, compareTeams, slots, slotTypes, bowlingPhases]);
 
   const handleCompare = useCallback(() => {
     const src = isCompareMode ? compareTeams[0].slots : slots;
@@ -1736,7 +2447,7 @@ export default function TeamBuilder() {
 
       {/* URL loading indicator */}
       {urlLoading && (
-        <div className="flex items-center gap-2 rounded-lg bg-primary/10 p-3 text-sm text-primary animate-pulse">
+        <div className="flex animate-pulse items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.04] p-3 text-sm text-text-secondary">
           <span className="inline-block h-2 w-2 rounded-full bg-primary" />
           Loading team from shared URL…
         </div>
@@ -1769,7 +2480,7 @@ export default function TeamBuilder() {
                         onClick={() => setCompareTeamCount(n)}
                         className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
                           compareTeamCount === n
-                            ? "bg-primary text-white shadow-sm"
+                            ? "bg-primary text-white dark:text-background shadow-sm"
                             : "text-text-secondary hover:text-text-primary"
                         }`}
                       >
@@ -1780,7 +2491,7 @@ export default function TeamBuilder() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto pb-2 -mx-1 px-1">
+              <div className="overflow-x-auto overflow-y-auto max-h-[min(70vh,calc(100dvh-11rem))] rounded-xl border border-border/50 bg-surface-elevated/15 -mx-1 px-2 py-2 pb-3">
                 <div
                   className="grid gap-3 min-w-[min(100%,52rem)]"
                   style={{
@@ -1793,7 +2504,7 @@ export default function TeamBuilder() {
                     return (
                       <div key={ti} className="space-y-2 min-w-0">
                         <div
-                          className="sticky top-16 z-10 flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-surface/95 dark:bg-surface/90 backdrop-blur-md px-3 py-2.5 shadow-sm"
+                          className="sticky top-0 z-20 flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/95 dark:bg-background/92 backdrop-blur-md px-3 py-2.5 shadow-sm"
                           style={{
                             boxShadow: `inset 0 3px 0 0 ${chartColour(ti)}`,
                           }}
@@ -1809,16 +2520,30 @@ export default function TeamBuilder() {
                               {cnt}/{MAX_PLAYERS} players
                             </div>
                           </div>
-                          {cnt > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => handleClearCompareTeam(ti)}
-                              className="btn-ghost btn-sm text-xs text-danger shrink-0 p-1.5"
-                              title={`Clear team ${ti + 1}`}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          ) : null}
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            {ti === 0 && compareTeamCount >= 2 ? (
+                              <button
+                                type="button"
+                                onClick={handleDuplicateTeam1ToTeam2}
+                                className="btn-ghost btn-sm text-xs p-1.5 text-text-muted hover:text-primary"
+                                title="Duplicate squad to Team 2 (overwrites Team 2)"
+                                aria-label="Duplicate Team 1 squad to Team 2"
+                              >
+                                <Copy size={14} />
+                              </button>
+                            ) : null}
+                            {cnt > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleClearCompareTeam(ti)}
+                                className="btn-ghost btn-sm text-xs text-danger shrink-0 p-1.5"
+                                title={`Clear team ${ti + 1}`}
+                                aria-label={`Clear team ${ti + 1}`}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                         <div className="space-y-2">
                           {t.slots.map((player, si) => (
@@ -1892,15 +2617,25 @@ export default function TeamBuilder() {
                     </button>
                   )}
                   {playerCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleClearAll}
-                      className="btn-ghost btn-sm text-xs text-danger hover:text-danger"
-                      title="Clear all players"
-                    >
-                      <Trash2 size={12} />
-                      Clear
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleSuggestedOrder}
+                        className="btn-ghost btn-sm text-xs"
+                        title="Batters by modal position, then bowlers by phase"
+                      >
+                        Suggested order
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearAll}
+                        className="btn-ghost btn-sm text-xs text-danger hover:text-danger"
+                        title="Clear all players"
+                      >
+                        <Trash2 size={12} />
+                        Clear
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -1915,12 +2650,20 @@ export default function TeamBuilder() {
                       key={i}
                       index={i}
                       slotLabel={typeOption.label}
-                      slotIcon={typeOption.icon}
                       slotType={slotTypes[i]}
                       player={player}
                       onSelect={(p) => handleAddPlayer(i, p)}
                       onRemove={() => handleRemovePlayer(i)}
                       excludeIds={excludeIds}
+                      bowlingPhaseTag={bowlingPhases[i] ?? ""}
+                      onBowlingPhaseChange={(v) =>
+                        setBowlingPhases((prev) => {
+                          const next = [...prev];
+                          next[i] = v;
+                          return next;
+                        })
+                      }
+                      onDropOnSlot={handleSwapSlots}
                       onLabelClick={() => {
                         setSlotTypes((prev) => {
                           const next = [...prev];
@@ -2069,21 +2812,50 @@ export default function TeamBuilder() {
                     const typeOption = SLOT_TYPE_OPTIONS.find(
                       (t) => t.key === slotTypes[i],
                     );
+                    const SideSlotIcon = typeOption?.Icon;
+                    const archSide = archetypeIconMeta(
+                      player.archetype,
+                      player.role,
+                    );
+                    const SideArchIcon = archSide.Icon;
                     return (
                       <div
                         key={player.id}
-                        className="flex items-center justify-between text-xs py-0.5"
+                        className="flex items-center justify-between text-xs py-0.5 gap-1"
                       >
-                        <span className="text-text-muted w-5">{i + 1}</span>
-                        <span className="text-text-primary truncate flex-1 ml-1">
+                        <span className="text-text-muted w-5 shrink-0">
+                          {i + 1}
+                        </span>
+                        <span className="text-text-primary truncate flex-1 ml-1 min-w-0">
                           {countryFlag(player.country)} {player.name}
                         </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-text-muted">
-                            {typeOption?.icon ?? ""} {typeOption?.label ?? ""}
-                          </span>
-                          <span className="text-text-muted">
-                            {player.archetype}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {SideSlotIcon ? (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] text-text-muted"
+                              title={typeOption?.iconAriaLabel}
+                            >
+                              <SideSlotIcon
+                                size={11}
+                                className="shrink-0 opacity-70"
+                                aria-hidden
+                              />
+                              <span className="sr-only">
+                                {typeOption?.iconAriaLabel}.{" "}
+                              </span>
+                              <span className="hidden sm:inline max-w-[5rem] truncate">
+                                {typeOption?.label}
+                              </span>
+                            </span>
+                          ) : null}
+                          <span className="inline-flex items-center gap-0.5 text-text-muted max-w-[6rem] truncate">
+                            <SideArchIcon
+                              size={11}
+                              className="shrink-0 opacity-70"
+                              aria-hidden
+                            />
+                            <span className="sr-only">{archSide.ariaLabel}. </span>
+                            <span className="truncate">{player.archetype}</span>
                           </span>
                           <GradeBadge grade={player.grade_overall} size="xs" />
                         </div>

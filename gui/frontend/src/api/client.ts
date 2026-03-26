@@ -29,8 +29,11 @@ import type {
   LeaderboardParams,
   LeaderboardResponse,
   MatchupExploreParams,
+  MatchImpactPerformancesParams,
+  MatchImpactPerformancesResponse,
   MatchupExploreResponse,
   MatchupSummary,
+  PlayerMatchImpactRow,
   PlayerProfile,
   PlayerRoles,
   PlayerSummary,
@@ -45,6 +48,8 @@ import type {
   VenueListParams,
   VenueListResponse,
   VenueSummary,
+  EspnCricketMatchSummaryResponse,
+  EspnCricketScoreboardResponse,
 } from "./types";
 import type { Format } from "@/api/formatConstants";
 
@@ -486,6 +491,11 @@ async function getBattingRankings(
       activity: params?.activity ?? "active",
       page: params?.page ?? 1,
       per_page: params?.per_page ?? 25,
+      ...(params?.ctx_entry_phase && params.ctx_entry_phase !== "none"
+        ? { ctx_entry_phase: params.ctx_entry_phase }
+        : {}),
+      ...(params?.ctx_knockouts_only ? { ctx_knockouts_only: true } : {}),
+      ...(params?.ctx_chase_high_rpo ? { ctx_chase_high_rpo: true } : {}),
     },
     { signal },
   );
@@ -790,10 +800,18 @@ async function analyseTeam(
   ids: string[],
   signal?: AbortSignal,
   slotTypes?: string[],
+  bowlingPhases?: string[],
 ): Promise<TeamAnalysis> {
   const params: Record<string, string> = { ids: ids.join(",") };
   if (slotTypes && slotTypes.length > 0) {
     params.slot_types = slotTypes.join(",");
+  }
+  if (
+    bowlingPhases &&
+    bowlingPhases.length > 0 &&
+    bowlingPhases.some((p) => p && p.length > 0)
+  ) {
+    params.bowling_phases = bowlingPhases.map((p) => p || "").join(",");
   }
   return fetchJson("/api/team/analyse", params, { signal });
 }
@@ -810,7 +828,7 @@ async function autoFillTeam(
   return fetchJson(
     "/api/team/auto-fill",
     {
-      strategy: params.strategy ?? "war",
+      strategy: params.strategy ?? "balanced",
       country: params.country,
       exclude: params.exclude?.length ? params.exclude.join(",") : undefined,
     },
@@ -874,6 +892,79 @@ async function getScorecard(
     `/api/scorecards/${encodeURIComponent(matchId)}`,
     undefined,
     { signal, timeoutMs: 60_000 },
+  );
+}
+
+/** All scorecard matches with qualifying combined match impact for this player (best first). */
+async function getPlayerMatchImpact(
+  playerId: string,
+  signal?: AbortSignal,
+): Promise<PlayerMatchImpactRow[]> {
+  const body = await fetchJson<unknown>(
+    `/api/scorecards/player/${encodeURIComponent(playerId)}/match-impact`,
+    undefined,
+    { signal, timeoutMs: 120_000 },
+  );
+  if (!Array.isArray(body)) return [];
+  return body as PlayerMatchImpactRow[];
+}
+
+/** Filterable, paginated match-impact performances across all scorecards. */
+async function getMatchImpactPerformances(
+  params: MatchImpactPerformancesParams,
+  signal?: AbortSignal,
+): Promise<MatchImpactPerformancesResponse> {
+  return fetchJson<MatchImpactPerformancesResponse>(
+    "/api/scorecards/performances/by-impact",
+    {
+      date_from: params.date_from ?? undefined,
+      date_to: params.date_to ?? undefined,
+      team: params.team ?? undefined,
+      event: params.event ?? undefined,
+      player_id: params.player_id ?? undefined,
+      discipline: params.discipline ?? "combined",
+      order: params.order ?? "desc",
+      page: params.page ?? 1,
+      per_page: params.per_page ?? 25,
+    },
+    { signal, timeoutMs: 120_000 },
+  );
+}
+
+/** ESPN cricket scoreboard (unofficial upstream; server-cached). Omits `format=`. */
+async function getEspnCricketScoreboard(
+  params: {
+    league: string;
+    dates?: string | null;
+    region?: string | null;
+    lang?: string | null;
+  },
+  signal?: AbortSignal,
+): Promise<EspnCricketScoreboardResponse> {
+  return fetchJson(
+    "/api/live/espn/cricket/scoreboard",
+    {
+      league: params.league.trim(),
+      dates: params.dates?.trim() || undefined,
+      region: params.region?.trim() || undefined,
+      lang: params.lang?.trim() || undefined,
+    },
+    { signal, omitFormat: true },
+  );
+}
+
+/** ESPN match summary (scorecard-shaped JSON) for one game; requires numeric league + event ids. */
+async function getEspnCricketMatchSummary(
+  params: { leagueId: string; eventId: string },
+  signal?: AbortSignal,
+): Promise<EspnCricketMatchSummaryResponse> {
+  return fetchJson(
+    "/api/live/espn/cricket/summary",
+    {
+      league_id: params.leagueId.trim(),
+      event_id: params.eventId.trim(),
+    },
+    { signal, omitFormat: true },
   );
 }
 
@@ -957,6 +1048,12 @@ export const api = {
   // Scorecards
   searchScorecards,
   getScorecard,
+  getPlayerMatchImpact,
+  getMatchImpactPerformances,
+
+  // Live (ESPN proxy)
+  getEspnCricketScoreboard,
+  getEspnCricketMatchSummary,
 
   // Team Builder
   analyseTeam,

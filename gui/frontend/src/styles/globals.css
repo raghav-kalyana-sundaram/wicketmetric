@@ -33,9 +33,9 @@
     --radius-md: 0.75rem;
     --radius-lg: 1rem;
 
-    /* Elevation */
-    --elevation-1: 0 1px 2px rgb(2 6 23 / 0.18);
-    --elevation-2: 0 8px 20px rgb(2 6 23 / 0.22);
+    /* Elevation (neutral black — not slate-blue) */
+    --elevation-1: 0 1px 2px rgb(0 0 0 / 0.35);
+    --elevation-2: 0 8px 20px rgb(0 0 0 / 0.42);
   }
 
   body {
@@ -56,13 +56,10 @@
     @apply rounded-sm outline-2 outline-offset-2 outline-primary;
   }
 
+  /* Solid canvas — no wash (avoids any colour cast; depth from cards only) */
   .dark body {
-    background-image: radial-gradient(
-      ellipse 120% 80% at 50% -20%,
-      oklch(0.22 0.04 264 / 0.35),
-      transparent 55%
-    );
-    background-attachment: fixed;
+    background-image: none;
+    background-attachment: scroll;
   }
 
   /* Respect reduced motion preference */
@@ -87,7 +84,7 @@
     @apply bg-background-light text-text-primary-light;
     background-image: radial-gradient(
       ellipse 100% 60% at 100% 0%,
-      oklch(0.94 0.02 248 / 0.45),
+      oklch(0.94 0 0 / 0.35),
       transparent 50%
     );
     background-attachment: fixed;
@@ -107,19 +104,27 @@
   }
 
   html:not(.dark) .text-primary {
-    color: #2f5fae;
+    color: #0a0a0a;
+  }
+
+  html:not(.dark) .text-primary-light {
+    color: #3f3f46;
   }
 
   html:not(.dark) .bg-primary {
-    background-color: #2f5fae;
+    background-color: #0a0a0a;
   }
 
   html:not(.dark) .hover\:text-primary:hover {
-    color: #2f5fae;
+    color: #0a0a0a;
   }
 
   html:not(.dark) .hover\:bg-primary-hover:hover {
-    background-color: #274f93;
+    background-color: #1f1f1f;
+  }
+
+  html:not(.dark) .border-primary {
+    border-color: #0a0a0a;
   }
 
   html:not(.dark) .bg-background {
@@ -233,7 +238,7 @@
   }
 
   html:not(.dark) .app-footer .text-primary {
-    color: #2563eb;
+    color: #0a0a0a;
   }
 
   html:not(.dark) .app-footer .text-text-muted,
@@ -246,9 +251,17 @@
     @apply outline-2 outline-offset-2 outline-primary;
   }
 
+  html:not(.dark) :focus-visible {
+    outline-color: #0a0a0a;
+  }
+
   /* ── Skip to main content link (accessibility) ────────────── */
   .skip-link {
-    @apply absolute -top-10 left-4 z-50 rounded bg-primary px-4 py-2 text-white transition-all;
+    @apply absolute -top-10 left-4 z-50 rounded bg-primary px-4 py-2 text-background transition-all;
+  }
+
+  html:not(.dark) .skip-link {
+    @apply text-white;
   }
 
   .skip-link:focus {
@@ -310,6 +323,16 @@
     @apply shadow-card-hover;
   }
 
+  /* Dark: neutral edge; very soft inset (strong white inset reads “cool” on LCD) */
+  html.dark .card {
+    border: 1px solid rgb(255 255 255 / 0.08);
+    box-shadow: 0 12px 32px -20px rgb(0 0 0 / 0.55);
+  }
+
+  html.dark .card:hover {
+    box-shadow: 0 16px 40px -20px rgb(0 0 0 / 0.62);
+  }
+
   html:not(.dark) .card {
     @apply border border-slate-200 bg-surface-light;
   }
@@ -341,11 +364,17 @@
   }
 
   .grade-b-plus {
-    @apply bg-cyan-500/20 text-cyan-400;
+    @apply bg-neutral-500/20 text-neutral-300;
   }
 
   .grade-b {
     @apply bg-primary/20 text-primary-light;
+  }
+
+  /* B grade: neutral panel (primary is monochrome, not a hue) */
+  html.dark .grade-b {
+    background-color: rgb(255 255 255 / 0.08);
+    color: #d0d0d0;
   }
 
   .grade-c-plus {
@@ -371,10 +400,10 @@
     @apply bg-green-100 text-green-800;
   }
   html:not(.dark) .grade-b-plus {
-    @apply bg-cyan-100 text-cyan-800;
+    @apply bg-neutral-200 text-neutral-800;
   }
   html:not(.dark) .grade-b {
-    @apply bg-blue-100 text-blue-800;
+    @apply bg-neutral-200 text-neutral-900;
   }
   html:not(.dark) .grade-c-plus {
     @apply bg-amber-100 text-amber-800;
@@ -389,7 +418,7 @@
   /* ── Archetype badge ──────────────────────────────────────── */
   .archetype-badge {
     @apply inline-flex items-center gap-1 rounded-full border border-surface-elevated/80 bg-surface-elevated/60 px-3 py-1.5 text-xs font-medium text-text-secondary;
-    @apply transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary;
+    @apply transition-colors hover:border-slate-300 hover:bg-slate-200/80 hover:text-primary dark:hover:border-white/20 dark:hover:bg-white/[0.06];
     @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
   }
 
@@ -406,6 +435,13 @@
   .metric-tooltip {
     @apply absolute z-50 max-w-xs rounded-lg bg-surface-elevated p-3 text-sm text-text-primary shadow-lg;
     @apply pointer-events-none opacity-0 transition-opacity duration-150;
+    @apply border border-surface-elevated/80;
+  }
+
+  html.dark .metric-tooltip {
+    border-color: rgb(255 255 255 / 0.15);
+    background-color: rgb(9 9 11 / 0.95);
+    @apply backdrop-blur-sm shadow-xl;
   }
 
   .metric-tooltip.visible {
@@ -417,9 +453,9 @@
     @apply relative h-4 w-full overflow-hidden rounded-full;
     background: linear-gradient(
       to right,
-      #2563eb 0%,
-      #3b82f6 25%,
-      #64748b 50%,
+      #3a3a3a 0%,
+      #737373 25%,
+      #a3a3a3 50%,
       #ea580c 75%,
       #d97706 100%
     );
@@ -483,6 +519,18 @@
     @apply border-slate-300 bg-slate-50 text-slate-900;
   }
 
+  html:not(.dark) .filter-select:focus {
+    @apply border-neutral-900 ring-1 ring-neutral-900/25;
+  }
+
+  html.dark .filter-select {
+    @apply border-white/10 bg-[#0a0a0a];
+  }
+
+  html.dark .filter-select:focus {
+    @apply border-white/25 ring-1 ring-white/10;
+  }
+
   .filter-input {
     @apply rounded-lg border border-surface-elevated bg-surface px-3 py-2 text-sm text-text-primary outline-none transition-colors;
     @apply placeholder:text-text-muted;
@@ -491,6 +539,18 @@
 
   html:not(.dark) .filter-input {
     @apply border-slate-300 bg-slate-50 text-slate-900 placeholder:text-slate-500;
+  }
+
+  html:not(.dark) .filter-input:focus {
+    @apply border-neutral-900 ring-1 ring-neutral-900/25;
+  }
+
+  html.dark .filter-input {
+    @apply border-white/10 bg-[#0a0a0a];
+  }
+
+  html.dark .filter-input:focus {
+    @apply border-white/25 ring-1 ring-white/10;
   }
 
   /* ── Buttons ──────────────────────────────────────────────── */
@@ -502,7 +562,11 @@
   }
 
   .btn-primary {
-    @apply btn bg-primary text-white hover:bg-primary-hover;
+    @apply btn bg-primary text-background hover:bg-primary-hover;
+  }
+
+  html:not(.dark) .btn-primary {
+    @apply text-white;
   }
 
   .btn-secondary {
@@ -560,6 +624,11 @@
     @apply rounded-xl border border-surface-elevated bg-surface shadow-sm;
   }
 
+  html.dark .section-card {
+    border-color: rgb(255 255 255 / 0.08);
+    box-shadow: 0 16px 40px -24px rgb(0 0 0 / 0.65);
+  }
+
   .section-card-body {
     @apply p-4 md:p-6;
   }
@@ -591,12 +660,23 @@
   }
 
   .pagination-btn.active {
-    @apply bg-primary text-white;
+    @apply bg-primary text-background;
+  }
+
+  html:not(.dark) .pagination-btn.active {
+    @apply text-white;
   }
 
   /* ── Search autocomplete dropdown ─────────────────────────── */
   .autocomplete-dropdown {
     @apply absolute left-0 right-0 top-full z-40 mt-1 max-h-96 overflow-y-auto rounded-lg border border-surface-elevated bg-surface shadow-lg;
+  }
+
+  html.dark .autocomplete-dropdown {
+    border-color: rgb(255 255 255 / 0.12);
+    background-color: rgb(9 9 11 / 0.95);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.55);
   }
 
   html:not(.dark) .autocomplete-dropdown {
@@ -636,6 +716,46 @@
 
   .skeleton-avatar {
     @apply skeleton h-12 w-12 rounded-full;
+  }
+
+  /* ── Table context refresh (subtle glassy sweep, dark-first) ─ */
+  @keyframes table-refresh-shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  .table-refresh-shimmer {
+    min-height: 0.75rem;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.04),
+      transparent
+    );
+    background-size: 200% 100%;
+    background-position: 200% 0;
+    animation: table-refresh-shimmer 1.5s infinite linear;
+  }
+
+  html:not(.dark) .table-refresh-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(15, 23, 42, 0.07),
+      transparent
+    );
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .table-refresh-shimmer {
+      animation: none;
+      background-image: none;
+      @apply bg-surface-elevated/80;
+    }
   }
 
   /* ── Radar chart container ────────────────────────────────── */
@@ -679,10 +799,10 @@
     color: #22c55e;
   }
   .score-color-b-plus {
-    color: #06b6d4;
+    color: #787878;
   }
   .score-color-b {
-    color: #3b82f6;
+    color: #5c5c5c;
   }
   .score-color-c-plus {
     color: #f59e0b;
@@ -704,10 +824,10 @@
     background-color: #22c55e;
   }
   .score-bg-b-plus {
-    background-color: #06b6d4;
+    background-color: #787878;
   }
   .score-bg-b {
-    background-color: #3b82f6;
+    background-color: #5c5c5c;
   }
   .score-bg-c-plus {
     background-color: #f59e0b;

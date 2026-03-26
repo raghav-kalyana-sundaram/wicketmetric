@@ -19,7 +19,7 @@
  *   - useTopBunnies() / useTopNemeses() / useTopDominantMatchups()
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
 import {
   Swords,
@@ -59,6 +59,9 @@ import type {
   MatchupPhase,
   MatchupExploreParams,
 } from "@/api/types";
+import SocialShareTrigger from "@/components/SocialShareTrigger";
+import { SOCIAL_EXPORT_ROOT_CLASS } from "@/lib/socialCapture";
+import { subjectsFromPlayers } from "@/lib/socialGraphicComposite";
 
 // ── Sort options for explorer ────────────────────────────────────
 
@@ -277,15 +280,43 @@ interface HeadToHeadViewProps {
 }
 
 function HeadToHeadView({ data }: HeadToHeadViewProps) {
+  const h2hHeroExportRef = useRef<HTMLDivElement>(null);
+  const h2hPhaseExportRef = useRef<HTMLDivElement>(null);
+
+  const h2hSubjects = subjectsFromPlayers([
+    {
+      id: data.batter_id,
+      name: data.batter_name,
+      photo_url: null as string | null,
+    },
+    {
+      id: data.bowler_id,
+      name: data.bowler_name,
+      photo_url: null as string | null,
+    },
+  ]);
+
   return (
     <div className="app-page page-stack">
       {/* Hero card */}
       <div
-        className="card p-6 border-l-4"
+        className="card relative p-6 border-l-4"
         style={{ borderLeftColor: dominanceColour(data.dominance_index) }}
       >
-        <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-          <div className="flex items-center gap-3">
+        <div className="absolute right-4 top-4 z-10">
+          <SocialShareTrigger
+            exportRef={h2hHeroExportRef}
+            filenameBase="matchup-h2h-hero"
+            subjects={h2hSubjects}
+            subtitle="Head to head"
+          />
+        </div>
+
+        <div
+          ref={h2hHeroExportRef}
+          className={`${SOCIAL_EXPORT_ROOT_CLASS} space-y-6 rounded-xl bg-surface/30 p-4 pr-14 pt-1`}
+        >
+          <div className="flex flex-wrap items-center gap-3">
             <Link
               to={`/player/${data.batter_id}`}
               className="text-h3 font-semibold text-text-primary hover:text-primary transition-colors"
@@ -300,45 +331,62 @@ function HeadToHeadView({ data }: HeadToHeadViewProps) {
               {data.bowler_name}
             </Link>
           </div>
-        </div>
 
-        {/* Summary stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4 mb-6">
-          <StatBadge label="Balls" value={fmtInt(data.balls)} />
-          <StatBadge label="Runs" value={fmtInt(data.runs)} />
-          <StatBadge label="SR" value={fmtSR(data.sr)} emphasis />
-          <StatBadge label="Dismissals" value={fmtInt(data.dismissals)} emphasis />
-          <StatBadge label="Dots" value={fmtInt(data.dots)} />
-          <StatBadge label="Fours" value={fmtInt(data.fours)} />
-          <StatBadge label="Sixes" value={fmtInt(data.sixes)} />
-        </div>
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 md:grid-cols-7">
+            <StatBadge label="Balls" value={fmtInt(data.balls)} />
+            <StatBadge label="Runs" value={fmtInt(data.runs)} />
+            <StatBadge label="SR" value={fmtSR(data.sr)} emphasis />
+            <StatBadge
+              label="Dismissals"
+              value={fmtInt(data.dismissals)}
+              emphasis
+            />
+            <StatBadge label="Dots" value={fmtInt(data.dots)} />
+            <StatBadge label="Fours" value={fmtInt(data.fours)} />
+            <StatBadge label="Sixes" value={fmtInt(data.sixes)} />
+          </div>
 
-        {/* Extra stat row */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-          <StatBadge label="Dot %" value={fmtPct(data.dot_pct)} />
-          <StatBadge label="Boundary %" value={fmtPct(data.boundary_pct)} />
-          <StatBadge
-            label="Matchup Edge"
-            value={
-              data.dominance_index != null
-                ? `${fmtMatchupEdge(data.dominance_index)}/100`
-                : "—"
-            }
-            valueColour={dominanceColour(data.dominance_index)}
-          />
-        </div>
+          {/* Extra stat row */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <StatBadge label="Dot %" value={fmtPct(data.dot_pct)} />
+            <StatBadge label="Boundary %" value={fmtPct(data.boundary_pct)} />
+            <StatBadge
+              label="Matchup Edge"
+              value={
+                data.dominance_index != null
+                  ? `${fmtMatchupEdge(data.dominance_index)}/100`
+                  : "—"
+              }
+              valueColour={dominanceColour(data.dominance_index)}
+            />
+          </div>
 
-        {/* Dominance gauge */}
-        <DominanceGauge value={data.dominance_index} size="lg" />
+          {/* Dominance gauge */}
+          <DominanceGauge value={data.dominance_index} size="lg" />
+        </div>
       </div>
 
       {/* Phase breakdown */}
       <div className="card p-6">
-        <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-          <Target size={20} className="text-accent" />
-          By Phase
-        </h2>
-        <PhaseBreakdown phases={data.by_phase} />
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+            <Target size={20} className="shrink-0 text-text-muted" />
+            By Phase
+          </h2>
+          <SocialShareTrigger
+            exportRef={h2hPhaseExportRef}
+            filenameBase="matchup-h2h-phase"
+            subjects={h2hSubjects}
+            subtitle="By phase"
+          />
+        </div>
+        <div
+          ref={h2hPhaseExportRef}
+          className={`${SOCIAL_EXPORT_ROOT_CLASS} rounded-xl bg-surface/30 p-4`}
+        >
+          <PhaseBreakdown phases={data.by_phase} />
+        </div>
       </div>
 
       {/* Profile links */}
@@ -597,7 +645,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
                 />
                 <MatchupMiniList
                   title="Dominates (Thrives Against)"
-                  icon={<Flame size={14} className="text-accent" />}
+                  icon={<Flame size={14} className="text-text-muted" />}
                   matchups={dominantData as MatchupSummary[] | undefined}
                   isLoading={dominantLoading}
                   emptyMessage="No dominant matchup data found."
@@ -620,7 +668,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
               <>
                 <MatchupMiniList
                   title="Bunnies (Dominates)"
-                  icon={<Target size={14} className="text-accent" />}
+                  icon={<Target size={14} className="text-text-muted" />}
                   matchups={bunniesData as MatchupSummary[] | undefined}
                   isLoading={bunniesLoading}
                   emptyMessage="No bunny data found."

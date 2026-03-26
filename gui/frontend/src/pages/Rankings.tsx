@@ -2,6 +2,7 @@
  * Rankings / Leaderboard page — sortable, filterable player rankings.
  *
  * Route: /rankings?role=bat&sort=rating_current&order=desc&country=...&archetype=...&modal_slot=...
+ *   Advanced context (table card): ctx_chase=1, ctx_playoffs=1, ctx_entry=early|death (UI-only until API).
  *
  * Features (from gui.md § 6.4):
  *   - Toggle between Batting and Bowling leaderboards
@@ -23,7 +24,7 @@
  *   - useBattingSortColumns() / useBowlingSortColumns() for available sorts
  */
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
   Trophy,
@@ -37,13 +38,18 @@ import {
   ChevronRight,
   Columns3,
   X,
-  Info,
 } from "lucide-react";
 import GradeBadge from "@/components/GradeBadge";
 import { ScoreBarMini } from "@/components/ScoreBar";
 import MetricTooltip from "@/components/MetricTooltip";
+import MetricColumnHeaderTooltip, {
+  rankingsHeaderDefinitionKey,
+} from "@/components/MetricColumnHeaderTooltip";
 import FormSparkline from "@/components/FormSparkline";
 import Pagination from "@/components/Pagination";
+import AdvancedContextFilters, {
+  type InningsPhaseOption,
+} from "@/components/AdvancedContextFilters";
 import { PageError } from "@/components/Layout";
 import {
   useBattingRankings,
@@ -93,6 +99,8 @@ interface ColumnDef {
   shortLabel?: string;
   sortKey?: string;
   metricKey?: string;
+  /** Glossary key for header mini-card when this column is not an API metric column. */
+  headerTooltipKey?: string;
   align?: "left" | "center" | "right";
   /** Width class (Tailwind). */
   width?: string;
@@ -100,6 +108,16 @@ interface ColumnDef {
   hideOnMobile?: boolean;
   /** Render function. */
   render: (player: PlayerSummary, rank: number) => React.ReactNode;
+}
+
+function columnHeaderLookupKey(
+  col: ColumnDef,
+  isBowling: boolean,
+): string | undefined {
+  if (col.metricKey) {
+    return rankingsHeaderDefinitionKey(col.metricKey, isBowling) ?? col.metricKey;
+  }
+  return col.headerTooltipKey;
 }
 
 type MetricFormat =
@@ -472,7 +490,8 @@ function getBattingColumns(
   const cols: ColumnDef[] = [
     {
       key: "compare",
-      label: "",
+      label: "+",
+      headerTooltipKey: "leaderboard_compare",
       width: "w-8",
       align: "center",
       render: (player) => (
@@ -484,7 +503,7 @@ function getBattingColumns(
           }}
           className={`min-h-11 min-w-11 h-7 w-7 sm:min-h-0 sm:min-w-0 sm:h-5 sm:w-5 rounded border flex items-center justify-center transition-colors ${
             compareIds.has(player.id)
-              ? "bg-primary border-primary text-white"
+              ? "bg-primary border-primary text-white dark:text-background"
               : "border-surface-elevated hover:border-primary text-transparent hover:text-primary/50"
           }`}
           title={
@@ -501,6 +520,7 @@ function getBattingColumns(
     {
       key: "rank",
       label: "Rk",
+      headerTooltipKey: "leaderboard_rank",
       width: "w-10",
       align: "right",
       render: (_player, rank) => (
@@ -512,6 +532,7 @@ function getBattingColumns(
     {
       key: "name",
       label: "Player",
+      headerTooltipKey: "leaderboard_player",
       width: "min-w-[10rem]",
       align: "left",
       render: (player) => (
@@ -534,6 +555,7 @@ function getBattingColumns(
       key: "team",
       label: "Team",
       shortLabel: "Tm",
+      headerTooltipKey: "leaderboard_team",
       width: "min-w-[6rem] max-w-[9rem]",
       align: "left",
       hideOnMobile: true,
@@ -566,6 +588,7 @@ function getBattingColumns(
     {
       key: "archetype",
       label: "Archetype",
+      headerTooltipKey: "leaderboard_archetype",
       width: "w-28",
       align: "left",
       hideOnMobile: true,
@@ -581,6 +604,7 @@ function getBattingColumns(
     {
       key: "trend",
       label: "Trend",
+      headerTooltipKey: "leaderboard_form_trend",
       width: "w-[5.5rem]",
       align: "center",
       hideOnMobile: false,
@@ -602,7 +626,7 @@ function getBattingColumns(
         }
         return (
           <span className="inline-flex items-center justify-center gap-0.5 w-full" title={title}>
-            {trend === "up" && <ArrowUp size={12} className="text-sky-400 shrink-0" aria-hidden />}
+            {trend === "up" && <ArrowUp size={12} className="shrink-0 text-emerald-400" aria-hidden />}
             {trend === "down" && <ArrowDown size={12} className="text-amber-500 shrink-0" aria-hidden />}
             {trend === "stable" && <span className="text-sm font-medium text-slate-400" aria-hidden>−</span>}
             {sparkData.length >= 2 && (
@@ -625,6 +649,7 @@ function getBattingColumns(
       key: "innings",
       label: "Inn",
       sortKey: "innings_count",
+      headerTooltipKey: "leaderboard_batting_innings",
       width: "w-14",
       align: "right",
       render: (player) => (
@@ -637,6 +662,7 @@ function getBattingColumns(
       key: "runs",
       label: "Runs",
       sortKey: "total_runs",
+      headerTooltipKey: "total_runs_batting",
       width: "w-16",
       align: "right",
       render: (player) => (
@@ -649,6 +675,7 @@ function getBattingColumns(
       key: "sr",
       label: "SR",
       sortKey: "career_sr",
+      headerTooltipKey: "career_sr",
       width: "w-16",
       align: "right",
       render: (player) => (
@@ -661,6 +688,7 @@ function getBattingColumns(
       key: "avg",
       label: "Avg",
       sortKey: "career_avg",
+      headerTooltipKey: "career_avg",
       width: "w-14",
       align: "right",
       hideOnMobile: true,
@@ -760,7 +788,8 @@ function getBattingColumns(
     },
     {
       key: "actions",
-      label: "",
+      label: "›",
+      headerTooltipKey: "leaderboard_open_profile",
       width: "w-8",
       align: "center",
       render: (player) => (
@@ -793,7 +822,8 @@ function getBowlingColumns(
   const cols: ColumnDef[] = [
     {
       key: "compare",
-      label: "",
+      label: "+",
+      headerTooltipKey: "leaderboard_compare",
       width: "w-8",
       align: "center",
       render: (player) => (
@@ -805,7 +835,7 @@ function getBowlingColumns(
           }}
           className={`min-h-11 min-w-11 h-7 w-7 sm:min-h-0 sm:min-w-0 sm:h-5 sm:w-5 rounded border flex items-center justify-center transition-colors ${
             compareIds.has(player.id)
-              ? "bg-primary border-primary text-white"
+              ? "bg-primary border-primary text-white dark:text-background"
               : "border-surface-elevated hover:border-primary text-transparent hover:text-primary/50"
           }`}
           title={
@@ -822,6 +852,7 @@ function getBowlingColumns(
     {
       key: "rank",
       label: "Rk",
+      headerTooltipKey: "leaderboard_rank",
       width: "w-10",
       align: "right",
       render: (_player, rank) => (
@@ -833,6 +864,7 @@ function getBowlingColumns(
     {
       key: "name",
       label: "Player",
+      headerTooltipKey: "leaderboard_player",
       width: "min-w-[10rem]",
       align: "left",
       render: (player) => (
@@ -855,6 +887,7 @@ function getBowlingColumns(
       key: "team",
       label: "Team",
       shortLabel: "Tm",
+      headerTooltipKey: "leaderboard_team",
       width: "min-w-[6rem] max-w-[9rem]",
       align: "left",
       hideOnMobile: true,
@@ -887,6 +920,7 @@ function getBowlingColumns(
     {
       key: "archetype",
       label: "Archetype",
+      headerTooltipKey: "leaderboard_archetype",
       width: "w-28",
       align: "left",
       hideOnMobile: true,
@@ -902,6 +936,7 @@ function getBowlingColumns(
     {
       key: "trend",
       label: "Trend",
+      headerTooltipKey: "leaderboard_form_trend",
       width: "w-[5.5rem]",
       align: "center",
       hideOnMobile: false,
@@ -923,7 +958,7 @@ function getBowlingColumns(
         }
         return (
           <span className="inline-flex items-center justify-center gap-0.5 w-full" title={title}>
-            {trend === "up" && <ArrowUp size={12} className="text-sky-400 shrink-0" aria-hidden />}
+            {trend === "up" && <ArrowUp size={12} className="shrink-0 text-emerald-400" aria-hidden />}
             {trend === "down" && <ArrowDown size={12} className="text-amber-500 shrink-0" aria-hidden />}
             {trend === "stable" && <span className="text-sm font-medium text-slate-400" aria-hidden>−</span>}
             {sparkData.length >= 2 && (
@@ -946,6 +981,7 @@ function getBowlingColumns(
       key: "matches",
       label: "Mat",
       sortKey: "innings_count",
+      headerTooltipKey: "leaderboard_bowling_matches",
       width: "w-14",
       align: "right",
       render: (player) => (
@@ -958,6 +994,7 @@ function getBowlingColumns(
       key: "wickets",
       label: "Wkts",
       sortKey: "total_runs",
+      headerTooltipKey: "bowling_career_wickets",
       width: "w-14",
       align: "right",
       render: (player) => (
@@ -970,6 +1007,7 @@ function getBowlingColumns(
       key: "economy",
       label: "Econ",
       sortKey: "career_sr",
+      headerTooltipKey: "leaderboard_bowling_economy",
       width: "w-16",
       align: "right",
       render: (player) => (
@@ -982,6 +1020,7 @@ function getBowlingColumns(
       key: "bowl_sr",
       label: "SR",
       sortKey: "career_avg",
+      headerTooltipKey: "leaderboard_bowling_strike_rate",
       width: "w-14",
       align: "right",
       hideOnMobile: true,
@@ -1081,7 +1120,8 @@ function getBowlingColumns(
     },
     {
       key: "actions",
-      label: "",
+      label: "›",
+      headerTooltipKey: "leaderboard_open_profile",
       width: "w-8",
       align: "center",
       render: (player) => (
@@ -1462,6 +1502,11 @@ export default function RankingsPage() {
   const rawActivity = searchParams.get("activity");
   const activity: "active" | "retired" | "all" =
     rawActivity === "retired" || rawActivity === "all" ? rawActivity : "active";
+  const chaseHighRpo = searchParams.get("ctx_chase") === "1";
+  const playoffsOnly = searchParams.get("ctx_playoffs") === "1";
+  const rawCtxEntry = searchParams.get("ctx_entry");
+  const inningsPhase: InningsPhaseOption =
+    rawCtxEntry === "early" || rawCtxEntry === "death" ? rawCtxEntry : "any";
   const densityParam = searchParams.get("density");
   const { format } = useFormat();
   const density: Density =
@@ -1486,6 +1531,9 @@ export default function RankingsPage() {
   const [showColumns, setShowColumns] = useState(false);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [sortAnnouncement, setSortAnnouncement] = useState("");
+  const [tableOverlay, setTableOverlay] = useState(false);
+  const overlayEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overlayStartRef = useRef<number | null>(null);
 
   useEffect(() => {
     const label = SORT_LABEL_MAP[sort] ?? sort;
@@ -1564,6 +1612,16 @@ export default function RankingsPage() {
     activity,
     page,
     per_page: perPage,
+    ...(isBowling
+      ? {}
+      : {
+          ctx_entry_phase:
+            inningsPhase === "early" || inningsPhase === "death"
+              ? inningsPhase
+              : undefined,
+          ctx_knockouts_only: playoffsOnly || undefined,
+          ctx_chase_high_rpo: chaseHighRpo || undefined,
+        }),
   };
 
   const battingQuery = useBattingRankings(isBowling ? {} : rankingsParams);
@@ -1572,6 +1630,44 @@ export default function RankingsPage() {
 
   const query = isBowling ? bowlingQuery : battingQuery;
   const { data, isLoading, isFetching, error, refetch } = query;
+
+  useEffect(() => {
+    if (isFetching && !isLoading) {
+      if (overlayEndTimerRef.current) {
+        clearTimeout(overlayEndTimerRef.current);
+        overlayEndTimerRef.current = null;
+      }
+      overlayStartRef.current = Date.now();
+      setTableOverlay(true);
+    }
+  }, [isFetching, isLoading]);
+
+  useEffect(() => {
+    if (!isFetching && tableOverlay) {
+      const started = overlayStartRef.current ?? Date.now();
+      const elapsed = Date.now() - started;
+      const wait = Math.max(0, 300 - elapsed);
+      overlayEndTimerRef.current = setTimeout(() => {
+        setTableOverlay(false);
+        overlayStartRef.current = null;
+        overlayEndTimerRef.current = null;
+      }, wait);
+      return () => {
+        if (overlayEndTimerRef.current) {
+          clearTimeout(overlayEndTimerRef.current);
+        }
+      };
+    }
+  }, [isFetching, tableOverlay]);
+
+  useEffect(
+    () => () => {
+      if (overlayEndTimerRef.current) {
+        clearTimeout(overlayEndTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const players = data?.players ?? [];
   const totalPlayers = data?.total ?? 0;
@@ -1605,6 +1701,13 @@ export default function RankingsPage() {
     [setSearchParams],
   );
 
+  const updateContextParams = useCallback(
+    (updates: Record<string, string | null | undefined>) => {
+      updateParams({ ...updates, page: "1" });
+    },
+    [updateParams],
+  );
+
   // ── Handlers ───────────────────────────────────────────────
 
   const handleRoleToggle = useCallback(
@@ -1624,10 +1727,14 @@ export default function RankingsPage() {
       );
       if (cols) next.set("cols", cols);
       if (activity !== "active") next.set("activity", activity);
+      if (searchParams.get("ctx_chase") === "1") next.set("ctx_chase", "1");
+      if (searchParams.get("ctx_playoffs") === "1") next.set("ctx_playoffs", "1");
+      const ctxEnt = searchParams.get("ctx_entry");
+      if (ctxEnt === "early" || ctxEnt === "death") next.set("ctx_entry", ctxEnt);
       setSearchParams(next);
       setCompareIds(new Set());
     },
-    [perPage, setSearchParams, activity],
+    [perPage, setSearchParams, activity, searchParams],
   );
 
   const handleSort = useCallback(
@@ -1684,16 +1791,53 @@ export default function RankingsPage() {
   }, [navigate, compareIds]);
 
   const handleClearFilters = useCallback(() => {
-    const next = new URLSearchParams({
-      role,
-      sort: DEFAULT_SORT[role] ?? "rating_current",
-      order: "desc",
-      per_page: String(perPage),
+    setSearchParams((prev) => {
+      const next = new URLSearchParams({
+        role,
+        sort: DEFAULT_SORT[role] ?? "rating_current",
+        order: "desc",
+        per_page: String(perPage),
+      });
+      const cols = serialiseExtraColumns(selectedMetricKeys);
+      if (cols) next.set("cols", cols);
+      for (const key of ["ctx_chase", "ctx_playoffs", "ctx_entry"] as const) {
+        const v = prev.get(key);
+        if (v) next.set(key, v);
+      }
+      return next;
     });
-    const cols = serialiseExtraColumns(selectedMetricKeys);
-    if (cols) next.set("cols", cols);
-    setSearchParams(next);
   }, [role, perPage, selectedMetricKeys, setSearchParams]);
+
+  const handleClearContextFilters = useCallback(() => {
+    updateContextParams({
+      ctx_chase: null,
+      ctx_playoffs: null,
+      ctx_entry: null,
+    });
+  }, [updateContextParams]);
+
+  const handleCtxChaseChange = useCallback(
+    (next: boolean) => {
+      updateContextParams({ ctx_chase: next ? "1" : null });
+    },
+    [updateContextParams],
+  );
+
+  const handleCtxPlayoffsChange = useCallback(
+    (next: boolean) => {
+      updateContextParams({ ctx_playoffs: next ? "1" : null });
+    },
+    [updateContextParams],
+  );
+
+  const handleCtxInningsPhaseChange = useCallback(
+    (next: InningsPhaseOption) => {
+      updateContextParams({
+        ctx_entry: next === "any" ? null : next,
+      });
+    },
+    [updateContextParams],
+  );
 
   const handlePreset = useCallback(
     (preset: LeaderboardPreset) => {
@@ -1851,7 +1995,7 @@ export default function RankingsPage() {
               <div className="flex shrink-0 items-start gap-3">
                 <Trophy
                   size={28}
-                  className="text-gold mt-0.5 shrink-0"
+                  className="mt-0.5 shrink-0 text-text-muted"
                   aria-hidden
                 />
                 <div>
@@ -1878,7 +2022,7 @@ export default function RankingsPage() {
                   onClick={() => handleRoleToggle("bat")}
                   className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ease-out-quart ${
                     !isBowling
-                      ? "bg-primary text-white shadow-sm"
+                      ? "bg-primary text-white dark:text-background shadow-sm"
                       : "text-text-secondary hover:text-text-primary"
                   }`}
                   aria-pressed={!isBowling}
@@ -1890,7 +2034,7 @@ export default function RankingsPage() {
                   onClick={() => handleRoleToggle("bowl")}
                   className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ease-out-quart ${
                     isBowling
-                      ? "bg-primary text-white shadow-sm"
+                      ? "bg-primary text-white dark:text-background shadow-sm"
                       : "text-text-secondary hover:text-text-primary"
                   }`}
                   aria-pressed={isBowling}
@@ -1952,7 +2096,7 @@ export default function RankingsPage() {
                             onClick={() => handleSort(opt.key)}
                             className={`flex min-h-10 items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors duration-200 ease-out-quart sm:min-h-0 sm:py-1.5 ${
                               sort === opt.key
-                                ? "bg-primary text-white shadow-sm"
+                                ? "bg-primary text-white dark:text-background shadow-sm"
                                 : "bg-surface/90 text-text-secondary hover:bg-surface-elevated hover:text-text-primary dark:bg-surface/50"
                             }`}
                             title={`Sort by ${opt.label}`}
@@ -2003,7 +2147,7 @@ export default function RankingsPage() {
                       onClick={() => handleDensityChange(d)}
                       className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors duration-200 ease-out-quart ${
                         density === d
-                          ? "bg-primary text-white shadow-sm"
+                          ? "bg-primary text-white dark:text-background shadow-sm"
                           : "text-text-secondary hover:text-text-primary"
                       }`}
                       title={
@@ -2103,7 +2247,7 @@ export default function RankingsPage() {
                   onClick={() => handleMetricToggle(metric.key)}
                   className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
                     isSelected
-                      ? "border-primary bg-primary/10 text-text-primary"
+                      ? "border-primary/80 bg-slate-100 text-text-primary ring-1 ring-primary/25 dark:bg-surface"
                       : "border-surface-elevated bg-surface-elevated/30 text-text-secondary hover:text-text-primary hover:border-primary/40"
                   }`}
                 >
@@ -2477,11 +2621,39 @@ export default function RankingsPage() {
 
       {/* ── Data Table ───────────────────────────────────────── */}
       {!isLoading && !error && players.length > 0 && (
-        <div className="card p-0 overflow-hidden pt-6">
-          <p className="sm:hidden px-4 pb-2 text-xs text-text-muted">
+        <div className="card p-0 overflow-hidden">
+          <AdvancedContextFilters
+            chaseHighRpo={chaseHighRpo}
+            playoffsOnly={playoffsOnly}
+            inningsPhase={inningsPhase}
+            onChaseHighRpoChange={handleCtxChaseChange}
+            onPlayoffsOnlyChange={handleCtxPlayoffsChange}
+            onInningsPhaseChange={handleCtxInningsPhaseChange}
+            onClearContext={handleClearContextFilters}
+          />
+          <p className="sm:hidden px-4 pb-2 pt-3 text-xs text-text-muted">
             Swipe horizontally to see all columns.
           </p>
-          <div className="overflow-x-auto overscroll-x-contain">
+          <div className="relative">
+            {tableOverlay && (
+              <div
+                className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-center gap-2.5 bg-surface/50 px-4 py-8 backdrop-blur-[0.5px]"
+                aria-hidden
+              >
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="table-refresh-shimmer h-3 max-w-full rounded-md"
+                    style={{ width: `${68 + ((i * 19) % 28)}%` }}
+                  />
+                ))}
+              </div>
+            )}
+            <div
+              className={`overflow-x-auto overscroll-x-contain transition-opacity duration-200 ${
+                tableOverlay ? "pointer-events-none opacity-[0.38]" : ""
+              }`}
+            >
             <table className="sortable-table" role="grid">
               <thead>
                 <tr>
@@ -2556,9 +2728,16 @@ export default function RankingsPage() {
                                   ))}
                               </button>
                             </div>
-                            <span className="text-[9px] text-text-muted/70 normal-case font-normal hidden sm:block">
-                              ratings
-                            </span>
+                            <div className="flex items-center justify-center gap-1 normal-case">
+                              <span className="text-[9px] text-text-muted/70 hidden sm:inline">
+                                ratings
+                              </span>
+                              <MetricColumnHeaderTooltip
+                                lookupKey="leaderboard_ratings_column"
+                                label="ⓘ"
+                                triggerClassName="text-[10px] leading-none text-text-muted/80 font-sans not-italic"
+                              />
+                            </div>
                           </div>
                         </th>
                       );
@@ -2573,6 +2752,21 @@ export default function RankingsPage() {
                           ? "text-center"
                           : "text-left";
 
+                    const headerLookup = columnHeaderLookupKey(col, isBowling);
+                    const headerHasTooltip =
+                      headerLookup != null && headerLookup !== "";
+                    const sortByHeaderClick =
+                      isSortable && col.sortKey && !headerHasTooltip;
+
+                    const headerFlexAlign =
+                      col.align === "right"
+                        ? "justify-end"
+                        : col.align === "center"
+                          ? "justify-center"
+                          : "justify-start";
+
+                    const headerLabel = (col.shortLabel ?? col.label).trim() || "•";
+
                     return (
                       <th
                         key={col.key}
@@ -2580,11 +2774,11 @@ export default function RankingsPage() {
                           col.hideOnMobile ? "hidden lg:table-cell" : ""
                         } ${
                           col.key === "name" ? "sticky-col-first" : ""
-                        } ${isSortable ? "cursor-pointer select-none" : ""} ${
+                        } ${sortByHeaderClick ? "cursor-pointer select-none" : ""} ${
                           isCurrentSort ? "text-primary" : ""
                         }`}
                         onClick={
-                          isSortable && col.sortKey
+                          sortByHeaderClick && col.sortKey
                             ? () => handleSort(col.sortKey!)
                             : undefined
                         }
@@ -2597,34 +2791,36 @@ export default function RankingsPage() {
                             : undefined
                         }
                       >
-                        {col.metricKey ? (
-                          <span className="inline-flex items-center gap-1">
-                            <span className="inline-flex items-center gap-1">
-                              {col.shortLabel ?? col.label}
-                              {isSortable && (
-                                <>
-                                  {isCurrentSort ? (
-                                    order === "desc" ? (
-                                      <ArrowDown size={10} />
-                                    ) : (
-                                      <ArrowUp size={10} />
-                                    )
-                                  ) : (
-                                    <ArrowUpDown size={10} className="opacity-30" />
-                                  )}
-                                </>
-                              )}
-                            </span>
-                            <span onClick={(e) => e.stopPropagation()} className="shrink-0">
-                              <MetricTooltip
-                                metric={col.metricKey}
-                                mode="icon"
-                                iconSize={12}
-                                className="cursor-help text-text-muted hover:text-text-secondary"
+                        {headerHasTooltip ? (
+                          <span
+                            className={`inline-flex w-full min-w-0 items-center gap-1 ${headerFlexAlign}`}
+                          >
+                            <MetricColumnHeaderTooltip
+                              lookupKey={headerLookup}
+                              label={headerLabel}
+                              warMetricKey={col.metricKey}
+                            />
+                            {isSortable && col.sortKey && (
+                              <button
+                                type="button"
+                                className="inline-flex shrink-0 items-center rounded p-0.5 text-text-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                                aria-label={`Sort by ${col.label}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSort(col.sortKey!);
+                                }}
                               >
-                                <Info size={12} aria-hidden />
-                              </MetricTooltip>
-                            </span>
+                                {isCurrentSort ? (
+                                  order === "desc" ? (
+                                    <ArrowDown size={10} />
+                                  ) : (
+                                    <ArrowUp size={10} />
+                                  )
+                                ) : (
+                                  <ArrowUpDown size={10} className="opacity-30" />
+                                )}
+                              </button>
+                            )}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1">
@@ -2665,8 +2861,12 @@ export default function RankingsPage() {
                       key={player.id}
                       onClick={() => setPreviewPlayerId(player.id)}
                       className={`cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/5" : "hover:bg-surface-elevated/50"
-                      } ${previewPlayerId === player.id ? "bg-primary/10" : ""}`}
+                        isSelected ? "bg-slate-100/90 dark:bg-surface" : "hover:bg-surface-elevated/50"
+                      } ${
+                        previewPlayerId === player.id
+                          ? "bg-slate-100 dark:ring-1 dark:ring-inset dark:ring-primary/30 dark:bg-surface"
+                          : ""
+                      }`}
                     >
                       {columns.map((col) => {
                         const alignClass =
@@ -2693,6 +2893,7 @@ export default function RankingsPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

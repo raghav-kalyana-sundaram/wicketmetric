@@ -6,7 +6,7 @@
  *   /dashboard                 → Redirect to /
  *   /search                    → Player Search
  *   /player/:id                → Player Profile
- *   … (rankings, compare, matchups, etc.)
+ *   … (rankings, compare, matchups, team-builder, scorecards, live, simulation, etc.)
  */
 
 import { lazy, Suspense } from "react";
@@ -37,7 +37,11 @@ const Eras = lazy(() => import("@/pages/Eras"));
 const Venues = lazy(() => import("@/pages/Venues"));
 const Glossary = lazy(() => import("@/pages/Glossary"));
 const Scorecards = lazy(() => import("@/pages/Scorecards"));
+const Performances = lazy(() => import("@/pages/Performances"));
 const ScorecardDetail = lazy(() => import("@/pages/ScorecardDetail"));
+const Live = lazy(() => import("@/pages/Live"));
+const LiveMatch = lazy(() => import("@/pages/LiveMatch"));
+const SimulationHub = lazy(() => import("@/features/simulation/SimulationHub"));
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
@@ -182,10 +186,42 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: "/performances",
+        element: (
+          <SuspenseWrapper>
+            <Performances />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "/live/match/:eventId",
+        element: (
+          <SuspenseWrapper>
+            <LiveMatch />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "/live",
+        element: (
+          <SuspenseWrapper>
+            <Live />
+          </SuspenseWrapper>
+        ),
+      },
+      {
         path: "/scorecards/:matchId",
         element: (
           <SuspenseWrapper>
             <ScorecardDetail />
+          </SuspenseWrapper>
+        ),
+      },
+      {
+        path: "/simulation",
+        element: (
+          <SuspenseWrapper>
+            <SimulationHub />
           </SuspenseWrapper>
         ),
       },

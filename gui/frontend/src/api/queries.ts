@@ -48,16 +48,21 @@ import type {
   VenueSummary,
   FlatTrackResponse,
   InningsLogResponse,
+  PlayerMatchImpactRow,
   SpellsLogResponse,
   EraResponse,
   TeamAnalysis,
   ApiMeta,
   SearchParams,
   LeaderboardParams,
+  MatchImpactPerformancesParams,
+  MatchImpactPerformancesResponse,
   MatchupExploreParams,
   VenueListParams,
   FlatTrackParams,
   SharedMatchupsResponse,
+  EspnCricketMatchSummaryResponse,
+  EspnCricketScoreboardResponse,
 } from "@/api/types";
 
 // ── Cache time constants ─────────────────────────────────────────
@@ -84,6 +89,8 @@ const STALE_TIMES = {
   reference: 60 * 60 * 1000,
   /** Compare — 15 minutes */
   compare: 15 * 60 * 1000,
+  /** ESPN scoreboard — align with backend default cache TTL (~90s) */
+  liveEspn: 90 * 1000,
 } as const;
 
 // ── Query key factories ──────────────────────────────────────────
@@ -120,6 +127,8 @@ export const queryKeys = {
     sortBy?: string,
     order?: string,
   ) => ["player", id, "spells", { page, perPage, sortBy, order }] as const,
+  playerMatchImpact: (id: string) =>
+    ["player", id, "scorecards", "match-impact"] as const,
   playerForm: (id: string, role?: string) =>
     ["player", id, "form", role] as const,
   playerMatchups: (
@@ -139,6 +148,9 @@ export const queryKeys = {
     ] as const,
   playerSimilar: (id: string, role?: string, limit?: number) =>
     ["player", id, "similar", { role, limit }] as const,
+
+  matchImpactPerformances: (p: MatchImpactPerformancesParams) =>
+    ["scorecards", "performances", "by-impact", p] as const,
 
   // Rankings
   battingRankings: (params: Partial<LeaderboardParams>) =>
@@ -182,6 +194,24 @@ export const queryKeys = {
   topDominant: (batterId: string, minBalls?: number, limit?: number) =>
     ["matchups", "dominant", batterId, { minBalls, limit }] as const,
 
+  /** ESPN cricket scoreboard (not format-scoped) */
+  espnCricketScoreboard: (
+    league: string,
+    dates?: string | null,
+    region?: string | null,
+    lang?: string | null,
+  ) =>
+    [
+      "espnCricketScoreboard",
+      league,
+      dates ?? null,
+      region ?? null,
+      lang ?? null,
+    ] as const,
+
+  espnCricketMatchSummary: (leagueId: string, eventId: string) =>
+    ["espnCricketMatchSummary", leagueId, eventId] as const,
+
   // Venues
   venues: (params?: Partial<VenueListParams>) => ["venues", params] as const,
   venueDetail: (name: string) => ["venues", "detail", name] as const,
@@ -208,8 +238,19 @@ export const queryKeys = {
   eras: ["eras"] as const,
 
   // Team Builder
-  teamAnalyse: (ids: string[], slotTypes?: string[]) =>
-    ["team", "analyse", ...ids.sort(), ...(slotTypes ?? [])] as const,
+  teamAnalyse: (
+    ids: string[],
+    slotTypes?: string[],
+    bowlingPhases?: string[],
+  ) =>
+    [
+      "team",
+      "analyse",
+      ids.join("~"),
+      ...(slotTypes ?? []),
+      "|",
+      ...(bowlingPhases ?? []),
+    ] as const,
   teamAutoFill: (strategy?: string, country?: string | null) =>
     ["team", "autoFill", { strategy, country }] as const,
   teamCompare: (teamAIds: string[], teamBIds: string[]) =>
@@ -454,6 +495,46 @@ export function usePlayerSpells(
     staleTime: STALE_TIMES.profile,
     placeholderData: keepPreviousData,
     enabled: (options?.enabled ?? true) && !!id,
+  });
+}
+
+/** All scorecard matches with qualifying combined match impact (best first, full list). */
+export function usePlayerMatchImpact(
+  id: string | undefined,
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  return useQuery<PlayerMatchImpactRow[]>({
+    queryKey: [format, ...queryKeys.playerMatchImpact(id ?? "")],
+    queryFn: ({ signal }) => api.getPlayerMatchImpact(id!, signal),
+    staleTime: STALE_TIMES.profile,
+    enabled: (options?.enabled ?? true) && !!id,
+  });
+}
+
+/** Paginated match-impact performances across scorecards (filterable). */
+export function useMatchImpactPerformances(
+  params: MatchImpactPerformancesParams,
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  const stable: MatchImpactPerformancesParams = {
+    date_from: params.date_from ?? undefined,
+    date_to: params.date_to ?? undefined,
+    team: params.team ?? undefined,
+    event: params.event ?? undefined,
+    player_id: params.player_id ?? undefined,
+    discipline: params.discipline ?? "combined",
+    order: params.order ?? "desc",
+    page: params.page ?? 1,
+    per_page: params.per_page ?? 25,
+  };
+  return useQuery<MatchImpactPerformancesResponse>({
+    queryKey: [format, ...queryKeys.matchImpactPerformances(stable)],
+    queryFn: ({ signal }) => api.getMatchImpactPerformances(stable, signal),
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -930,6 +1011,61 @@ export function useVenueSummary() {
   });
 }
 
+// ── Live ESPN (proxied scoreboard; global, not format-scoped) ────
+
+/** Cached cricket scoreboard via ESPN public JSON (see backend TTL). */
+export function useEspnCricketScoreboard(params: {
+  league: string;
+  dates?: string | null;
+  region?: string | null;
+  lang?: string | null;
+  enabled?: boolean;
+}) {
+  const league = params.league.trim();
+  return useQuery<EspnCricketScoreboardResponse>({
+    queryKey: queryKeys.espnCricketScoreboard(
+      league,
+      params.dates ?? null,
+      params.region ?? null,
+      params.lang ?? null,
+    ),
+    queryFn: ({ signal }) =>
+      api.getEspnCricketScoreboard(
+        {
+          league,
+          dates: params.dates,
+          region: params.region,
+          lang: params.lang ?? "en",
+        },
+        signal,
+      ),
+    staleTime: STALE_TIMES.liveEspn,
+    refetchOnWindowFocus: false,
+    enabled: params.enabled !== false && league.length > 0,
+  });
+}
+
+/** Single-match scorecard summary from ESPN (proxied; needs league_id + event_id from live list). */
+export function useEspnCricketMatchSummary(params: {
+  leagueId: string;
+  eventId: string;
+  enabled?: boolean;
+}) {
+  const { format } = useFormat();
+  const leagueId = params.leagueId.trim();
+  const eventId = params.eventId.trim();
+  return useQuery<EspnCricketMatchSummaryResponse>({
+    queryKey: [format, ...queryKeys.espnCricketMatchSummary(leagueId, eventId)],
+    queryFn: ({ signal }) =>
+      api.getEspnCricketMatchSummary({ leagueId, eventId }, signal),
+    staleTime: STALE_TIMES.liveEspn,
+    refetchInterval: STALE_TIMES.liveEspn,
+    refetchOnWindowFocus: false,
+    enabled:
+      params.enabled !== false && leagueId.length > 0 && eventId.length > 0,
+  });
+}
+
 // ── Eras hooks ───────────────────────────────────────────────────
 
 /** Fetch era baselines (par SR, boundary rate, dot%, multiplier) by year. */
@@ -945,11 +1081,16 @@ export function useEras() {
 // ── Team Builder hooks ───────────────────────────────────────────
 
 /** Analyse a set of player IDs as a team (aggregate metrics, weaknesses). */
-export function useTeamAnalysis(ids: string[], slotTypes?: string[]) {
+export function useTeamAnalysis(
+  ids: string[],
+  slotTypes?: string[],
+  bowlingPhases?: string[],
+) {
   const { format } = useFormat();
   return useQuery<TeamAnalysis>({
-    queryKey: [format, ...queryKeys.teamAnalyse(ids, slotTypes)],
-    queryFn: ({ signal }) => api.analyseTeam(ids, signal, slotTypes),
+    queryKey: [format, ...queryKeys.teamAnalyse(ids, slotTypes, bowlingPhases)],
+    queryFn: ({ signal }) =>
+      api.analyseTeam(ids, signal, slotTypes, bowlingPhases),
     staleTime: STALE_TIMES.compare,
     enabled: ids.length > 0,
   });
@@ -971,7 +1112,7 @@ export function useTeamAutoFill(params: {
     queryFn: ({ signal }) =>
       api.autoFillTeam(
         {
-          strategy: params.strategy ?? "war",
+          strategy: params.strategy ?? "balanced",
           country: params.country,
           exclude: params.exclude,
         },
@@ -984,17 +1125,21 @@ export function useTeamAutoFill(params: {
 
 /** Parallel team analyses for Team Builder compare mode (2–4 XIs). */
 export function useTeamAnalysesParallel(
-  teams: Array<{ ids: string[]; slotTypes: string[] }>,
+  teams: Array<{
+    ids: string[];
+    slotTypes: string[];
+    bowlingPhases?: string[];
+  }>,
 ) {
   const { format } = useFormat();
   return useQueries({
     queries: teams.map((t) => ({
       queryKey: [
         format,
-        ...queryKeys.teamAnalyse([...t.ids], t.slotTypes),
+        ...queryKeys.teamAnalyse(t.ids, t.slotTypes, t.bowlingPhases),
       ] as const,
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        api.analyseTeam(t.ids, signal, t.slotTypes),
+        api.analyseTeam(t.ids, signal, t.slotTypes, t.bowlingPhases),
       staleTime: STALE_TIMES.compare,
       enabled: t.ids.length > 0,
     })),
