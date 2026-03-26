@@ -8,20 +8,22 @@ const config: Config = {
       colors: {
         // Hex palette: opacity modifiers (/30, /80) must resolve in @apply — keep hex here;
         // ambient tint comes from body gradients in globals.css (OKLCH).
+        /* R=G=B only — avoids slate/zinc Tailwind defaults that read blue on panels */
         background: {
-          DEFAULT: "#0a0d12",
+          DEFAULT: "#030303",
           light: "#eef1f5",
         },
         surface: {
-          DEFAULT: "#0f141d",
-          elevated: "#1d2633",
+          DEFAULT: "#0c0c0c",
+          elevated: "#141414",
           light: "#f7f9fc",
         },
+        /* Monochrome primary: light chrome in dark UI, black in light (see globals overrides) */
         primary: {
-          DEFAULT: "#8ab4f8",
-          hover: "#78a6f0",
-          light: "#a9c7fa",
-          dark: "#5f8de0",
+          DEFAULT: "#e8e8ee",
+          hover: "#f4f4f8",
+          light: "#fafafa",
+          dark: "#1a1a1f",
         },
         accent: {
           DEFAULT: "#10B981",
@@ -49,8 +51,8 @@ const config: Config = {
           s: "#C89B3C", // 95-100 — S grade (Gold)
           "a-plus": "#10B981", // 85-94  — A+ (Emerald)
           a: "#22C55E", // 75-84  — A  (Green)
-          "b-plus": "#06B6D4", // 60-74  — B+ (Cyan)
-          b: "#3B82F6", // 45-59  — B  (Blue)
+          "b-plus": "#787878", // 60-74  — B+ (neutral)
+          b: "#5c5c5c", // 45-59  — B  (neutral)
           "c-plus": "#F59E0B", // 30-44  — C+ (Amber)
           c: "#F97316", // 15-29  — C  (Orange)
           d: "#EF4444", // 0-14   — D  (Red)
@@ -59,22 +61,22 @@ const config: Config = {
         // Text colours
         text: {
           primary: {
-            DEFAULT: "#e8edf5",
+            DEFAULT: "#e4e4e7",
             light: "#121926",
           },
           secondary: {
-            DEFAULT: "#b8c4d4",
+            DEFAULT: "#c4c4cc",
             light: "#4d5b70",
           },
           muted: {
-            DEFAULT: "#94a3b8",
+            DEFAULT: "#8f8f98",
             light: "#7a889a",
           },
         },
 
         // Chart colours for multi-player comparisons
         chart: {
-          1: "#3B82F6", // Blue
+          1: "#d4d4dc", // Light chrome (dark bg)
           2: "#F59E0B", // Amber
           3: "#10B981", // Emerald
           4: "#EF4444", // Red
@@ -83,7 +85,7 @@ const config: Config = {
         // Cricket-specific semantic colours
         cricket: {
           dot: "#64748B", // Dot ball
-          single: "#3B82F6", // 1-3 runs
+          single: "#9ca3af", // 1-3 runs (neutral)
           boundary: "#22C55E", // Four
           six: "#FFD700", // Six
           wicket: "#EF4444", // Wicket
@@ -172,9 +174,8 @@ const config: Config = {
       },
 
       boxShadow: {
-        card: "0 1px 2px rgb(2 6 23 / 0.18)",
-        "card-hover":
-          "0 8px 20px rgb(2 6 23 / 0.22)",
+        card: "0 1px 2px rgb(0 0 0 / 0.4)",
+        "card-hover": "0 8px 20px rgb(0 0 0 / 0.45)",
       },
 
       spacing: {

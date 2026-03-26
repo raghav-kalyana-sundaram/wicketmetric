@@ -503,7 +503,7 @@ export default function SpellsLogPage() {
       <div className="card p-0 overflow-hidden">
         {/* Loading indicator */}
         {isFetching && (
-          <div className="h-1 bg-primary/20">
+          <div className="h-1 bg-white/10">
             <div className="h-1 bg-primary animate-pulse w-1/3" />
           </div>
         )}

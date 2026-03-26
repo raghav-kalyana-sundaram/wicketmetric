@@ -39,6 +39,15 @@ export interface PlayerSummary {
   modal_position?: number | null;
   /** Squad / franchise from the player's most recent match in this format */
   recent_team?: string | null;
+  /** Bowl: pp_heavy / middle_heavy / death_heavy when known */
+  phase_group?: string | null;
+  /** Team builder dual-skill hint (never show negative labels in UI) */
+  allrounder_class?: "genuine" | "batting" | "bowling" | null;
+  /**
+   * Optional headshot URL for UI / social export. When present, must be CORS-accessible
+   * for canvas compositing; backend may add this field later.
+   */
+  photo_url?: string | null;
 }
 
 // ── Phase Split ──────────────────────────────────────────────────
@@ -195,6 +204,8 @@ export interface BatterProfile {
   modal_position?: number | null;
   /** Side they played for in their last game (batting_team) */
   recent_team?: string | null;
+  /** Optional headshot; CORS required for social export canvas. */
+  photo_url?: string | null;
 
   // Career stats
   innings_count: number;
@@ -281,6 +292,8 @@ export interface BowlerProfile {
   phase_group: string;
   /** Side they played for in their last game (bowling_team) */
   recent_team?: string | null;
+  /** Optional headshot; CORS required for social export canvas. */
+  photo_url?: string | null;
 
   // Career stats
   matches: number;
@@ -597,8 +610,15 @@ export interface TeamAnalysis {
   total_war_bowling: number | null;
   avg_clutch: number | null;
   weaknesses: string[];
+  composition_critical?: string[];
+  composition_advisory?: string[];
+  role_fit_warnings?: string[];
+  composition_summary?: Record<string, boolean | string>;
   genuine_batter_count?: number;
   genuine_bowler_count?: number;
+  bowling_aggregate_count?: number;
+  /** XI order as analysed (for auto-fill slot alignment) */
+  player_ids_ordered?: string[];
 }
 
 // ── Team vs Team Comparison ──────────────────────────────────────
@@ -677,6 +697,61 @@ export interface LatestScorecardSummary {
   event_name?: string | null;
 }
 
+/** Paginated impact leaderboard from GET /api/scorecards/performances/by-impact. */
+export interface MatchImpactPerformanceRow {
+  match_id: string;
+  date?: string | null;
+  venue?: string | null;
+  event_name?: string | null;
+  teams?: string[] | null;
+  player_id: string;
+  player_name: string;
+  total_impact: number;
+  bat_impact: number;
+  bowl_impact: number;
+  bat_runs?: number | null;
+  bat_balls?: number | null;
+  bowl_wickets?: number | null;
+  bowl_runs_conceded?: number | null;
+  bowl_balls?: number | null;
+}
+
+export interface MatchImpactPerformancesResponse {
+  performances: MatchImpactPerformanceRow[];
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+export interface MatchImpactPerformancesParams {
+  date_from?: string | null;
+  date_to?: string | null;
+  team?: string | null;
+  event?: string | null;
+  player_id?: string | null;
+  discipline?: "combined" | "bat" | "bowl";
+  order?: "asc" | "desc";
+  page?: number;
+  per_page?: number;
+}
+
+/** One match from GET /api/scorecards/player/{id}/match-impact (sorted best-first). */
+export interface PlayerMatchImpactRow {
+  match_id: string;
+  date?: string | null;
+  venue?: string | null;
+  event_name?: string | null;
+  total_impact: number;
+  bat_impact: number;
+  bowl_impact: number;
+  bat_runs?: number | null;
+  bat_balls?: number | null;
+  bowl_wickets?: number | null;
+  bowl_runs_conceded?: number | null;
+  bowl_balls?: number | null;
+}
+
 export interface ApiMeta {
   status: string;
   total_batters: number;
@@ -749,6 +824,12 @@ export interface LeaderboardParams {
   activity?: "active" | "retired" | "all";
   page?: number;
   per_page?: number;
+  /** Batting leaderboard: innings entry slice (API default none) */
+  ctx_entry_phase?: "none" | "early" | "death";
+  /** Batting: not yet supported server-side */
+  ctx_knockouts_only?: boolean;
+  /** Batting: not yet supported server-side */
+  ctx_chase_high_rpo?: boolean;
 }
 
 export interface MatchupExploreParams {
@@ -775,4 +856,147 @@ export interface FlatTrackParams {
   order?: SortOrder;
   page?: number;
   per_page?: number;
+}
+
+// ── ESPN live scoreboard (proxied; not tied to Cricsheet scorecards) ──
+
+export interface EspnScoreboardCompetitorSummary {
+  name: string;
+  score_display: string;
+}
+
+export interface EspnEventSummary {
+  event_id: string;
+  name: string;
+  short_name: string;
+  status: string;
+  state: string;
+  competitors: EspnScoreboardCompetitorSummary[];
+  /** One-line live scores for both sides, e.g. "RCB 120/4 · MI 118/8" */
+  score_line?: string;
+  /** ESPN series / competition name from the header feed */
+  league_name?: string;
+  /** One-line match state from ESPN (e.g. toss, session) */
+  situation_short?: string;
+  /** Longer situation line when available */
+  situation_long?: string;
+  /** Team currently batting when ESPN exposes battingTeamId */
+  batting_team_name?: string;
+  /** Latest matchnote-style update (not full commentary) */
+  recent_note?: string;
+  /** Link to ESPN match summary / scorecard */
+  espn_url?: string;
+  /** Numeric ESPN series/league id — required for in-app match summary */
+  league_id?: string;
+}
+
+export interface EspnCricketScoreboardQuery {
+  dates?: string | null;
+  region?: string | null;
+  lang?: string | null;
+}
+
+/** Wrapper from `GET /api/live/espn/cricket/scoreboard` */
+export interface EspnCricketScoreboardResponse {
+  enabled: boolean;
+  league?: string;
+  query?: EspnCricketScoreboardQuery;
+  fetched_at?: string;
+  served_from_cache?: boolean;
+  refresh_interval_seconds?: number;
+  payload?: unknown;
+  events_summary?: EspnEventSummary[];
+  upstream_http_status?: number | null;
+  upstream_error?: string | null;
+  message?: string | null;
+}
+
+/** Normalized rows from ESPN match summary (site v2) for in-app scorecard UI */
+export interface EspnMatchNoteRow {
+  type: string;
+  text: string;
+}
+
+export interface EspnMatchDetailStatus {
+  summary: string;
+  display_clock: string;
+  short_detail: string;
+  detail: string;
+  batting_team_id: string;
+}
+
+export interface EspnMatchDetailInnings {
+  period: number | null;
+  runs: number | null;
+  wickets: number | null;
+  overs: number | null;
+  score: string;
+  is_batting: boolean;
+  description: string;
+}
+
+export interface EspnMatchDetailTeam {
+  id: string;
+  name: string;
+  abbreviation: string;
+  home_away: string;
+  score: string;
+  innings: EspnMatchDetailInnings[];
+}
+
+export interface EspnMatchFallOfWicket {
+  team_score_runs: number | null;
+  wicket_number: number | null;
+  over: number | null;
+  batter_out: string;
+  team_name: string;
+}
+
+/** One ESPN ``matchcards`` block: batting, bowling, or partnerships for an innings */
+export interface EspnMatchcardSection {
+  kind: string;
+  headline: string;
+  team_name: string;
+  innings_number: number | null;
+  extras_summary?: string | null;
+  total_line?: string | null;
+  runs_summary?: string | null;
+  rows: Record<string, string>[];
+}
+
+/** Single ball from ``competition.commentaries`` (newest first) */
+export interface EspnRecentBall {
+  short_text: string;
+  summary: string;
+  home_score: string;
+  away_score: string;
+  over_display: string;
+}
+
+export interface EspnCricketMatchDetail {
+  title: string;
+  short_title: string;
+  venue: string | null;
+  notes: EspnMatchNoteRow[];
+  status: EspnMatchDetailStatus;
+  teams: EspnMatchDetailTeam[];
+  fall_of_wickets: EspnMatchFallOfWicket[];
+  /** Batting / bowling / partnership tables from ESPN ``matchcards`` */
+  matchcard_sections?: EspnMatchcardSection[];
+  /** Ball-by-ball style lines from ``commentaries`` (newest first) */
+  recent_balls?: EspnRecentBall[];
+}
+
+/** Wrapper from `GET /api/live/espn/cricket/summary` */
+export interface EspnCricketMatchSummaryResponse {
+  enabled: boolean;
+  league_id: string;
+  event_id: string;
+  fetched_at?: string;
+  served_from_cache?: boolean;
+  refresh_interval_seconds?: number;
+  detail: EspnCricketMatchDetail | null;
+  upstream_http_status?: number | null;
+  upstream_error?: string | null;
+  message?: string | null;
 }

@@ -70,7 +70,7 @@ export default function ThemeToggle({
         }}
       >
         {isDark ? (
-          <Sun size={iconSize} className="text-warning" />
+          <Sun size={iconSize} className="text-text-secondary" />
         ) : (
           <Moon size={iconSize} className="text-primary" />
         )}

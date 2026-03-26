@@ -85,6 +85,11 @@ interface ScoreBarProps {
   animate?: boolean;
   /** Grade string override. If not provided, derived from the score value. */
   grade?: string;
+  /**
+   * When true with variant="minimal", hides the bar from assistive tech (aria-hidden)
+   * and omits role="meter" — use when the numeric value is already announced beside the bar.
+   */
+  decorative?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -102,6 +107,7 @@ export default function ScoreBar({
   colour,
   animate = true,
   grade,
+  decorative = false,
 }: ScoreBarProps) {
   const score =
     value != null && isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
@@ -119,6 +125,22 @@ export default function ScoreBar({
 
   // ── Render: minimal ────────────────────────────────────────
   if (variant === "minimal") {
+    if (decorative) {
+      return (
+        <div
+          className={`score-bar ${barHeight} ${className}`}
+          aria-hidden="true"
+        >
+          <div
+            className={`score-bar-fill ${barHeight} ${transitionClass}`}
+            style={{
+              width: `${fillPct}%`,
+              backgroundColor: fillColour,
+            }}
+          />
+        </div>
+      );
+    }
     return (
       <div
         className={`score-bar ${barHeight} ${className}`}

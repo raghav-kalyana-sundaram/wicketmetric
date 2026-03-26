@@ -30,17 +30,17 @@ export default function HomeWelcomeTip() {
 
   return (
     <div
-      className="mb-4 flex flex-col gap-2 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between dark:border-primary/20 dark:bg-primary/[0.08]"
+      className="mb-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between dark:border-white/[0.1] dark:bg-surface"
       role="status"
     >
       <p className="text-left text-sm text-text-secondary">
         <span className="font-semibold text-text-primary">Quick tip:</span>{" "}
         Press{" "}
-        <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-800 dark:border-surface-elevated dark:bg-surface dark:text-text-primary">
+        <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-800 dark:border-white/15 dark:bg-[#0a0a0a] dark:text-text-primary">
           ⌘K
         </kbd>{" "}
         or{" "}
-        <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-800 dark:border-surface-elevated dark:bg-surface dark:text-text-primary">
+        <kbd className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-800 dark:border-white/15 dark:bg-[#0a0a0a] dark:text-text-primary">
           Ctrl+K
         </kbd>{" "}
         from most pages to open player search.

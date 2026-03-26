@@ -8,7 +8,7 @@
  * Features:
  *   - Smooth polyline connecting data points
  *   - Optional gradient fill beneath the line
- *   - Colour derived from the trend (improving = green, declining = red, stable = blue)
+ *   - Colour derived from the trend (improving = green, declining = amber, stable = neutral grey)
  *   - Hover tooltip showing the value at each point
  *   - Accessible: uses role="img" with aria-label
  *   - Graceful handling of null/empty data (renders a flat grey line)
@@ -55,7 +55,7 @@ interface FormSparklineProps {
   yMax?: number;
   /**
    * When true, style as a miniature of the profile "Form Tracker" chart:
-   * fixed 0–100 scale, blue line, gradient fill, optional median line at 50.
+   * fixed 0–100 scale, neutral line, gradient fill, optional median line at 50.
    */
   variant?: 'default' | 'formTracker';
   /** When variant="formTracker", show a faint median (50) reference line. */
@@ -68,17 +68,17 @@ export { detectTrend, detectTrendFromLastN } from "@/components/formSparklineUti
 function trendColour(trend: Trend): string {
   switch (trend) {
     case 'up':
-      return '#38BDF8'; // Sky — direction, not "good"
+      return '#34D399'; // Emerald — up without UI chrome blue
     case 'down':
       return '#F59E0B'; // Amber
     case 'stable':
-      return '#94A3B8'; // Slate
+      return '#94A3B8'; // Neutral slate
   }
 }
 
 // ── Component ────────────────────────────────────────────────────
 
-const FORM_TRACKER_BLUE = '#3B82F6';
+const FORM_TRACKER_NEUTRAL = '#a3a3a3';
 
 export default function FormSparkline({
   data,
@@ -103,7 +103,7 @@ export default function FormSparkline({
   const isFormTrackerVariant = variant === 'formTracker';
   const effectiveYMin = isFormTrackerVariant ? 0 : yMinProp;
   const effectiveYMax = isFormTrackerVariant ? 100 : yMaxProp;
-  const effectiveColour = isFormTrackerVariant ? FORM_TRACKER_BLUE : colour;
+  const effectiveColour = isFormTrackerVariant ? FORM_TRACKER_NEUTRAL : colour;
   const effectiveShowFill = isFormTrackerVariant ? true : showFill;
   const effectiveShowMedian = showMedianLine || (isFormTrackerVariant && showMedianLine !== false);
 

@@ -25,7 +25,7 @@
  *   - usePlayerInnings() / usePlayerSpells() — recent innings/spells
  */
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -69,6 +69,7 @@ import {
   usePlayerForm,
   usePlayerInnings,
   usePlayerSpells,
+  usePlayerMatchImpact,
 } from "@/api/queries";
 import { scoreToColour, CHART_COLOURS, dominanceColour } from "@/lib/colours";
 import {
@@ -99,7 +100,12 @@ import type {
   FormPoint,
   InningsDetail,
   SpellDetail,
+  PlayerMatchImpactRow,
 } from "@/api/types";
+import { formatCombinedSummary } from "@/lib/scorecardMatchImpact";
+import SocialShareTrigger from "@/components/SocialShareTrigger";
+import { SOCIAL_EXPORT_ROOT_CLASS } from "@/lib/socialCapture";
+import { subjectsFromPlayers } from "@/lib/socialGraphicComposite";
 
 // ── Component ────────────────────────────────────────────────────
 
@@ -207,6 +213,12 @@ export default function PlayerProfile() {
     { enabled: isBowlView && !!id },
   );
 
+  const {
+    data: matchImpactRows,
+    isLoading: matchImpactLoading,
+    isError: matchImpactError,
+  } = usePlayerMatchImpact(id, { enabled: Boolean(id) });
+
   // ── Loading state ──────────────────────────────────────────
   if (rolesLoading || (activeRole !== null && profileLoading)) {
     return <ProfileSkeleton />;
@@ -287,6 +299,9 @@ export default function PlayerProfile() {
           logPerPage={LOG_PER_PAGE}
           onLogPageChange={setLogPage}
           navigate={navigate}
+          matchImpactRows={matchImpactRows}
+          matchImpactLoading={matchImpactLoading}
+          matchImpactError={matchImpactError}
         />
       ) : (
         <BowlerProfileView
@@ -300,6 +315,9 @@ export default function PlayerProfile() {
           logPerPage={LOG_PER_PAGE}
           onLogPageChange={setLogPage}
           navigate={navigate}
+          matchImpactRows={matchImpactRows}
+          matchImpactLoading={matchImpactLoading}
+          matchImpactError={matchImpactError}
         />
       )}
     </div>
@@ -332,7 +350,7 @@ function RoleToggle({
           flex items-center gap-2
           ${
             activeRole === "bat"
-              ? "bg-primary text-white shadow-sm"
+              ? "bg-primary text-white dark:text-background shadow-sm"
               : "text-text-secondary hover:text-text-primary hover:bg-surface-elevated"
           }
         `}
@@ -356,7 +374,7 @@ function RoleToggle({
           flex items-center gap-2
           ${
             activeRole === "bowl"
-              ? "bg-primary text-white shadow-sm"
+              ? "bg-primary text-white dark:text-background shadow-sm"
               : "text-text-secondary hover:text-text-primary hover:bg-surface-elevated"
           }
         `}
@@ -389,6 +407,193 @@ function BackLink() {
   );
 }
 
+function impactRowToCombined(r: PlayerMatchImpactRow) {
+  return {
+    playerId: r.match_id,
+    name: "",
+    batImpact: r.bat_impact,
+    bowlImpact: r.bowl_impact,
+    totalImpact: r.total_impact,
+    batRuns: r.bat_runs ?? undefined,
+    batBalls: r.bat_balls ?? undefined,
+    bowlWkts: r.bowl_wickets ?? undefined,
+    bowlRuns: r.bowl_runs_conceded ?? undefined,
+    bowlBalls: r.bowl_balls ?? undefined,
+  };
+}
+
+const MATCH_IMPACT_PREVIEW_COUNT = 5;
+
+function PlayerMatchImpactSection({
+  playerId,
+  rows,
+  isLoading,
+  isError,
+}: {
+  playerId: string;
+  rows: PlayerMatchImpactRow[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  const [showAllMatchImpact, setShowAllMatchImpact] = useState(false);
+
+  React.useEffect(() => {
+    setShowAllMatchImpact(false);
+  }, [playerId]);
+
+  if (isLoading) {
+    return (
+      <section className="card p-6">
+        <SectionTitle
+          icon={<BarChart3 size={18} />}
+          title="Match impact performances"
+        />
+        <p className="text-sm text-text-muted mt-4">Loading scorecard impact…</p>
+      </section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section className="card p-6">
+        <SectionTitle
+          icon={<BarChart3 size={18} />}
+          title="Match impact performances"
+        />
+        <p className="text-sm text-text-muted mt-4">
+          Could not load scorecard impact for this player.
+        </p>
+      </section>
+    );
+  }
+
+  const list = rows ?? [];
+  if (list.length === 0) {
+    return (
+      <section className="card p-6">
+        <SectionTitle
+          icon={<BarChart3 size={18} />}
+          title="Match impact performances"
+        />
+        <p className="text-sm text-text-muted mt-4">
+          No qualifying match impact in scorecards yet — the same minimum balls
+          rules as the scorecard Match impact tab apply (batting 5+ balls and/or
+          bowling 6+ balls in that match).
+        </p>
+      </section>
+    );
+  }
+
+  const hasMoreThanPreview = list.length > MATCH_IMPACT_PREVIEW_COUNT;
+  const visibleRows =
+    showAllMatchImpact || !hasMoreThanPreview
+      ? list
+      : list.slice(0, MATCH_IMPACT_PREVIEW_COUNT);
+
+  return (
+    <section className="card p-6">
+      <SectionTitle
+        icon={<BarChart3 size={18} />}
+        title="Match impact performances"
+      />
+      <p className="text-xs text-text-muted mt-2 mb-4">
+        Top scorecard matches by combined impact (
+        <span className="tabular-nums text-text-secondary">bat + bowl</span>,
+        same rules as the Match impact tab).{" "}
+        {hasMoreThanPreview && !showAllMatchImpact ? (
+          <>
+            Showing top{" "}
+            <span className="tabular-nums text-text-secondary">
+              {MATCH_IMPACT_PREVIEW_COUNT}
+            </span>{" "}
+            of{" "}
+            <span className="tabular-nums text-text-secondary">{list.length}</span>{" "}
+            matches.
+          </>
+        ) : (
+          <>
+            <span className="tabular-nums text-text-secondary">{list.length}</span>{" "}
+            {list.length === 1 ? "match" : "matches"}.
+          </>
+        )}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="sortable-table text-sm w-full min-w-[640px]">
+          <thead>
+            <tr>
+              <th className="text-left w-10">#</th>
+              <th className="text-left">Date</th>
+              <th className="text-left">Match</th>
+              <th className="text-left">Performance</th>
+              <th className="text-right">Total</th>
+              <th className="text-right">Bat</th>
+              <th className="text-right">Bowl</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row, i) => {
+              const title =
+                (row.event_name && String(row.event_name).trim()) ||
+                (row.venue && String(row.venue).trim()) ||
+                row.match_id;
+              return (
+                <tr key={`${row.match_id}-${i}`}>
+                  <td className="text-text-muted tabular-nums">{i + 1}</td>
+                  <td className="text-text-secondary whitespace-nowrap">
+                    {fmtDate(row.date)}
+                  </td>
+                  <td>
+                    <Link
+                      to={`/scorecards/${encodeURIComponent(row.match_id)}`}
+                      className="text-primary hover:underline inline-flex items-center gap-1"
+                    >
+                      <span className="line-clamp-2">{title}</span>
+                      <ChevronRight size={12} className="shrink-0 opacity-60" />
+                    </Link>
+                  </td>
+                  <td className="text-text-secondary max-w-[14rem]">
+                    {formatCombinedSummary(impactRowToCombined(row))}
+                  </td>
+                  <td className="text-right font-medium tabular-nums text-text-primary">
+                    {row.total_impact.toFixed(2)}
+                  </td>
+                  <td className="text-right tabular-nums text-text-secondary">
+                    {row.bat_impact > 0 ? row.bat_impact.toFixed(2) : "—"}
+                  </td>
+                  <td className="text-right tabular-nums text-text-secondary">
+                    {row.bowl_impact > 0 ? row.bowl_impact.toFixed(2) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {hasMoreThanPreview && (
+        <div className="mt-4 pt-3 border-t border-surface-elevated/50">
+          <button
+            type="button"
+            onClick={() => setShowAllMatchImpact((v) => !v)}
+            className="text-sm text-primary hover:text-primary-hover font-medium inline-flex items-center gap-1"
+          >
+            {showAllMatchImpact ? (
+              <>
+                Show top {MATCH_IMPACT_PREVIEW_COUNT} only
+                <ChevronRight size={14} className="opacity-70" aria-hidden />
+              </>
+            ) : (
+              <>
+                Show all {list.length} matches
+                <ChevronRight size={14} className="opacity-70" aria-hidden />
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Batter Profile View ──────────────────────────────────────────
 
 interface BatterProfileViewProps {
@@ -402,6 +607,9 @@ interface BatterProfileViewProps {
   logPerPage: number;
   onLogPageChange: (page: number) => void;
   navigate: (path: string) => void;
+  matchImpactRows: PlayerMatchImpactRow[] | undefined;
+  matchImpactLoading: boolean;
+  matchImpactError: boolean;
 }
 
 function BatterProfileView({
@@ -415,7 +623,14 @@ function BatterProfileView({
   logPerPage,
   onLogPageChange,
   navigate,
+  matchImpactRows,
+  matchImpactLoading,
+  matchImpactError,
 }: BatterProfileViewProps) {
+  const metricScoresExportRef = useRef<HTMLDivElement>(null);
+  const formExportRef = useRef<HTMLDivElement>(null);
+  const phaseExportRef = useRef<HTMLDivElement>(null);
+
   const flag = countryFlag(p.country);
   const teamPrimary =
     (p.recent_team || "").trim() || p.country || "";
@@ -514,9 +729,23 @@ function BatterProfileView({
 
       {/* ── Metric Scores ─────────────────────────────────────── */}
       <section className="card p-6">
-        <SectionTitle icon={<BarChart3 size={18} />} title="Metric Scores" />
+        <SectionTitle
+          icon={<BarChart3 size={18} />}
+          title="Metric Scores"
+          actions={
+            <SocialShareTrigger
+              exportRef={metricScoresExportRef}
+              filenameBase={`player-${p.id}-metrics`}
+              subjects={subjectsFromPlayers([p])}
+              subtitle="Metric scores"
+            />
+          }
+        />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+        <div
+          ref={metricScoresExportRef}
+          className={`${SOCIAL_EXPORT_ROOT_CLASS} mt-4 grid grid-cols-1 gap-6 rounded-xl bg-surface/30 p-4 lg:grid-cols-2`}
+        >
           {/* Score bars */}
           <div className="space-y-3">
             <ScoreBar
@@ -671,6 +900,13 @@ function BatterProfileView({
         </div>
       </section>
 
+      <PlayerMatchImpactSection
+        playerId={p.id}
+        rows={matchImpactRows}
+        isLoading={matchImpactLoading}
+        isError={matchImpactError}
+      />
+
       {/* ── Component Breakdown ────────────────────────────────── */}
       {p.components && Object.keys(p.components).length > 0 && (
         <section className="card p-6">
@@ -693,8 +929,22 @@ function BatterProfileView({
       {/* ── Phase Splits ──────────────────────────────────────── */}
       {p.phases && Object.keys(p.phases).length > 0 && (
         <section className="card p-6">
-          <SectionTitle icon={<Target size={18} />} title="Phase Splits" />
-          <div className="mt-4 overflow-x-auto">
+          <SectionTitle
+            icon={<Target size={18} />}
+            title="Phase Splits"
+            actions={
+              <SocialShareTrigger
+                exportRef={phaseExportRef}
+                filenameBase={`player-${p.id}-phases`}
+                subjects={subjectsFromPlayers([p])}
+                subtitle="Phase splits"
+              />
+            }
+          />
+          <div
+            ref={phaseExportRef}
+            className={`${SOCIAL_EXPORT_ROOT_CLASS} mt-4 overflow-x-auto rounded-xl bg-surface/30 p-4`}
+          >
             <table className="sortable-table text-sm">
               <thead>
                 <tr>
@@ -782,7 +1032,23 @@ function BatterProfileView({
 
       {/* ── Form Tracker ──────────────────────────────────────── */}
       <section className="card p-6">
-        <SectionTitle icon={<TrendingUp size={18} />} title="Form Tracker" />
+        <SectionTitle
+          icon={<TrendingUp size={18} />}
+          title="Form Tracker"
+          actions={
+            showForm &&
+            !formLoading &&
+            formData?.series &&
+            formData.series.length > 0 ? (
+              <SocialShareTrigger
+                exportRef={formExportRef}
+                filenameBase={`player-${p.id}-form`}
+                subjects={subjectsFromPlayers([p])}
+                subtitle="Form tracker"
+              />
+            ) : undefined
+          }
+        />
         {!showForm ? (
           <div className="mt-4 text-center py-8">
             <p className="text-sm text-text-secondary mb-3">
@@ -803,7 +1069,10 @@ function BatterProfileView({
             </div>
           </div>
         ) : formData?.series && formData.series.length > 0 ? (
-          <div className="mt-4">
+          <div
+            ref={formExportRef}
+            className={`${SOCIAL_EXPORT_ROOT_CLASS} mt-4 rounded-xl bg-surface/30 p-4`}
+          >
             <FormChart series={formData.series} role="bat" />
           </div>
         ) : (
@@ -917,6 +1186,9 @@ interface BowlerProfileViewProps {
   logPerPage: number;
   onLogPageChange: (page: number) => void;
   navigate: (path: string) => void;
+  matchImpactRows: PlayerMatchImpactRow[] | undefined;
+  matchImpactLoading: boolean;
+  matchImpactError: boolean;
 }
 
 function BowlerProfileView({
@@ -930,7 +1202,14 @@ function BowlerProfileView({
   logPerPage,
   onLogPageChange,
   navigate,
+  matchImpactRows,
+  matchImpactLoading,
+  matchImpactError,
 }: BowlerProfileViewProps) {
+  const metricScoresBowlExportRef = useRef<HTMLDivElement>(null);
+  const formBowlExportRef = useRef<HTMLDivElement>(null);
+  const phaseBowlExportRef = useRef<HTMLDivElement>(null);
+
   const flag = countryFlag(p.country);
   const teamPrimary =
     (p.recent_team || "").trim() || p.country || "";
@@ -1030,8 +1309,22 @@ function BowlerProfileView({
 
       {/* ── Metric Scores ─────────────────────────────────────── */}
       <section className="card p-6">
-        <SectionTitle icon={<BarChart3 size={18} />} title="Metric Scores" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+        <SectionTitle
+          icon={<BarChart3 size={18} />}
+          title="Metric Scores"
+          actions={
+            <SocialShareTrigger
+              exportRef={metricScoresBowlExportRef}
+              filenameBase={`player-${p.id}-metrics-bowl`}
+              subjects={subjectsFromPlayers([p])}
+              subtitle="Metric scores"
+            />
+          }
+        />
+        <div
+          ref={metricScoresBowlExportRef}
+          className={`${SOCIAL_EXPORT_ROOT_CLASS} mt-4 grid grid-cols-1 gap-6 rounded-xl bg-surface/30 p-4 lg:grid-cols-2`}
+        >
           <div className="space-y-3">
             <ScoreBar
               value={p.score_accuracy}
@@ -1120,6 +1413,13 @@ function BowlerProfileView({
         </div>
       </section>
 
+      <PlayerMatchImpactSection
+        playerId={p.id}
+        rows={matchImpactRows}
+        isLoading={matchImpactLoading}
+        isError={matchImpactError}
+      />
+
       {/* ── Component Breakdown ────────────────────────────────── */}
       {p.components && Object.keys(p.components).length > 0 && (
         <section className="card p-6">
@@ -1142,8 +1442,22 @@ function BowlerProfileView({
       {/* ── Phase Splits ──────────────────────────────────────── */}
       {p.phases && Object.keys(p.phases).length > 0 && (
         <section className="card p-6">
-          <SectionTitle icon={<Target size={18} />} title="Phase Splits" />
-          <div className="mt-4 overflow-x-auto">
+          <SectionTitle
+            icon={<Target size={18} />}
+            title="Phase Splits"
+            actions={
+              <SocialShareTrigger
+                exportRef={phaseBowlExportRef}
+                filenameBase={`player-${p.id}-phases-bowl`}
+                subjects={subjectsFromPlayers([p])}
+                subtitle="Phase splits"
+              />
+            }
+          />
+          <div
+            ref={phaseBowlExportRef}
+            className={`${SOCIAL_EXPORT_ROOT_CLASS} mt-4 overflow-x-auto rounded-xl bg-surface/30 p-4`}
+          >
             <table className="sortable-table text-sm">
               <thead>
                 <tr>
@@ -1184,7 +1498,23 @@ function BowlerProfileView({
 
       {/* ── Form Tracker ──────────────────────────────────────── */}
       <section className="card p-6">
-        <SectionTitle icon={<TrendingUp size={18} />} title="Form Tracker" />
+        <SectionTitle
+          icon={<TrendingUp size={18} />}
+          title="Form Tracker"
+          actions={
+            showForm &&
+            !formLoading &&
+            formData?.series &&
+            formData.series.length > 0 ? (
+              <SocialShareTrigger
+                exportRef={formBowlExportRef}
+                filenameBase={`player-${p.id}-form-bowl`}
+                subjects={subjectsFromPlayers([p])}
+                subtitle="Form tracker"
+              />
+            ) : undefined
+          }
+        />
         {!showForm ? (
           <div className="mt-4 text-center py-8">
             <p className="text-sm text-text-secondary mb-3">
@@ -1200,7 +1530,10 @@ function BowlerProfileView({
             <div className="h-8 w-8 rounded-full border-4 border-surface-elevated border-t-primary animate-spin" />
           </div>
         ) : formData?.series && formData.series.length > 0 ? (
-          <div className="mt-4">
+          <div
+            ref={formBowlExportRef}
+            className={`${SOCIAL_EXPORT_ROOT_CLASS} mt-4 rounded-xl bg-surface/30 p-4`}
+          >
             <FormChart series={formData.series} role="bowl" />
           </div>
         ) : (
@@ -1301,15 +1634,22 @@ function BowlerProfileView({
 function SectionTitle({
   icon,
   title,
+  actions,
 }: {
   icon: React.ReactNode;
   title: string;
+  actions?: React.ReactNode;
 }) {
   return (
-    <h2 className="text-h3 text-text-primary flex items-center gap-2">
-      <span className="text-primary">{icon}</span>
-      {title}
-    </h2>
+    <div className="flex items-start justify-between gap-2">
+      <h2 className="text-h3 text-text-primary flex min-w-0 flex-1 items-center gap-2">
+        <span className="shrink-0 text-primary">{icon}</span>
+        {title}
+      </h2>
+      {actions ? (
+        <div className="flex shrink-0 items-start">{actions}</div>
+      ) : null}
+    </div>
   );
 }
 

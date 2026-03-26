@@ -96,10 +96,10 @@ const ARCHETYPE_COLOURS: Record<
 > = {
   // Batting — warm tones
   Anchor: {
-    bg: "bg-blue-100",
-    text: "text-blue-800",
-    darkBg: "bg-blue-500/15",
-    darkText: "text-blue-300",
+    bg: "bg-slate-100",
+    text: "text-slate-800",
+    darkBg: "bg-white/[0.06]",
+    darkText: "text-zinc-300",
   },
   "Chase Master": {
     bg: "bg-emerald-100",
@@ -170,10 +170,10 @@ const ARCHETYPE_COLOURS: Record<
     darkText: "text-violet-300",
   },
   "Powerplay Specialist": {
-    bg: "bg-cyan-100",
-    text: "text-cyan-800",
-    darkBg: "bg-cyan-500/15",
-    darkText: "text-cyan-300",
+    bg: "bg-neutral-200",
+    text: "text-neutral-800",
+    darkBg: "bg-white/[0.08]",
+    darkText: "text-neutral-300",
   },
 };
 

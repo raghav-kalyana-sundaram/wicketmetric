@@ -521,7 +521,7 @@ const SECTIONS: SectionDef[] = [
   {
     id: "batting",
     title: "Core Batting Metrics",
-    icon: <Zap size={18} className="text-accent" />,
+    icon: <Zap size={18} className="text-text-muted" />,
     description:
       "Every batter is rated on three core dimensions. These combine sub-components into a single 0–100 score with a letter grade.",
     metrics: BATTING_METRICS,
@@ -529,7 +529,7 @@ const SECTIONS: SectionDef[] = [
   {
     id: "bowling",
     title: "Core Bowling Metrics",
-    icon: <Target size={18} className="text-danger" />,
+    icon: <Target size={18} className="text-text-muted" />,
     description:
       "Every bowler is rated on three core dimensions, mirroring the batting metrics structure.",
     metrics: BOWLING_METRICS,
@@ -544,7 +544,7 @@ const SECTIONS: SectionDef[] = [
   {
     id: "advanced",
     title: "Advanced Metrics",
-    icon: <Activity size={18} className="text-warning" />,
+    icon: <Activity size={18} className="text-text-muted" />,
     description:
       "Beyond the core three metrics, several advanced analytics provide deeper insight.",
     metrics: ADVANCED_METRICS,
@@ -560,14 +560,14 @@ const SECTIONS: SectionDef[] = [
   {
     id: "grades",
     title: "Grades & Archetypes",
-    icon: <Award size={18} className="text-gold" />,
+    icon: <Award size={18} className="text-text-muted" />,
     description:
       "Scores are mapped to letter grades, and players are classified into archetypes based on their metric profile.",
   },
   {
     id: "similarity",
     title: "Similarity",
-    icon: <GitCompare size={18} className="text-accent" />,
+    icon: <GitCompare size={18} className="text-text-muted" />,
     description: 'The methodology behind the "Similar Players" feature.',
   },
   {
@@ -631,7 +631,7 @@ function MetricCard({ metric, defaultOpen = false }: MetricCardProps) {
       >
         <div className="flex items-center gap-3">
           {metric.shortName && (
-            <span className="font-score text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded">
+            <span className="rounded bg-slate-200/90 px-2 py-1 font-score text-xs font-bold text-primary dark:bg-surface-elevated">
               {metric.shortName}
             </span>
           )}
@@ -675,7 +675,7 @@ function MetricCard({ metric, defaultOpen = false }: MetricCardProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {metric.goodValue && (
                 <div className="flex items-start gap-2 text-xs">
-                  <span className="text-accent mt-0.5">✓</span>
+                  <span className="mt-0.5 text-text-secondary">✓</span>
                   <div>
                     <span className="font-medium text-text-primary">
                       Good:{" "}
@@ -688,7 +688,7 @@ function MetricCard({ metric, defaultOpen = false }: MetricCardProps) {
               )}
               {metric.badValue && (
                 <div className="flex items-start gap-2 text-xs">
-                  <span className="text-danger mt-0.5">✗</span>
+                  <span className="mt-0.5 text-text-muted">✗</span>
                   <div>
                     <span className="font-medium text-text-primary">
                       Concerning:{" "}
@@ -870,7 +870,7 @@ export default function Glossary() {
           {filteredSections.find((s) => s.id === "batting") && (
             <section id="batting" className="scroll-mt-20">
               <div className="flex items-center gap-2 mb-2">
-                <Zap size={20} className="text-accent" />
+                <Zap size={20} className="text-text-muted" />
                 <h2 className="text-h2 text-text-primary">
                   Core Batting Metrics
                 </h2>
@@ -891,7 +891,7 @@ export default function Glossary() {
           {filteredSections.find((s) => s.id === "bowling") && (
             <section id="bowling" className="scroll-mt-20">
               <div className="flex items-center gap-2 mb-2">
-                <Target size={20} className="text-danger" />
+                <Target size={20} className="text-text-muted" />
                 <h2 className="text-h2 text-text-primary">
                   Core Bowling Metrics
                 </h2>
@@ -1055,7 +1055,7 @@ export default function Glossary() {
           {filteredSections.find((s) => s.id === "advanced") && (
             <section id="advanced" className="scroll-mt-20">
               <div className="flex items-center gap-2 mb-2">
-                <Activity size={20} className="text-warning" />
+                <Activity size={20} className="text-text-muted" />
                 <h2 className="text-h2 text-text-primary">Advanced Metrics</h2>
               </div>
               <p className="text-sm text-text-secondary mb-4">
@@ -1095,7 +1095,7 @@ export default function Glossary() {
           {filteredSections.find((s) => s.id === "grades") && (
             <section id="grades" className="scroll-mt-20">
               <div className="flex items-center gap-2 mb-2">
-                <Award size={20} className="text-gold" />
+                <Award size={20} className="text-text-muted" />
                 <h2 className="text-h2 text-text-primary">
                   Grades & Archetypes
                 </h2>
@@ -1181,7 +1181,7 @@ export default function Glossary() {
           {filteredSections.find((s) => s.id === "similarity") && (
             <section id="similarity" className="scroll-mt-20">
               <div className="flex items-center gap-2 mb-2">
-                <GitCompare size={20} className="text-accent" />
+                <GitCompare size={20} className="text-text-muted" />
                 <h2 className="text-h2 text-text-primary">Similarity</h2>
               </div>
               <div className="card p-5 space-y-4">

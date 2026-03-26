@@ -230,8 +230,8 @@ function SimilarityScatter({
                   y1={scaleY(target.y)}
                   x2={scaleX(p.x)}
                   y2={scaleY(p.y)}
-                  stroke="#3B82F6"
-                  strokeOpacity={0.12}
+                  stroke="#a3a3a3"
+                  strokeOpacity={0.14}
                   strokeWidth={1}
                   strokeDasharray="4 4"
                 />

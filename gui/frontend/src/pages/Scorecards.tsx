@@ -200,7 +200,13 @@ export default function ScorecardsPage(): JSX.Element {
         <div className="page-header">
           <h1 className="page-title">Match Scorecards</h1>
           <p className="page-subtitle">
-            Browse full scorecards by date, team, and player.
+            Browse full scorecards by date, team, and player.{" "}
+            <Link
+              to="/performances"
+              className="text-primary font-medium hover:underline whitespace-nowrap"
+            >
+              Top match-impact performances →
+            </Link>
             {isInternationalT20 && (
               <>
                 {" "}
@@ -433,7 +439,7 @@ export default function ScorecardsPage(): JSX.Element {
                         className="scorecard-series-details rounded-lg border border-surface-elevated bg-surface overflow-hidden shadow-sm"
                         open={idx === 0}
                       >
-                        <summary className="cursor-pointer list-none px-4 py-3 bg-primary/5 font-semibold text-text-primary flex flex-wrap items-baseline justify-between gap-2 hover:bg-primary/10">
+                        <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-2 bg-slate-50/80 px-4 py-3 font-semibold text-text-primary hover:bg-slate-100/90 dark:bg-[#080808] dark:hover:bg-surface">
                           <span className="min-w-0 pr-2">{g.series}</span>
                           <span className="shrink-0 text-xs font-normal text-text-muted tabular-nums">
                             {g.matches.length} match{g.matches.length !== 1 ? "es" : ""}

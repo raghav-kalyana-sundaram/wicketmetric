@@ -68,19 +68,19 @@ export const SCORE_BANDS: readonly ScoreBand[] = [
     min: 60,
     max: 74.99,
     grade: "B+",
-    colour: "#06B6D4",
+    colour: "#787878",
     label: "B+ — Very Good",
     cssKey: "b-plus",
-    bgColour: "rgba(6, 182, 212, 0.20)",
+    bgColour: "rgba(120, 120, 120, 0.22)",
   },
   {
     min: 45,
     max: 59.99,
     grade: "B",
-    colour: "#3B82F6",
+    colour: "#5c5c5c",
     label: "B — Good",
     cssKey: "b",
-    bgColour: "rgba(59, 130, 246, 0.20)",
+    bgColour: "rgba(92, 92, 92, 0.22)",
   },
   {
     min: 30,
@@ -264,7 +264,7 @@ export function gradeToLabel(grade: string | null | undefined): string {
  * Supports up to 4 players (the compare page max).
  */
 export const CHART_COLOURS = [
-  "#3B82F6", // Blue
+  "#d4d4dc", // Chrome (dark UI)
   "#F59E0B", // Amber
   "#10B981", // Emerald
   "#EF4444", // Red
@@ -293,7 +293,7 @@ export function chartColourAlpha(index: number, alpha: number = 0.25): string {
 
 export const CRICKET_COLOURS = {
   dot: "#64748B",
-  single: "#3B82F6",
+  single: "#9ca3af",
   boundary: "#22C55E",
   six: "#FFD700",
   wicket: "#EF4444",
@@ -316,15 +316,15 @@ export function deliveryColour(
 // ── Dominance gauge colour ───────────────────────────────────────
 
 /**
- * Get a colour for matchup edge (blue = bowler side, amber/orange = batter side).
+ * Get a colour for matchup edge (cool neutrals = bowler-leaning, amber/orange = batter side).
  * Avoids red/green-only encoding for colour-vision accessibility.
  */
 export function dominanceColour(value: number | null | undefined): string {
   const score = matchupEdgeScore(value);
   if (score == null) return "#64748B";
-  if (score < 36) return "#2563EB";
-  if (score < 45) return "#3B82F6";
-  if (score < 56) return "#64748B";
+  if (score < 36) return "#404040";
+  if (score < 45) return "#737373";
+  if (score < 56) return "#a3a3a3";
   if (score < 65) return "#EA580C";
   return "#D97706";
 }

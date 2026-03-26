@@ -97,7 +97,7 @@ interface LeaderboardCardConfig {
 const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
   {
     title: "Top Rated Batters",
-    icon: <Trophy size={18} className="text-gold" />,
+    icon: <Trophy size={18} className="text-text-muted" />,
     role: "bat",
     metric: "rating_current",
     linkTo: "/rankings?role=bat&sort=rating_current&order=desc",
@@ -106,7 +106,7 @@ const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
   },
   {
     title: "Power Hitters",
-    icon: <Zap size={18} className="text-warning" />,
+    icon: <Zap size={18} className="text-text-muted" />,
     role: "bat",
     metric: "score_power",
     linkTo: "/rankings?role=bat&sort=score_power&order=desc",
@@ -116,7 +116,7 @@ const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
   },
   {
     title: "Best Bowlers",
-    icon: <Target size={18} className="text-accent" />,
+    icon: <Target size={18} className="text-text-muted" />,
     role: "bowl",
     metric: "rating_current",
     linkTo: "/rankings?role=bowl&sort=rating_current&order=desc",
@@ -126,7 +126,7 @@ const LEADERBOARD_CARDS: LeaderboardCardConfig[] = [
   },
   {
     title: "Best Under Pressure",
-    icon: <Flame size={18} className="text-danger" />,
+    icon: <Flame size={18} className="text-text-muted" />,
     role: "bat",
     metric: "clutch_index",
     linkTo: "/rankings?role=bat&sort=clutch_index&order=desc",
@@ -179,13 +179,16 @@ export default function Home() {
     <div className="app-page page-stack">
       <HomeWelcomeTip />
 
-      {/* ── Hero Section ────────────────────────────────────────── */}
-      <section className="section-card section-card-body py-10 sm:py-12">
-        <div className="mx-auto max-w-3xl text-center">
+      {/* ── Hero: light = surface-light; dark = same neutral panel as HomeWelcomeTip (solid bg — no transparent gradient over light fill) ─ */}
+      <section
+        className="overflow-hidden rounded-xl border border-slate-200 bg-surface-light py-10 shadow-sm sm:py-12 dark:rounded-2xl dark:border-white/[0.1] dark:bg-surface dark:shadow-[0_20px_40px_-28px_rgba(0,0,0,0.65)]"
+        aria-label="Search and overview"
+      >
+        <div className="mx-auto max-w-3xl px-4 text-center md:px-6">
           {/* Title */}
-          <div className="mb-8">
+          <div className="mb-8 border-b border-slate-200 pb-8 dark:border-white/[0.08]">
             <h1 className="mb-3 flex items-center justify-center gap-3 text-h1 font-bold text-text-primary">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15 text-primary transition-transform duration-300 ease-out-quart motion-reduce:transition-none motion-reduce:hover:scale-100 hover:scale-105">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-primary transition-transform duration-300 ease-out-quart motion-reduce:transition-none motion-reduce:hover:scale-100 hover:scale-105 dark:border-white/[0.1] dark:bg-surface-elevated">
                 <BarChart3 size={20} />
               </span>
               <span>Cricket Metrics</span>
@@ -214,10 +217,10 @@ export default function Home() {
             <span className="text-text-muted">Popular:</span>
             {POPULAR_PLAYERS.map((p, i) => (
               <span key={p.name} className="flex items-center">
-                {i > 0 && <span className="text-text-muted/30 mx-0.5">·</span>}
+                {i > 0 && <span className="mx-0.5 text-text-muted/50">·</span>}
                 <Link
                   to={`/search?q=${encodeURIComponent(p.query)}`}
-                  className="rounded-full border border-surface-elevated/70 bg-surface-elevated/35 px-2.5 py-1 text-text-secondary text-xs hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="rounded-full border border-slate-200/90 bg-slate-100/80 px-2.5 py-1 text-xs text-text-secondary transition-colors duration-200 ease-out-quart hover:border-primary/40 hover:bg-slate-200/80 hover:text-primary dark:border-white/[0.1] dark:bg-surface-elevated dark:hover:bg-[#1a1a1a]"
                 >
                   {p.name}
                 </Link>
@@ -229,15 +232,15 @@ export default function Home() {
           {meta && meta.status === "ok" && (
             <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-text-muted">
               <span>{fmtInt(meta.total_batters)} batters</span>
-              <span className="text-text-muted/30">·</span>
+              <span className="text-text-muted/50">·</span>
               <span>{fmtInt(meta.total_bowlers)} bowlers</span>
-              <span className="text-text-muted/30">·</span>
+              <span className="text-text-muted/50">·</span>
               <span>{fmtInt(meta.total_matchups)} matchups</span>
-              <span className="text-text-muted/30">·</span>
+              <span className="text-text-muted/50">·</span>
               <span>{fmtInt(meta.total_venues)} venues</span>
               {meta.data_through_date && (
                 <>
-                  <span className="text-text-muted/30">·</span>
+                  <span className="text-text-muted/50">·</span>
                   <span className="tabular-nums">
                     Data through {meta.data_through_date}
                   </span>
@@ -261,7 +264,7 @@ export default function Home() {
       <section>
         <div className="card p-6">
           <div className="flex items-center gap-2 mb-4">
-            <GitCompare size={20} className="text-primary" />
+            <GitCompare size={20} className="text-text-muted" />
             <h2 className="text-h3 text-text-primary">Quick Compare</h2>
           </div>
 
@@ -315,7 +318,7 @@ export default function Home() {
         <section>
           <div className="card p-6">
             <div className="flex items-center gap-2 mb-4">
-              <Users size={20} className="text-accent" />
+              <Users size={20} className="text-text-muted" />
               <h2 className="text-h3 text-text-primary">Browse by Archetype</h2>
             </div>
 
@@ -335,7 +338,7 @@ export default function Home() {
                     <Link
                       key={`bat-${arch}`}
                       to={`/rankings?role=bat&archetype=${encodeURIComponent(arch)}`}
-                      className="archetype-badge hover:bg-primary/10 hover:text-primary transition-colors"
+                      className="archetype-badge transition-colors hover:bg-white/[0.06] hover:text-primary dark:hover:bg-white/[0.08]"
                     >
                       {archetypeIcon(arch)}
                       <span>{arch}</span>
@@ -356,7 +359,7 @@ export default function Home() {
                     <Link
                       key={`bowl-${arch}`}
                       to={`/rankings?role=bowl&archetype=${encodeURIComponent(arch)}`}
-                      className="archetype-badge hover:bg-primary/10 hover:text-primary transition-colors"
+                      className="archetype-badge transition-colors hover:bg-white/[0.06] hover:text-primary dark:hover:bg-white/[0.08]"
                     >
                       {archetypeIcon(arch)}
                       <span>{arch}</span>
@@ -372,42 +375,12 @@ export default function Home() {
       {/* ── Quick Links Grid ────────────────────────────────────── */}
       <section>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <QuickLink
-            to="/rankings"
-            icon={<Trophy size={20} />}
-            label="Leaderboards"
-            colour="text-gold"
-          />
-          <QuickLink
-            to="/compare"
-            icon={<GitCompare size={20} />}
-            label="Compare"
-            colour="text-primary"
-          />
-          <QuickLink
-            to="/matchups"
-            icon={<Target size={20} />}
-            label="Matchups"
-            colour="text-accent"
-          />
-          <QuickLink
-            to="/venues"
-            icon={<BarChart3 size={20} />}
-            label="Venues"
-            colour="text-warning"
-          />
-          <QuickLink
-            to="/team-builder"
-            icon={<Users size={20} />}
-            label="Team Builder"
-            colour="text-danger"
-          />
-          <QuickLink
-            to="/glossary"
-            icon={<Shield size={20} />}
-            label="Methodology"
-            colour="text-text-secondary"
-          />
+          <QuickLink to="/rankings" icon={<Trophy size={20} />} label="Leaderboards" />
+          <QuickLink to="/compare" icon={<GitCompare size={20} />} label="Compare" />
+          <QuickLink to="/matchups" icon={<Target size={20} />} label="Matchups" />
+          <QuickLink to="/venues" icon={<BarChart3 size={20} />} label="Venues" />
+          <QuickLink to="/team-builder" icon={<Users size={20} />} label="Team Builder" />
+          <QuickLink to="/glossary" icon={<Shield size={20} />} label="Methodology" />
         </div>
       </section>
     </div>
@@ -562,22 +535,20 @@ function QuickLink({
   to,
   icon,
   label,
-  colour = "text-primary",
 }: {
   to: string;
   icon: React.ReactNode;
   label: string;
-  colour?: string;
 }) {
   return (
     <Link
       to={to}
-      className="card flex flex-col items-center gap-2 py-4 px-3 hover:shadow-card-hover transition-all group text-center"
+      className="card flex flex-col items-center gap-2 py-4 px-3 text-center transition-all duration-200 ease-out-quart hover:shadow-card-hover group motion-reduce:transition-none"
     >
-      <span className={`${colour} group-hover:scale-110 transition-transform`}>
+      <span className="text-text-muted transition-transform duration-200 ease-out-quart group-hover:scale-105 group-hover:text-primary motion-reduce:group-hover:scale-100">
         {icon}
       </span>
-      <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary transition-colors">
+      <span className="text-sm font-medium text-text-secondary transition-colors group-hover:text-text-primary">
         {label}
       </span>
     </Link>

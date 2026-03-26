@@ -66,7 +66,7 @@ const METRIC_CONFIGS: MetricConfig[] = [
   {
     key: "par_sr",
     label: "Par Strike Rate",
-    colour: "#3B82F6",
+    colour: "#a3a3a3",
     yAxisId: "left",
     unit: "",
     formatter: (v) => (v != null ? v.toFixed(1) : "—"),
@@ -112,7 +112,7 @@ function multiplierColour(m: number | null): string {
   if (m >= 1.2) return "#FFD700";
   if (m >= 1.1) return "#10B981";
   if (m >= 1.05) return "#22C55E";
-  if (m >= 0.98) return "#3B82F6";
+  if (m >= 0.98) return "#737373";
   return "#64748B";
 }
 
@@ -724,7 +724,7 @@ export default function Eras() {
         icon={<Calendar size={18} className="text-primary" />}
       >
         {/* Explanation */}
-        <div className="flex items-start gap-2 mb-4 p-3 rounded-lg bg-primary/5 border border-primary/10">
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/90 p-3 dark:border-white/[0.1] dark:bg-surface">
           <Info size={16} className="text-primary shrink-0 mt-0.5" />
           <p className="text-sm text-text-secondary">
             <strong className="text-text-primary">Era multipliers</strong>{" "}

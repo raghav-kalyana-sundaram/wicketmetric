@@ -320,7 +320,7 @@ export default function SearchPage() {
             <SlidersHorizontal size={16} />
             <span className="hidden sm:inline">Filters</span>
             {activeFilterCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-white dark:text-background text-[10px] font-bold flex items-center justify-center">
                 {activeFilterCount}
               </span>
             )}

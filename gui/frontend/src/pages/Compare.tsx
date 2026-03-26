@@ -18,7 +18,7 @@
  *   - useSharedMatchups() — common bowlers faced
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { X, Trophy, Share2, Swords, BarChart3, Activity } from "lucide-react";
 import {
@@ -77,6 +77,9 @@ import type {
   PhaseSplit,
 } from "@/api/types";
 import { isBatterProfile } from "@/api/types";
+import SocialShareTrigger from "@/components/SocialShareTrigger";
+import { SOCIAL_EXPORT_ROOT_CLASS } from "@/lib/socialCapture";
+import { subjectsFromPlayers } from "@/lib/socialGraphicComposite";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -618,6 +621,16 @@ export default function Compare() {
   // Form metric selection
   const [formMetric, setFormMetric] = useState("composite");
 
+  const compareRadarExportRef = useRef<HTMLDivElement>(null);
+  const compareBattingTableExportRef = useRef<HTMLDivElement>(null);
+  const compareBowlingTableExportRef = useRef<HTMLDivElement>(null);
+  const compareSecondaryBowlingTableExportRef = useRef<HTMLDivElement>(null);
+  const compareSecondaryBattingTableExportRef = useRef<HTMLDivElement>(null);
+  const compareMixedOverviewExportRef = useRef<HTMLDivElement>(null);
+  const comparePhaseExportRef = useRef<HTMLDivElement>(null);
+  const compareFormExportRef = useRef<HTMLDivElement>(null);
+  const compareSharedMatchupsExportRef = useRef<HTMLDivElement>(null);
+
   // Data fetching
   const {
     data: compareData,
@@ -698,18 +711,24 @@ export default function Compare() {
     return effectiveView === "bat" ? BATTER_RADAR_AXES : BOWLER_RADAR_AXES;
   }, [effectiveView]);
 
+  const profilesForRadar = useMemo(() => {
+    return effectiveView === "bat"
+      ? batters.length > 0
+        ? batters
+        : allProfiles
+      : bowlers.length > 0
+        ? bowlers
+        : allProfiles;
+  }, [effectiveView, batters, bowlers, allProfiles]);
+
+  const compareRadarSubjects = useMemo(
+    () => subjectsFromPlayers(profilesForRadar),
+    [profilesForRadar],
+  );
+
   const radarPlayers = useMemo(() => {
     const axes =
       effectiveView === "bat" ? BATTER_RADAR_AXES : BOWLER_RADAR_AXES;
-    // Use the profiles that match the effective view, falling back to all
-    const profilesForRadar =
-      effectiveView === "bat"
-        ? batters.length > 0
-          ? batters
-          : allProfiles
-        : bowlers.length > 0
-          ? bowlers
-          : allProfiles;
     return profilesForRadar.map((profile) => {
       return {
         name: profile.name,
@@ -719,7 +738,28 @@ export default function Compare() {
         ),
       };
     });
-  }, [allProfiles, batters, bowlers, effectiveView]);
+  }, [allProfiles, effectiveView, profilesForRadar]);
+
+  const formCompareSubjects = useMemo(() => {
+    if (!formData || !Array.isArray(formData)) return [];
+    return (formData as FormResponse[]).map((f) => {
+      const prof = allProfiles.find((p) => p.id === f.player_id);
+      return {
+        id: f.player_id,
+        name: f.player_name || prof?.name || "Player",
+        photo_url: prof?.photo_url ?? null,
+      };
+    });
+  }, [formData, allProfiles]);
+
+  const sharedMatchupSubjects = useMemo(() => {
+    const data = sharedMatchupsData as SharedMatchupsResponse | undefined;
+    if (!data?.batter_ids?.length) return [];
+    const rows = data.batter_ids
+      .map((bid) => batters.find((b) => b.id === bid))
+      .filter((b): b is (typeof batters)[number] => Boolean(b));
+    return subjectsFromPlayers(rows);
+  }, [sharedMatchupsData, batters]);
 
   // Form chart data
   const formChartData = useMemo(() => {
@@ -895,7 +935,7 @@ export default function Compare() {
                   onClick={() => setViewMode(mode)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     viewMode === mode
-                      ? "bg-primary text-white"
+                      ? "bg-primary text-white dark:text-background"
                       : "bg-surface-elevated text-text-secondary hover:text-text-primary"
                   }`}
                 >
@@ -911,34 +951,47 @@ export default function Compare() {
 
           {/* ── Radar Overlay ─────────────────────────────── */}
           <section className="card p-6">
-            <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-              <BarChart3 size={20} className="text-primary" />
-              Radar Overlay
-              <span className="text-xs text-text-muted font-normal ml-1">
-                ({effectiveView === "bat" ? "Batting" : "Bowling"})
-              </span>
-            </h2>
+            <div className="mb-4 flex items-start justify-between gap-2">
+              <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                <BarChart3 size={20} className="text-primary shrink-0" />
+                Radar Overlay
+                <span className="text-xs text-text-muted font-normal ml-1">
+                  ({effectiveView === "bat" ? "Batting" : "Bowling"})
+                </span>
+              </h2>
+              <SocialShareTrigger
+                exportRef={compareRadarExportRef}
+                filenameBase="compare-radar"
+                subjects={compareRadarSubjects}
+                subtitle={`Radar · ${effectiveView === "bat" ? "Batting" : "Bowling"}`}
+              />
+            </div>
 
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-                {allProfiles.map((profile, i) => (
-                  <div key={profile.id} className="flex items-center gap-2">
-                    <div
-                      className="h-3 w-6 rounded shrink-0"
-                      style={{ backgroundColor: chartColour(i) }}
-                    />
-                    <span className="text-sm text-text-primary">
-                      {profile.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-center w-full min-w-0">
-                <RadarChart
-                  axes={radarAxes}
-                  players={radarPlayers}
-                  size={320}
-                />
+            <div
+              ref={compareRadarExportRef}
+              className={`${SOCIAL_EXPORT_ROOT_CLASS} rounded-xl bg-surface/30 p-4`}
+            >
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+                  {allProfiles.map((profile, i) => (
+                    <div key={profile.id} className="flex items-center gap-2">
+                      <div
+                        className="h-3 w-6 rounded shrink-0"
+                        style={{ backgroundColor: chartColour(i) }}
+                      />
+                      <span className="text-sm text-text-primary">
+                        {profile.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-center w-full min-w-0">
+                  <RadarChart
+                    axes={radarAxes}
+                    players={radarPlayers}
+                    size={320}
+                  />
+                </div>
               </div>
             </div>
           </section>
@@ -946,62 +999,114 @@ export default function Compare() {
           {/* ── Stat Comparison Table (primary — driven by effectiveView) ─── */}
           {effectiveView === "bat" && batters.length >= 2 && (
             <section className="card p-6">
-              <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                <Trophy size={20} className="text-gold" />
-                Batting Comparison
-              </h2>
-              <StatTable
-                players={batters}
-                rows={buildBatterStatRows(batters)}
-                colourMap={playerColourMap}
-                allProfiles={allProfiles}
-              />
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                  <Trophy size={20} className="shrink-0 text-text-muted" />
+                  Batting Comparison
+                </h2>
+                <SocialShareTrigger
+                  exportRef={compareBattingTableExportRef}
+                  filenameBase="compare-batting"
+                  subjects={subjectsFromPlayers(batters)}
+                  subtitle="Batting comparison"
+                />
+              </div>
+              <div
+                ref={compareBattingTableExportRef}
+                className={`${SOCIAL_EXPORT_ROOT_CLASS} overflow-x-auto rounded-xl bg-surface/30 p-4`}
+              >
+                <StatTable
+                  players={batters}
+                  rows={buildBatterStatRows(batters)}
+                  colourMap={playerColourMap}
+                  allProfiles={allProfiles}
+                />
+              </div>
             </section>
           )}
 
           {effectiveView === "bowl" && bowlers.length >= 2 && (
             <section className="card p-6">
-              <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                <Trophy size={20} className="text-gold" />
-                Bowling Comparison
-              </h2>
-              <StatTable
-                players={bowlers}
-                rows={buildBowlerStatRows(bowlers)}
-                colourMap={playerColourMap}
-                allProfiles={allProfiles}
-              />
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                  <Trophy size={20} className="shrink-0 text-text-muted" />
+                  Bowling Comparison
+                </h2>
+                <SocialShareTrigger
+                  exportRef={compareBowlingTableExportRef}
+                  filenameBase="compare-bowling"
+                  subjects={subjectsFromPlayers(bowlers)}
+                  subtitle="Bowling comparison"
+                />
+              </div>
+              <div
+                ref={compareBowlingTableExportRef}
+                className={`${SOCIAL_EXPORT_ROOT_CLASS} overflow-x-auto rounded-xl bg-surface/30 p-4`}
+              >
+                <StatTable
+                  players={bowlers}
+                  rows={buildBowlerStatRows(bowlers)}
+                  colourMap={playerColourMap}
+                  allProfiles={allProfiles}
+                />
+              </div>
             </section>
           )}
 
           {/* ── Secondary role table (if both roles have ≥2 players) ─── */}
           {effectiveView === "bat" && hasBowlers && bowlers.length >= 2 && (
             <section className="card p-6">
-              <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                <Trophy size={20} className="text-gold opacity-60" />
-                <span className="text-text-secondary">Bowling Comparison</span>
-              </h2>
-              <StatTable
-                players={bowlers}
-                rows={buildBowlerStatRows(bowlers)}
-                colourMap={playerColourMap}
-                allProfiles={allProfiles}
-              />
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                  <Trophy size={20} className="shrink-0 text-text-muted/60" />
+                  <span className="text-text-secondary">Bowling Comparison</span>
+                </h2>
+                <SocialShareTrigger
+                  exportRef={compareSecondaryBowlingTableExportRef}
+                  filenameBase="compare-bowling-secondary"
+                  subjects={subjectsFromPlayers(bowlers)}
+                  subtitle="Bowling comparison"
+                />
+              </div>
+              <div
+                ref={compareSecondaryBowlingTableExportRef}
+                className={`${SOCIAL_EXPORT_ROOT_CLASS} overflow-x-auto rounded-xl bg-surface/30 p-4`}
+              >
+                <StatTable
+                  players={bowlers}
+                  rows={buildBowlerStatRows(bowlers)}
+                  colourMap={playerColourMap}
+                  allProfiles={allProfiles}
+                />
+              </div>
             </section>
           )}
 
           {effectiveView === "bowl" && hasBatters && batters.length >= 2 && (
             <section className="card p-6">
-              <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                <Trophy size={20} className="text-gold opacity-60" />
-                <span className="text-text-secondary">Batting Comparison</span>
-              </h2>
-              <StatTable
-                players={batters}
-                rows={buildBatterStatRows(batters)}
-                colourMap={playerColourMap}
-                allProfiles={allProfiles}
-              />
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                  <Trophy size={20} className="shrink-0 text-text-muted/60" />
+                  <span className="text-text-secondary">Batting Comparison</span>
+                </h2>
+                <SocialShareTrigger
+                  exportRef={compareSecondaryBattingTableExportRef}
+                  filenameBase="compare-batting-secondary"
+                  subjects={subjectsFromPlayers(batters)}
+                  subtitle="Batting comparison"
+                />
+              </div>
+              <div
+                ref={compareSecondaryBattingTableExportRef}
+                className={`${SOCIAL_EXPORT_ROOT_CLASS} overflow-x-auto rounded-xl bg-surface/30 p-4`}
+              >
+                <StatTable
+                  players={batters}
+                  rows={buildBatterStatRows(batters)}
+                  colourMap={playerColourMap}
+                  allProfiles={allProfiles}
+                />
+              </div>
             </section>
           )}
 
@@ -1010,11 +1115,22 @@ export default function Compare() {
             (effectiveView === "bowl" && bowlers.length < 2)) &&
             allProfiles.length >= 2 && (
               <section className="card p-6">
-                <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                  <Trophy size={20} className="text-gold" />
-                  Player Overview
-                </h2>
-                <div className="overflow-x-auto">
+                <div className="mb-4 flex items-start justify-between gap-2">
+                  <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                    <Trophy size={20} className="shrink-0 text-text-muted" />
+                    Player Overview
+                  </h2>
+                  <SocialShareTrigger
+                    exportRef={compareMixedOverviewExportRef}
+                    filenameBase="compare-overview"
+                    subjects={subjectsFromPlayers(allProfiles)}
+                    subtitle="Player overview"
+                  />
+                </div>
+                <div
+                  ref={compareMixedOverviewExportRef}
+                  className={`${SOCIAL_EXPORT_ROOT_CLASS} overflow-x-auto rounded-xl bg-surface/30 p-4`}
+                >
                   <table className="sortable-table">
                     <thead>
                       <tr>
@@ -1098,27 +1214,48 @@ export default function Compare() {
           {/* ── Phase Comparison ───────────────────────────── */}
           {effectiveView === "bat" && batters.length >= 2 && (
             <section className="card p-6">
-              <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                <BarChart3 size={20} className="text-accent" />
-                Phase Comparison
-              </h2>
-              <PhaseComparisonChart
-                players={batters.map((b, i) => ({
-                  name: b.name,
-                  colour: playerColourMap.get(b.id) ?? chartColour(i),
-                  phases: b.phases,
-                }))}
-              />
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                  <BarChart3 size={20} className="shrink-0 text-text-muted" />
+                  Phase Comparison
+                </h2>
+                <SocialShareTrigger
+                  exportRef={comparePhaseExportRef}
+                  filenameBase="compare-phase"
+                  subjects={subjectsFromPlayers(batters)}
+                  subtitle="Phase comparison"
+                />
+              </div>
+              <div
+                ref={comparePhaseExportRef}
+                className={`${SOCIAL_EXPORT_ROOT_CLASS} rounded-xl bg-surface/30 p-4`}
+              >
+                <PhaseComparisonChart
+                  players={batters.map((b, i) => ({
+                    name: b.name,
+                    colour: playerColourMap.get(b.id) ?? chartColour(i),
+                    phases: b.phases,
+                  }))}
+                />
+              </div>
             </section>
           )}
 
           {/* ── Form Comparison ────────────────────────────── */}
           {formData && Array.isArray(formData) && formData.length >= 2 && (
             <section className="card p-6">
-              <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                <Activity size={20} className="text-primary" />
-                Form Comparison
-              </h2>
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                  <Activity size={20} className="text-primary shrink-0" />
+                  Form Comparison
+                </h2>
+                <SocialShareTrigger
+                  exportRef={compareFormExportRef}
+                  filenameBase="compare-form"
+                  subjects={subjectsFromPlayers(formCompareSubjects)}
+                  subtitle="Form comparison"
+                />
+              </div>
 
               {/* Metric selector */}
               <div className="mb-4">
@@ -1138,63 +1275,68 @@ export default function Compare() {
                 </select>
               </div>
 
-              {formChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={formChartData}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#334155"
-                      strokeOpacity={0.28}
-                    />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fill: "#94A3B8", fontSize: 11 }}
-                      axisLine={{ stroke: "#334155" }}
-                      tickFormatter={(v: string) => {
-                        if (!v) return "";
-                        const y = v.slice(0, 4);
-                        return /^\d{4}$/.test(y) ? y : v;
-                      }}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      tick={{ fill: "#94A3B8", fontSize: 11 }}
-                      axisLine={{ stroke: "#334155" }}
-                      domain={["auto", "auto"]}
-                    />
-                    <RechartsTooltip
-                      contentStyle={{
-                        backgroundColor: "#1E293B",
-                        border: "1px solid #334155",
-                        borderRadius: "0.5rem",
-                        color: "#F8FAFC",
-                      }}
-                      labelFormatter={(label: string) =>
-                        fmtDate(label) ?? label
-                      }
-                    />
-                    <Legend />
-                    {(formData as FormResponse[]).map((pf, pi) => (
-                      <Line
-                        key={pf.player_id}
-                        type="monotone"
-                        dataKey={`p${pi}`}
-                        name={pf.player_name || `Player ${pi + 1}`}
-                        stroke={chartColour(pi)}
-                        strokeWidth={2}
-                        dot={false}
-                        connectNulls
+              <div
+                ref={compareFormExportRef}
+                className={`${SOCIAL_EXPORT_ROOT_CLASS} min-h-[200px] rounded-xl bg-surface/30 p-4`}
+              >
+                {formChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={formChartData}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#334155"
+                        strokeOpacity={0.28}
                       />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="text-center py-8 text-text-muted">
-                  {formLoading
-                    ? "Loading form data…"
-                    : "No overlapping form data available."}
-                </div>
-              )}
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fill: "#94A3B8", fontSize: 11 }}
+                        axisLine={{ stroke: "#334155" }}
+                        tickFormatter={(v: string) => {
+                          if (!v) return "";
+                          const y = v.slice(0, 4);
+                          return /^\d{4}$/.test(y) ? y : v;
+                        }}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis
+                        tick={{ fill: "#94A3B8", fontSize: 11 }}
+                        axisLine={{ stroke: "#334155" }}
+                        domain={["auto", "auto"]}
+                      />
+                      <RechartsTooltip
+                        contentStyle={{
+                          backgroundColor: "#1E293B",
+                          border: "1px solid #334155",
+                          borderRadius: "0.5rem",
+                          color: "#F8FAFC",
+                        }}
+                        labelFormatter={(label: string) =>
+                          fmtDate(label) ?? label
+                        }
+                      />
+                      <Legend />
+                      {(formData as FormResponse[]).map((pf, pi) => (
+                        <Line
+                          key={pf.player_id}
+                          type="monotone"
+                          dataKey={`p${pi}`}
+                          name={pf.player_name || `Player ${pi + 1}`}
+                          stroke={chartColour(pi)}
+                          strokeWidth={2}
+                          dot={false}
+                          connectNulls
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-8 text-text-muted">
+                    {formLoading
+                      ? "Loading form data…"
+                      : "No overlapping form data available."}
+                  </div>
+                )}
+              </div>
             </section>
           )}
 
@@ -1203,16 +1345,27 @@ export default function Compare() {
             (sharedMatchupsData as SharedMatchupsResponse).shared?.length >
               0 && (
               <section className="card p-6">
-                <h2 className="text-h3 text-text-primary mb-4 flex items-center gap-2">
-                  <Swords size={20} className="text-warning" />
-                  Shared Matchups
-                </h2>
-                <p className="text-sm text-text-secondary mb-4">
-                  Bowlers that all selected batters have faced (min 6 balls
-                  each).
-                </p>
+                <div className="mb-4 flex items-start justify-between gap-2">
+                  <h2 className="text-h3 text-text-primary flex flex-1 min-w-0 items-center gap-2">
+                    <Swords size={20} className="shrink-0 text-text-muted" />
+                    Shared Matchups
+                  </h2>
+                  <SocialShareTrigger
+                    exportRef={compareSharedMatchupsExportRef}
+                    filenameBase="compare-shared-matchups"
+                    subjects={sharedMatchupSubjects}
+                    subtitle="Shared matchups"
+                  />
+                </div>
+                <div
+                  ref={compareSharedMatchupsExportRef}
+                  className={`${SOCIAL_EXPORT_ROOT_CLASS} overflow-x-auto rounded-xl bg-surface/30 p-4`}
+                >
+                  <p className="text-sm text-text-secondary mb-4">
+                    Bowlers that all selected batters have faced (min 6 balls
+                    each).
+                  </p>
 
-                <div className="overflow-x-auto">
                   <table className="sortable-table">
                     <thead>
                       <tr>

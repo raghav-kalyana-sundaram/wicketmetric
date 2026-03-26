@@ -37,6 +37,9 @@ import {
   Trophy,
   FileText,
   ChevronDown,
+  FlaskConical,
+  Activity,
+  Zap,
 } from "lucide-react";
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -65,13 +68,25 @@ const NAV_ITEMS: NavItem[] = [
     isActive: (p) => p === "/" || p === "/dashboard",
   },
   { label: "Rankings", to: "/rankings", icon: <Trophy size={16} /> },
+  {
+    label: "Performances",
+    to: "/performances",
+    icon: <Zap size={16} />,
+    isActive: (p) => p === "/performances",
+  },
   { label: "Compare", to: "/compare", icon: <GitCompare size={16} /> },
   { label: "Matchups", to: "/matchups", icon: <Swords size={16} /> },
   { label: "Team Builder", to: "/team-builder", icon: <Users size={16} /> },
   { label: "Scorecards", to: "/scorecards", icon: <FileText size={16} /> },
+  { label: "Live", to: "/live", icon: <Activity size={16} /> },
   { label: "Eras", to: "/eras", icon: <BarChart3 size={16} /> },
   { label: "Venues", to: "/venues", icon: <MapPin size={16} /> },
   { label: "Glossary", to: "/glossary", icon: <BookOpen size={16} /> },
+  {
+    label: "Simulation",
+    to: "/simulation",
+    icon: <FlaskConical size={16} />,
+  },
 ];
 
 const DESKTOP_PRIMARY_NAV: NavItem[] = [
@@ -82,13 +97,25 @@ const DESKTOP_PRIMARY_NAV: NavItem[] = [
     isActive: (p) => p === "/" || p === "/dashboard",
   },
   { label: "Rankings", to: "/rankings", icon: <Trophy size={16} /> },
+  {
+    label: "Performances",
+    to: "/performances",
+    icon: <Zap size={16} />,
+    isActive: (p) => p === "/performances",
+  },
   { label: "Compare", to: "/compare", icon: <GitCompare size={16} /> },
   { label: "Matchups", to: "/matchups", icon: <Swords size={16} /> },
   { label: "Scorecards", to: "/scorecards", icon: <FileText size={16} /> },
+  { label: "Live", to: "/live", icon: <Activity size={16} /> },
 ];
 
 const DESKTOP_SECONDARY_NAV: NavItem[] = [
   { label: "Team Builder", to: "/team-builder", icon: <Users size={16} /> },
+  {
+    label: "Simulation",
+    to: "/simulation",
+    icon: <FlaskConical size={16} />,
+  },
   { label: "Eras", to: "/eras", icon: <BarChart3 size={16} /> },
   { label: "Venues", to: "/venues", icon: <MapPin size={16} /> },
   { label: "Glossary", to: "/glossary", icon: <BookOpen size={16} /> },
@@ -100,7 +127,7 @@ function navLinkClasses({ isActive }: { isActive: boolean }): string {
   const base =
     "flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out-quart";
   if (isActive) {
-    return `${base} bg-primary/10 text-primary`;
+    return `${base} bg-slate-200/90 text-primary ring-1 ring-slate-300/80 dark:bg-surface dark:ring-1 dark:ring-white/10`;
   }
   return `${base} text-text-secondary hover:text-text-primary hover:bg-surface-elevated/50`;
 }
@@ -109,7 +136,7 @@ function mobileNavLinkClasses({ isActive }: { isActive: boolean }): string {
   const base =
     "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors duration-200 ease-out-quart";
   if (isActive) {
-    return `${base} bg-primary/10 text-primary`;
+    return `${base} bg-slate-200/90 text-primary ring-1 ring-slate-300/80 dark:bg-surface dark:ring-1 dark:ring-white/10`;
   }
   return `${base} text-text-secondary hover:text-text-primary hover:bg-surface-elevated/50`;
 }
@@ -124,7 +151,7 @@ function DatasetContextStrip() {
   const { availableFormats } = useFormat();
   if (availableFormats.length <= 1) return null;
   return (
-    <div className="border-t border-b border-surface-elevated/60 bg-surface-elevated/15 backdrop-blur-md dark:bg-surface-elevated/25">
+    <div className="border-b border-t border-surface-elevated/60 bg-surface-elevated/15 backdrop-blur-md dark:border-white/[0.06] dark:bg-[#080808] dark:backdrop-blur-none">
       <div className="mx-auto max-w-7xl px-4 py-2.5 sm:px-6 lg:px-8">
         <FormatToggle variant="strip" />
       </div>
@@ -222,13 +249,16 @@ export default function Layout() {
       [/^\/dashboard$/, "Home | Cricket Metrics", "Search, compare, and analyse men's and women's T20 and IPL with role-aware metrics and matchup intelligence."],
       [/^\/search/, "Player Search | Cricket Metrics", "Find players instantly with filters for role, country, and archetype."],
       [/^\/rankings/, "Rankings | Cricket Metrics", "Sortable batting and bowling leaderboards with advanced metrics and filters."],
+      [/^\/performances/, "Performances | Cricket Metrics", "Best individual match performances ranked by scorecard match impact, with date, team, series, and player filters."],
       [/^\/compare/, "Compare Players | Cricket Metrics", "Side-by-side player comparison with metric breakdowns and trend context."],
       [/^\/matchups/, "Matchups | Cricket Metrics", "Head-to-head matchup intelligence for batters and bowlers."],
       [/^\/team-builder/, "Team Builder | Cricket Metrics", "Build XIs and evaluate team balance with role-aware analysis."],
       [/^\/scorecards/, "Scorecards | Cricket Metrics", "Match scorecards with batting, bowling, and innings context."],
+      [/^\/live/, "Live scores | Cricket Metrics", "Cricket scoreboard via ESPN (proxied). Unofficial upstream; separate from Cricsheet scorecards."],
       [/^\/venues/, "Venues | Cricket Metrics", "Venue baselines, difficulty analysis, and player venue performance."],
       [/^\/eras/, "Era Explorer | Cricket Metrics", "Track how T20 conditions evolve across years with era-adjusted context."],
       [/^\/glossary/, "Glossary | Cricket Metrics", "Definitions and methodology behind every cricket metric used in the app."],
+      [/^\/simulation/, "Simulation Hub | Cricket Metrics", "Configure match scenarios and explore preview win odds, projections, and sample ball timelines."],
     ];
 
     const matched = routeTitleMap.find(([re]) => re.test(location.pathname));
@@ -248,7 +278,7 @@ export default function Layout() {
       </a>
 
       {/* ── Navigation Bar ──────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 border-b border-surface-elevated/70 bg-background/90 backdrop-blur-xl transition-[border-color,background-color] duration-300 ease-out-quart">
+      <header className="sticky top-0 z-50 border-b border-surface-elevated/70 bg-background/90 backdrop-blur-xl transition-[border-color,background-color] duration-300 ease-out-quart dark:border-white/[0.08] dark:bg-background dark:backdrop-blur-none">
         {/* Light mode variant */}
         <div className="hidden" aria-hidden="true">
           {/* This div exists to ensure Tailwind generates the light-mode classes */}
@@ -265,7 +295,7 @@ export default function Layout() {
                 aria-label="Cricket Metrics — Home"
               >
                 <span
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary/20 text-primary"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-200/90 text-primary dark:bg-surface-elevated"
                   aria-hidden="true"
                 >
                   <BarChart3 size={14} />
@@ -303,7 +333,7 @@ export default function Layout() {
                     type="button"
                     className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out-quart ${
                       isMoreActive
-                        ? "bg-primary/10 text-primary"
+                        ? "bg-slate-200/90 text-primary ring-1 ring-slate-300/80 dark:bg-surface dark:ring-1 dark:ring-white/10"
                         : "text-text-secondary hover:bg-surface-elevated/50 hover:text-text-primary"
                     }`}
                     onClick={() => setShowMoreMenu((prev) => !prev)}
@@ -321,7 +351,7 @@ export default function Layout() {
                   {showMoreMenu && (
                     <div
                       role="menu"
-                      className="absolute left-0 top-full z-50 mt-2 w-48 animate-fade-in rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-lg dark:border-surface-elevated dark:bg-surface dark:shadow-card-hover"
+                      className="absolute left-0 top-full z-50 mt-2 w-48 animate-fade-in rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-lg dark:border-white/15 dark:bg-surface dark:shadow-xl dark:backdrop-blur-none"
                     >
                       {DESKTOP_SECONDARY_NAV.map((item) => (
                         <NavLink
@@ -522,11 +552,11 @@ export default function Layout() {
       </main>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <footer className="app-footer border-t border-surface-elevated/70 bg-surface/80">
+      <footer className="app-footer border-t border-surface-elevated/70 bg-surface/80 dark:border-white/[0.08] dark:bg-background">
         <div         className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="app-footer-brand flex min-w-0 flex-wrap items-center gap-2 text-sm text-text-secondary">
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-primary/15 text-primary">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-slate-200/90 text-primary dark:bg-surface-elevated">
                 <BarChart3 size={12} />
               </span>
               <span className="font-heading font-medium text-text-primary">Cricket Metrics</span>
