@@ -372,6 +372,40 @@ const MONTHS_SHORT = [
   "Dec",
 ];
 
+const MONTHS_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/**
+ * Year and full month only, e.g. ``2024 December`` (UTC calendar parts).
+ */
+export function fmtYearMonth(
+  value: string | null | undefined,
+  fallback: string = "—",
+): string {
+  if (!value) return fallback;
+  try {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return fallback;
+    const month = MONTHS_LONG[d.getUTCMonth()];
+    const year = d.getUTCFullYear();
+    return `${year} ${month}`;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Format an ISO date string to a human-readable format.
  *

@@ -5,6 +5,12 @@
 
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  Circle,
+  CircleDot,
+  Zap,
+} from "lucide-react";
 import { WinProbabilityMomentumChart } from "@/components/WinProbabilityMomentumChart";
 import type { Innings, Scorecard } from "@/components/scorecard/scorecardTypes";
 import {
@@ -17,6 +23,8 @@ import {
   formatBallNarrative,
   formatBattingDismissal,
   formatDate,
+  getBallFeedPresentation,
+  type BallFeedKind,
 } from "@/lib/scorecardDetailHelpers";
 import {
   computeMatchImpact,
@@ -48,6 +56,137 @@ function PlayerLink({
     );
   }
   return <span className={className}>{name}</span>;
+}
+
+type BallFeedRow = {
+  key: string;
+  ob: string;
+  bowler: string | null | undefined;
+  batter: string | null | undefined;
+  narr: string;
+  scoreAfter: number;
+  wktsAfter: number;
+  kind: BallFeedKind;
+  headline: string;
+  wicketDetail: string | null;
+};
+
+function ballFeedSurface(kind: BallFeedKind): string {
+  switch (kind) {
+    case "six":
+      return "border-amber-500/35 bg-gradient-to-br from-amber-500/[0.12] via-transparent to-transparent shadow-[inset_0_0_0_1px_rgba(245,158,11,0.12)]";
+    case "four":
+      return "border-sky-500/35 bg-gradient-to-br from-sky-500/[0.1] via-transparent to-transparent shadow-[inset_0_0_0_1px_rgba(14,165,233,0.1)]";
+    case "wicket":
+      return "border-rose-500/45 bg-gradient-to-br from-rose-500/[0.12] via-transparent to-transparent shadow-[inset_0_0_0_1px_rgba(244,63,94,0.14)]";
+    case "dot":
+      return "border-zinc-500/40 bg-zinc-500/[0.06]";
+    case "wide":
+    case "noball":
+      return "border-violet-500/35 bg-violet-500/[0.07]";
+    default:
+      return "border-surface-elevated/80 bg-surface-elevated/[0.25]";
+  }
+}
+
+function ballFeedHeadlineClass(kind: BallFeedKind): string {
+  switch (kind) {
+    case "six":
+      return "text-[1.65rem] sm:text-3xl font-black uppercase tracking-tight text-amber-300 tabular-nums";
+    case "four":
+      return "text-[1.5rem] sm:text-[1.85rem] font-black uppercase tracking-tight text-sky-300 tabular-nums";
+    case "wicket":
+      return "text-[1.55rem] sm:text-[1.9rem] font-black uppercase tracking-tight text-rose-300 tabular-nums";
+    case "dot":
+      return "text-xl sm:text-2xl font-black uppercase tracking-[0.18em] text-zinc-400 tabular-nums";
+    case "single":
+    case "multi_runs":
+      return "text-lg sm:text-xl font-bold text-text-primary tabular-nums";
+    case "wide":
+    case "noball":
+      return "text-lg font-bold text-violet-300 tabular-nums";
+    default:
+      return "text-base font-semibold text-text-primary";
+  }
+}
+
+function BallFeedGlyph({ kind }: { kind: BallFeedKind }) {
+  const common = "shrink-0 opacity-90";
+  switch (kind) {
+    case "six":
+      return <Zap className={`${common} h-7 w-7 text-amber-400`} aria-hidden />;
+    case "four":
+      return (
+        <span
+          className={`${common} flex h-7 w-7 items-center justify-center rounded-sm border-2 border-sky-400 text-[10px] font-black leading-none text-sky-300`}
+          aria-hidden
+        >
+          4
+        </span>
+      );
+    case "wicket":
+      return <AlertTriangle className={`${common} h-7 w-7 text-rose-400`} aria-hidden />;
+    case "dot":
+      return (
+        <Circle className={`${common} h-6 w-6 text-zinc-500`} strokeWidth={2.5} aria-hidden />
+      );
+    case "wide":
+    case "noball":
+      return <CircleDot className={`${common} h-6 w-6 text-violet-400`} aria-hidden />;
+    default:
+      return null;
+  }
+}
+
+function BallByBallFeed({ rows }: { rows: BallFeedRow[] }): JSX.Element {
+  const glyphKinds: BallFeedKind[] = ["six", "four", "wicket", "dot", "wide", "noball"];
+
+  return (
+    <section
+      className="mb-10 max-h-[70vh] overflow-y-auto space-y-3 pr-1"
+      aria-label="Ball by ball feed"
+    >
+      {rows.length === 0 ? (
+        <div className="rounded-xl border border-surface-elevated bg-surface p-6 text-sm text-text-muted">
+          No ball-by-ball data for this innings (regenerate scorecards with deliveries).
+        </div>
+      ) : (
+        rows.map((row) => (
+          <article
+            key={row.key}
+            className={`rounded-xl border px-4 py-4 sm:px-5 sm:py-4 ${ballFeedSurface(row.kind)}`}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 text-xs text-text-muted">
+              <span className="font-score font-semibold tabular-nums tracking-wide">
+                Over {row.ob}
+              </span>
+              <span className="font-score font-semibold tabular-nums text-text-secondary">
+                {row.scoreAfter}/{row.wktsAfter}
+              </span>
+            </div>
+            <div className="flex items-start gap-3">
+              {glyphKinds.includes(row.kind) ? <BallFeedGlyph kind={row.kind} /> : null}
+              <div className="min-w-0 flex-1">
+                <p className={ballFeedHeadlineClass(row.kind)}>{row.headline}</p>
+                {row.kind === "wicket" && row.wicketDetail ? (
+                  <p className="mt-1 text-sm font-medium text-rose-200/90">{row.wicketDetail}</p>
+                ) : null}
+                {row.kind === "noball" && row.wicketDetail ? (
+                  <p className="mt-1 text-xs text-text-muted">{row.wicketDetail}</p>
+                ) : null}
+                <p className="mt-2 text-sm text-text-muted">
+                  <span className="text-text-secondary">{(row.bowler ?? "—").trim()}</span>
+                  <span className="mx-1.5 text-text-muted">to</span>
+                  <span className="text-text-secondary">{(row.batter ?? "—").trim()}</span>
+                </p>
+                <p className="sr-only">{row.narr}</p>
+              </div>
+            </div>
+          </article>
+        ))
+      )}
+    </section>
+  );
 }
 
 export interface ScorecardDetailBodyProps {
@@ -98,6 +237,7 @@ export default function ScorecardDetailBody({
       const tr = Number(ball.total_runs ?? 0);
       runningScore += tr;
       if (ball.is_wicket) runningWkts += 1;
+      const pres = getBallFeedPresentation(ball, nameById);
       return {
         key: `${ball.over ?? "?"}.${ball.ball_idx ?? "?"}-${idx}`,
         ob: `${ball.over ?? "?"}.${ball.ball_idx ?? "?"}`,
@@ -106,6 +246,9 @@ export default function ScorecardDetailBody({
         narr: formatBallNarrative(ball, nameById),
         scoreAfter: runningScore,
         wktsAfter: runningWkts,
+        kind: pres.kind,
+        headline: pres.headline,
+        wicketDetail: pres.wicketDetail,
       };
     });
   }, [ballsInningsEntry, nameById]);
@@ -150,7 +293,17 @@ export default function ScorecardDetailBody({
         </h1>
         <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-text-secondary">
           <span>{formatDate(meta.date)}</span>
-          {meta.venue && <span>{meta.venue}</span>}
+          {meta.venue ? (
+            <Link
+              to={`/venues?${new URLSearchParams({
+                venue: String(meta.venue),
+                vtab: "overview",
+              }).toString()}`}
+              className="text-primary hover:underline decoration-primary/40 underline-offset-2"
+            >
+              {meta.venue}
+            </Link>
+          ) : null}
           {meta.event_name && <span>{meta.event_name}</span>}
           {meta.winner && (
             <span className="font-medium text-primary">{meta.winner} won</span>
@@ -209,7 +362,8 @@ export default function ScorecardDetailBody({
             ))}
           </select>
           <p className="text-xs text-text-muted max-w-xl">
-            Every delivery in order; score shows team total after the ball.
+            Chronological feed — boundaries, wickets, and dots are emphasised; score is team total after
+            each ball.
           </p>
         </div>
       )}
@@ -435,35 +589,7 @@ export default function ScorecardDetailBody({
       )}
 
       {view === "balls" && (
-        <section className="mb-10 rounded-lg border border-surface-elevated bg-surface overflow-hidden shadow-sm">
-          <div className="divide-y divide-surface-elevated max-h-[70vh] overflow-y-auto">
-            {ballsTimelineRows.length === 0 ? (
-              <p className="p-4 text-sm text-text-muted">
-                No ball-by-ball data for this innings (regenerate scorecards with deliveries).
-              </p>
-            ) : (
-              ballsTimelineRows.map((row) => (
-                <div
-                  key={row.key}
-                  className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2.5 text-sm hover:bg-surface-elevated/30"
-                >
-                  <span className="w-14 shrink-0 tabular-nums text-text-muted font-medium">
-                    {row.ob}
-                  </span>
-                  <span className="flex-1 min-w-[12rem]">
-                    <span className="text-text-primary">
-                      {(row.bowler ?? "—").trim()} to {(row.batter ?? "—").trim()}
-                    </span>
-                    <span className="text-text-secondary"> — {row.narr}</span>
-                  </span>
-                  <span className="shrink-0 tabular-nums text-text-muted">
-                    {row.scoreAfter}/{row.wktsAfter}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
+        <BallByBallFeed rows={ballsTimelineRows} />
       )}
 
       {view === "scorecard" &&

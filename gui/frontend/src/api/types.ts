@@ -187,6 +187,7 @@ export interface VenueBaseline {
   avg_par_sr: number | null;
   boundary_rate: number | null;
   dot_pct: number | null;
+  /** 0–100 index; higher = harder conditions (percentile of internal difficulty). */
   difficulty_score: number | null;
 }
 
@@ -524,7 +525,79 @@ export interface VenueDetail {
   boundary_rate: number | null;
   dot_pct: number | null;
   difficulty_raw: number | null;
+  /** 0–100 display index; higher = harder. */
   difficulty_score: number | null;
+}
+
+/** Rich venue profile from GET /api/venues/profile */
+export interface VenueProfile extends VenueDetail {
+  batting_innings: number;
+  balls_faced_total: number;
+  matches_in_slice: number;
+  small_sample: boolean;
+  vs_world: {
+    avg_par_sr_percentile: number | null;
+    boundary_rate_percentile: number | null;
+    dot_pct_percentile: number | null;
+    difficulty_percentile: number | null;
+  };
+  chase_defend: Record<string, number | null | undefined>;
+  phases_batting: Record<
+    string,
+    {
+      venue_sr?: number | null;
+      format_mean_sr?: number | null;
+      median_venue_sr?: number | null;
+      vs_par_ratio_mean?: number | null;
+    }
+  >;
+  phases_bowling: Record<string, unknown>;
+}
+
+export interface VenuePlayerAtVenue {
+  id: string;
+  name: string;
+  country?: string;
+  innings?: number;
+  spells?: number;
+  runs?: number;
+  wickets?: number;
+  balls_faced?: number;
+  legal_balls?: number;
+  sr?: number | null;
+  avg?: number | null;
+  economy?: number | null;
+  strike_rate_bowl?: number | null;
+  dot_pct?: number | null;
+  boundary_pct?: number | null;
+  six_rate?: number | null;
+  last_played_at_venue?: string | null;
+  career_sr?: number | null;
+  career_avg?: number | null;
+  career_economy?: number | null;
+  career_sr_bowl?: number | null;
+  career_dot_pct?: number | null;
+  sr_delta?: number | null;
+  avg_delta?: number | null;
+  economy_delta?: number | null;
+  strike_rate_delta?: number | null;
+  dot_pct_delta?: number | null;
+  boundary_pct_delta?: number | null;
+  six_rate_delta?: number | null;
+  overall_score?: number | null;
+  overall_grade?: string;
+  score_acceleration?: number | null;
+  score_power?: number | null;
+  score_control?: number | null;
+  score_accuracy?: number | null;
+  score_threat?: number | null;
+  /** Mean per-innings / per-spell scores at this venue (when pipeline columns exist). */
+  venue_overall_score?: number | null;
+  venue_score_acceleration?: number | null;
+  venue_score_power?: number | null;
+  venue_score_control?: number | null;
+  venue_score_accuracy?: number | null;
+  venue_score_threat?: number | null;
 }
 
 // ── Venue Summary ────────────────────────────────────────────────
@@ -548,36 +621,6 @@ export interface VenueSummary {
   most_used_venue: VenueSummaryEntry | null;
   avg_difficulty: number | null;
   difficulty_distribution: DifficultyBucket[];
-}
-
-// ── Flat Track Bully Entry ───────────────────────────────────────
-
-export interface FlatTrackEntry {
-  id: string;
-  name: string;
-  country: string;
-  flat_track_index: number | null;
-  innings_at_known_venues: number;
-  avg_venue_difficulty_faced: number | null;
-  overall_grade: string;
-  archetype: string;
-  interpretation: string;
-  icon: string;
-  // Optional score columns (depend on role)
-  score_acceleration?: number | null;
-  score_power?: number | null;
-  score_control?: number | null;
-  score_accuracy?: number | null;
-  score_threat?: number | null;
-}
-
-export interface FlatTrackResponse {
-  role: string;
-  players: FlatTrackEntry[];
-  total: number;
-  page: number;
-  per_page: number;
-  total_pages: number;
 }
 
 // ── Era Baseline ─────────────────────────────────────────────────
@@ -846,16 +889,6 @@ export interface VenueListParams {
   sort?: string;
   order?: SortOrder;
   min_matches?: number;
-}
-
-export interface FlatTrackParams {
-  role?: Role;
-  min_innings?: number;
-  provisional?: boolean | null;
-  sort?: string;
-  order?: SortOrder;
-  page?: number;
-  per_page?: number;
 }
 
 // ── ESPN live scoreboard (proxied; not tied to Cricsheet scorecards) ──

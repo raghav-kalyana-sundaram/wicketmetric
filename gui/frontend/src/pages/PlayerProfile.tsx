@@ -545,7 +545,7 @@ function PlayerMatchImpactSection({
                   <td>
                     <Link
                       to={`/scorecards/${encodeURIComponent(row.match_id)}`}
-                      className="text-primary hover:underline inline-flex items-center gap-1"
+                      className="text-primary underline decoration-primary/35 underline-offset-2 hover:decoration-primary inline-flex items-center gap-1"
                     >
                       <span className="line-clamp-2">{title}</span>
                       <ChevronRight size={12} className="shrink-0 opacity-60" />

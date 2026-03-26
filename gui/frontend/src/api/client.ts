@@ -20,8 +20,6 @@ import type {
   BowlerProfile,
   CompareResponse,
   EraResponse,
-  FlatTrackParams,
-  FlatTrackResponse,
   FormBatchResponse,
   FormResponse,
   HeadToHeadResponse,
@@ -47,6 +45,7 @@ import type {
   VenueDetail,
   VenueListParams,
   VenueListResponse,
+  VenueProfile,
   VenueSummary,
   EspnCricketMatchSummaryResponse,
   EspnCricketScoreboardResponse,
@@ -724,6 +723,174 @@ async function getVenueDetail(
   return fetchJson("/api/venues/detail", { venue }, { signal });
 }
 
+async function getVenueProfile(
+  venue: string,
+  options?: { exact?: boolean; signal?: AbortSignal },
+): Promise<VenueProfile> {
+  return fetchJson(
+    "/api/venues/profile",
+    { venue, exact: options?.exact ?? false },
+    { signal: options?.signal },
+  );
+}
+
+async function getVenueTrends(
+  venue: string,
+  options?: { bucket?: string; exact?: boolean; signal?: AbortSignal },
+): Promise<{
+  venue: string;
+  bucket: string;
+  series: Array<{
+    period: string;
+    matches: number;
+    mean_team_innings_score: number | null;
+    mean_match_par_sr: number | null;
+  }>;
+}> {
+  return fetchJson(
+    "/api/venues/trends",
+    {
+      venue,
+      bucket: options?.bucket ?? "rolling_3_match",
+      exact: options?.exact ?? false,
+    },
+    { signal: options?.signal },
+  );
+}
+
+async function getVenueTeams(
+  venue: string,
+  options?: {
+    exact?: boolean;
+    min_matches?: number;
+    sort?: string;
+    order?: string;
+    page?: number;
+    per_page?: number;
+    signal?: AbortSignal;
+  },
+): Promise<{
+  venue: string;
+  teams: Array<{
+    team: string;
+    matches: number;
+    wins: number;
+    losses: number;
+    win_pct: number;
+  }>;
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}> {
+  return fetchJson(
+    "/api/venues/teams",
+    {
+      venue,
+      exact: options?.exact ?? false,
+      min_matches: options?.min_matches ?? 2,
+      sort: options?.sort ?? "win_pct",
+      order: options?.order ?? "desc",
+      page: options?.page ?? 1,
+      per_page: options?.per_page ?? 25,
+    },
+    { signal: options?.signal },
+  );
+}
+
+async function getVenueSimilar(
+  venue: string,
+  options?: { exact?: boolean; k?: number; signal?: AbortSignal },
+): Promise<{
+  venue: string;
+  similar: Array<{
+    venue: string;
+    similarity: number;
+    matches: number;
+    avg_par_sr: number | null;
+    difficulty_score: number | null;
+  }>;
+}> {
+  return fetchJson(
+    "/api/venues/similar",
+    { venue, exact: options?.exact ?? false, k: options?.k ?? 8 },
+    { signal: options?.signal },
+  );
+}
+
+async function getVenueMatches(
+  venue: string,
+  options?: {
+    exact?: boolean;
+    page?: number;
+    per_page?: number;
+    signal?: AbortSignal;
+  },
+): Promise<{
+  venue: string;
+  matches: Array<{
+    match_id: string;
+    date: string | null;
+    event_name: string | null;
+    winner: string | null;
+    teams: string[];
+    innings_scores: number[];
+  }>;
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}> {
+  return fetchJson(
+    "/api/venues/matches",
+    {
+      venue,
+      exact: options?.exact ?? false,
+      page: options?.page ?? 1,
+      per_page: options?.per_page ?? 25,
+    },
+    { signal: options?.signal },
+  );
+}
+
+async function getVenuePerformances(
+  venue: string,
+  options?: {
+    role?: string;
+    sort?: string;
+    order?: string;
+    page?: number;
+    per_page?: number;
+    min_balls?: number;
+    exact?: boolean;
+    signal?: AbortSignal;
+  },
+): Promise<{
+  venue: string;
+  role: string;
+  sort: string;
+  performances: Array<Record<string, unknown>>;
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}> {
+  return fetchJson(
+    "/api/venues/performances",
+    {
+      venue,
+      role: options?.role ?? "bat",
+      sort: options?.sort ?? "bat_impact",
+      order: options?.order ?? "desc",
+      page: options?.page ?? 1,
+      per_page: options?.per_page ?? 25,
+      min_balls: options?.min_balls ?? 5,
+      exact: options?.exact ?? false,
+    },
+    { signal: options?.signal },
+  );
+}
+
 /** Get player performance at a specific venue. */
 async function getPlayersAtVenue(
   venue: string,
@@ -734,6 +901,7 @@ async function getPlayersAtVenue(
     order?: string;
     page?: number;
     per_page?: number;
+    exact?: boolean;
     signal?: AbortSignal;
   },
 ): Promise<{
@@ -756,28 +924,9 @@ async function getPlayersAtVenue(
       order: options?.order ?? "desc",
       page: options?.page ?? 1,
       per_page: options?.per_page ?? 25,
+      exact: options?.exact ?? false,
     },
     { signal: options?.signal },
-  );
-}
-
-/** Get the Flat Track Bully Index leaderboard. */
-async function getFlatTrackIndex(
-  params?: FlatTrackParams,
-  signal?: AbortSignal,
-): Promise<FlatTrackResponse> {
-  return fetchJson(
-    "/api/venues/flat-track-index",
-    {
-      role: params?.role ?? "bat",
-      min_innings: params?.min_innings ?? 20,
-      provisional: params?.provisional ?? false,
-      sort: params?.sort ?? "flat_track_index",
-      order: params?.order ?? "asc",
-      page: params?.page ?? 1,
-      per_page: params?.per_page ?? 25,
-    },
-    { signal },
   );
 }
 
@@ -1038,8 +1187,13 @@ export const api = {
   // Venues
   getVenues,
   getVenueDetail,
+  getVenueProfile,
+  getVenueTrends,
+  getVenueTeams,
+  getVenueSimilar,
+  getVenueMatches,
+  getVenuePerformances,
   getPlayersAtVenue,
-  getFlatTrackIndex,
   getVenueSummary,
 
   // Eras
