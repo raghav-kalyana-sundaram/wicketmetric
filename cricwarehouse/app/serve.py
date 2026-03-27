@@ -101,6 +101,10 @@ def create_app() -> FastAPI:
         finally:
             con.close()
 
+    @app.get("/api/pulse")
+    def api_pulse(limit: int = 8):
+        return catalog.pulse(limit=limit)
+
     @app.get("/api/query")
     def api_query(q: str = ""):
         return execute(q)
@@ -144,9 +148,9 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/compare")
-    def api_compare(a: str, b: str, pool: str | None = None):
+    def api_compare(a: str, b: str, pool: str | None = None, comp: str | None = None):
         from cricwarehouse.app import studio
-        return studio.player_compare(a, b, pool=pool)
+        return studio.player_compare(a, b, pool=pool or comp)
 
     @app.get("/api/team-compare")
     def api_team_compare(
@@ -365,6 +369,17 @@ def create_app() -> FastAPI:
                 "SELECT MIN(start_date), MAX(start_date), COUNT(*) FROM matches m JOIN xi x ON x.match_id = m.match_id WHERE x.person_id = ?",
                 [pid],
             ).fetchone()
+            teams = con.execute(
+                """
+                SELECT x.team, COUNT(DISTINCT x.match_id) AS matches
+                FROM xi x
+                WHERE x.person_id = ?
+                GROUP BY 1
+                ORDER BY 2 DESC
+                LIMIT 12
+                """,
+                [pid],
+            ).fetchdf().to_dict("records")
             bat_balls = int(sum(int(s.get("balls") or 0) for s in summary))
             bowl_balls = int(sum(int(s.get("legal_balls") or 0) for s in bowl))
             primary_role = "bowl" if bowl_balls > bat_balls else "bat"
@@ -402,6 +417,7 @@ def create_app() -> FastAPI:
                 "matchups": h2h,
                 "pairs": _clean_list(pairs),
                 "super_over": _clean_list(so),
+                "teams": _clean_list(teams),
             }
         finally:
             con.close()
