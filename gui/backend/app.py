@@ -23,6 +23,10 @@ Environment variables:
 
     A ``.env`` file in this directory (``gui/backend/.env``) is loaded automatically
     on startup so variables like ``DATA_ROOT`` work without ``export`` in the shell.
+
+    Optional Vercel Blob: set ``BLOB_PARQUET_BASE_URL`` to the public store origin
+    (``https://<id>.public.blob.vercel-storage.com``) so Parquet is downloaded into
+    a cache and ``DATA_ROOT`` is set before load. See ``blob_hydrate.py`` and PUBLISHING.md.
 """
 
 from __future__ import annotations
@@ -78,6 +82,10 @@ def _load_env_file(path: Path) -> None:
 
 
 _load_env_file(_BACKEND_DIR / ".env")
+
+from blob_hydrate import maybe_hydrate_data_root_from_blob
+
+maybe_hydrate_data_root_from_blob()
 
 from data_loader import (
     DEFAULT_FORMAT,
