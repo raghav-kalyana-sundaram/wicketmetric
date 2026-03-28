@@ -21,6 +21,9 @@ from schemas import (
     BowlerProfile,
     ChaseSplit,
     ComponentBreakdown,
+    FormBatchItem,
+    FormBatchPoint,
+    FormBatchResponse,
     FormPoint,
     FormResponse,
     InningsDetail,
@@ -36,7 +39,11 @@ from schemas import (
 if TYPE_CHECKING:
     from data_loader import DataStore
 
+from data_loader import DEFAULT_FORMAT, VALID_FORMATS
+
 router = APIRouter(prefix="/api", tags=["player"])
+
+_FORM_BATCH_FMT_PATTERN = "^(" + "|".join(VALID_FORMATS) + ")$"
 
 
 # ── Dependency placeholders (overridden in app.py) ────────────────
@@ -317,6 +324,12 @@ def _build_batter_profile(
                 )
             )
 
+    from rating_display import batting_display_ratings
+
+    rating_overall, rating_current = batting_display_ratings(row)
+    mp = _safe_int(_get_val(row, "modal_position"))
+    modal_position = mp if mp is not None and 1 <= mp <= 11 else None
+
     return BatterProfile(
         id=batter_id,
         name=_safe_str(_get_val(row, "batter")),
@@ -329,6 +342,8 @@ def _build_batter_profile(
         ]
         or [_safe_str(_get_val(row, "archetype")) or "Utility Player"],
         position_group=_safe_str(_get_val(row, "position_group")),
+        modal_position=modal_position,
+        recent_team=_safe_str(_get_val(row, "recent_team")).strip() or None,
         # Career stats
         innings_count=_safe_int(_get_val(row, "innings_count")) or 0,
         total_runs=_safe_int(_get_val(row, "total_runs")) or 0,
@@ -348,6 +363,8 @@ def _build_batter_profile(
         grade_control=_safe_str(_get_val(row, "grade_control"), "D"),
         overall_score=_safe_float(_get_val(row, "overall_score")),
         overall_grade=_safe_str(_get_val(row, "overall_grade"), "D"),
+        rating_current=rating_current,
+        rating_overall=rating_overall,
         # Provisional
         is_provisional=bool(_get_val(row, "is_provisional_bat", True)),
         # Peak ratings
@@ -458,6 +475,10 @@ def _build_bowler_profile(
                 )
             )
 
+    from rating_display import bowling_display_ratings
+
+    rating_overall_b, rating_current_b = bowling_display_ratings(row)
+
     return BowlerProfile(
         id=bowler_id,
         name=_safe_str(_get_val(row, "bowler")),
@@ -470,6 +491,7 @@ def _build_bowler_profile(
         ]
         or [_safe_str(_get_val(row, "archetype")) or "Utility Player"],
         phase_group=_safe_str(_get_val(row, "phase_group")),
+        recent_team=_safe_str(_get_val(row, "recent_team")).strip() or None,
         # Career stats
         matches=_safe_int(_get_val(row, "matches")) or 0,
         total_overs=_safe_float(_get_val(row, "total_overs")),
@@ -489,6 +511,8 @@ def _build_bowler_profile(
         grade_threat=_safe_str(_get_val(row, "grade_threat"), "D"),
         overall_score=_safe_float(_get_val(row, "overall_score")),
         overall_grade=_safe_str(_get_val(row, "overall_grade"), "D"),
+        rating_current=rating_current_b,
+        rating_overall=rating_overall_b,
         # Provisional
         is_provisional=bool(_get_val(row, "is_provisional_bowl", True)),
         # Peak ratings
@@ -635,6 +659,56 @@ def _compute_bowling_phase_splits(
         )
 
     return phases
+
+
+# ── Route: GET /api/player/form-batch ─────────────────────────────
+
+
+@router.get("/player/form-batch", response_model=FormBatchResponse)
+async def get_form_batch(
+    ids: str = Query(..., description="Comma-separated player IDs"),
+    role: str = Query(..., description="bat or bowl"),
+    format: str = Query(
+        DEFAULT_FORMAT,
+        description="Dataset slice (e.g. mens_t20i, womens_t20i, womens_ipl); drives active recency window.",
+        pattern=_FORM_BATCH_FMT_PATTERN,
+    ),
+    store: "DataStore" = Depends(_get_store),
+) -> FormBatchResponse:
+    """Return form summary for multiple players (chart window ≈ last 2 years).
+
+    Used by the leaderboard form tracker. Each result includes form_points
+    (date + composite for sparkline), last_played date, and active (True if
+    last match within 1y for T20I or 2y for IPL).
+    """
+    from data_loader import get_batter_form_summary, get_bowler_form_summary
+
+    fmt = format if format in VALID_FORMATS else DEFAULT_FORMAT
+
+    player_ids = [x.strip() for x in ids.split(",") if x.strip()]
+    if not player_ids:
+        return FormBatchResponse(results=[])
+
+    results: list[FormBatchItem] = []
+    for pid in player_ids:
+        if role == "bowl":
+            form_points, last_played, active = get_bowler_form_summary(
+                store, pid, fmt=fmt
+            )
+        else:
+            form_points, last_played, active = get_batter_form_summary(
+                store, pid, fmt=fmt
+            )
+        points = [FormBatchPoint(date=d, composite=c) for d, c in form_points]
+        results.append(
+            FormBatchItem(
+                player_id=pid,
+                form_points=points,
+                last_played=last_played,
+                active=active,
+            )
+        )
+    return FormBatchResponse(results=results)
 
 
 # ── Route: GET /api/player/{player_id}/roles ─────────────────────

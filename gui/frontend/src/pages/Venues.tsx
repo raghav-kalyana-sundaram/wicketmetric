@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 
 import { PageLoading, PageError } from "@/components/Layout";
+import CrossLinkBar from "@/components/CrossLinkBar";
 import { useVenues, useVenueSummary } from "@/api/queries";
 import { VenueDetailPanel } from "@/pages/VenueDetailPanel";
 import { scoreToColour as _scoreToColour } from "@/lib/colours";
@@ -291,6 +292,7 @@ export default function Venues() {
     <div className="app-page page-stack animate-fade-in">
       {/* Header */}
       <div className="page-header">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">Where does the game change?</p>
         <h1 className="page-title flex items-center gap-3">
           <MapPin size={28} className="text-primary" />
           Venue Analysis
@@ -525,6 +527,15 @@ export default function Venues() {
           )}
         </div>
       )}
+
+      <CrossLinkBar
+        links={[
+          { label: "Player rankings", to: "/rankings" },
+          { label: "Match scorecards", to: "/scorecards" },
+          { label: "Era analysis", to: "/eras" },
+          { label: "Top performances", to: "/performances" },
+        ]}
+      />
     </div>
   );
 }

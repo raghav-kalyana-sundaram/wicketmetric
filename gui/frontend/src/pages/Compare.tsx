@@ -78,6 +78,9 @@ import type {
 } from "@/api/types";
 import { isBatterProfile } from "@/api/types";
 import SocialShareTrigger from "@/components/SocialShareTrigger";
+import InsightCard from "@/components/InsightCard";
+import CrossLinkBar from "@/components/CrossLinkBar";
+import type { CrossLink } from "@/components/CrossLinkBar";
 import { SOCIAL_EXPORT_ROOT_CLASS } from "@/lib/socialCapture";
 import { subjectsFromPlayers } from "@/lib/socialGraphicComposite";
 
@@ -784,6 +787,78 @@ export default function Compare() {
     );
   }, [formData, formMetric]);
 
+  // ── Verdict items (2-player only) ─────────────────────────────
+
+  const verdictItems = useMemo(() => {
+    if (allProfiles.length !== 2) return [];
+    const [p1, p2] = allProfiles;
+
+    function getMetric(
+      p: BatterProfile | BowlerProfile,
+      metric: string,
+    ): number {
+      if (isBatterProfile(p)) {
+        switch (metric) {
+          case "overall":
+            return primaryDisplayRating(p) ?? p.overall_score ?? 0;
+          case "power":
+            return p.score_power ?? 0;
+          case "pressure":
+            return pressureScore(p.clutch_index, "bat") ?? 0;
+          case "control":
+            return p.score_control ?? 0;
+          default:
+            return 0;
+        }
+      } else {
+        switch (metric) {
+          case "overall":
+            return primaryDisplayRating(p) ?? p.overall_score ?? 0;
+          case "power":
+            return p.score_accuracy ?? 0;
+          case "pressure":
+            return pressureScore(p.clutch_index_bowl, "bowl") ?? 0;
+          case "control":
+            return p.score_control ?? 0;
+          default:
+            return 0;
+        }
+      }
+    }
+
+    function winner(metric: string): string {
+      const v1 = getMetric(p1, metric);
+      const v2 = getMetric(p2, metric);
+      if (v1 > v2) return p1.name;
+      if (v2 > v1) return p2.name;
+      return "Tied";
+    }
+
+    return [
+      { category: "Best overall", winnerName: winner("overall") },
+      { category: "Better power/acceleration", winnerName: winner("power") },
+      { category: "Better under pressure", winnerName: winner("pressure") },
+      { category: "Better control", winnerName: winner("control") },
+    ];
+  }, [allProfiles]);
+
+  // ── Cross-links ───────────────────────────────────────────────
+
+  const crossLinks = useMemo((): CrossLink[] => {
+    const links: CrossLink[] = [];
+    allProfiles.forEach((p) => {
+      links.push({ label: `View ${p.name} profile`, to: `/player/${p.id}` });
+    });
+    if (batters.length === 1 && bowlers.length === 1) {
+      links.push({
+        label: "View head-to-head",
+        to: `/matchups?bat=${batters[0].id}&bowl=${bowlers[0].id}`,
+      });
+    }
+    links.push({ label: "Back to rankings", to: "/rankings" });
+    return links;
+  }, [allProfiles, batters, bowlers]);
+
   // ── Share URL ──────────────────────────────────────────────────
 
   const handleShare = useCallback(() => {
@@ -946,6 +1021,34 @@ export default function Compare() {
                       : "Bowlers"}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* ── Comparison Verdict ────────────────────────── */}
+          {allProfiles.length === 2 && verdictItems.length > 0 && (
+            <div className="space-y-3">
+              <InsightCard
+                headline="Comparison Verdict"
+                supporting={`Head-to-head breakdown: ${allProfiles[0].name} vs ${allProfiles[1].name}`}
+              />
+              <div className="card p-5 space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                  Comparison Verdict
+                </p>
+                {verdictItems.map((item) => (
+                  <div
+                    key={item.category}
+                    className="flex items-center justify-between py-1.5 border-b border-surface-elevated/30 last:border-0"
+                  >
+                    <span className="text-xs text-text-secondary">
+                      {item.category}
+                    </span>
+                    <span className="text-xs font-semibold text-text-primary">
+                      {item.winnerName}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1471,6 +1574,11 @@ export default function Compare() {
                 </div>
               </section>
             )}
+
+          {/* ── Cross-links ──────────────────────────────── */}
+          {allProfiles.length >= 2 && (
+            <CrossLinkBar links={crossLinks} title="Explore more" />
+          )}
         </div>
       )}
     </div>

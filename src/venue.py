@@ -69,7 +69,7 @@ def compute_venue_baselines(
     pd.DataFrame with columns:
         venue, venue_matches, venue_avg_par_sr, venue_par_std,
         venue_avg_boundary_rate, venue_avg_dot_pct,
-        venue_difficulty, venue_difficulty_raw
+        venue_difficulty, venue_difficulty_raw, venue_difficulty_index
     """
     if match_ctx.empty or "venue" not in match_ctx.columns:
         return pd.DataFrame(
@@ -82,6 +82,7 @@ def compute_venue_baselines(
                 "venue_avg_dot_pct",
                 "venue_difficulty",
                 "venue_difficulty_raw",
+                "venue_difficulty_index",
             ]
         )
 
@@ -113,6 +114,7 @@ def compute_venue_baselines(
     if venue_stats.empty:
         venue_stats["venue_difficulty"] = pd.Series(dtype=float)
         venue_stats["venue_difficulty_raw"] = pd.Series(dtype=float)
+        venue_stats["venue_difficulty_index"] = pd.Series(dtype=float)
         return venue_stats
 
     # ── Global average par SR for comparison ──
@@ -134,6 +136,13 @@ def compute_venue_baselines(
     venue_stats["venue_difficulty"] = venue_stats["venue_difficulty_raw"] / (
         venue_stats["venue_par_std"].clip(lower=_min_std)
     )
+
+    # Display scale 0–100: percentile rank among venues (higher = harder conditions).
+    # Underlying venue_difficulty stays z-like for correlations and adjustments.
+    _vd = venue_stats["venue_difficulty"]
+    venue_stats["venue_difficulty_index"] = (
+        _vd.rank(method="average", pct=True, ascending=True) * 100.0
+    ).where(_vd.notna())
 
     return venue_stats
 
@@ -616,6 +625,43 @@ def enrich_innings_with_venue(
 
     result = df.merge(venue_map, on="match_id", how="left")
     return result
+
+
+def enrich_innings_with_match_meta(
+    innings_df: pd.DataFrame,
+    deliveries: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Add match-level metadata from deliveries: ``event_name``, ``winner``.
+
+    Joins on ``match_id`` only so every innings row for that match gets the
+    same values (GUI venue pages, chase/defend, team W/L).
+    """
+    if innings_df.empty or deliveries.empty:
+        return innings_df
+
+    want = [c for c in ("event_name", "winner") if c in deliveries.columns]
+    if not want:
+        return innings_df
+
+    df = innings_df.copy()
+    meta = (
+        deliveries.groupby("match_id", observed=True)[want]
+        .first()
+        .reset_index()
+    )
+
+    for c in ["match_id"]:
+        if c in meta.columns and hasattr(meta[c], "cat"):
+            meta[c] = meta[c].astype(str)
+        if c in df.columns and hasattr(df[c], "cat"):
+            df[c] = df[c].astype(str)
+
+    for col in want:
+        if col in df.columns:
+            df = df.drop(columns=[col])
+
+    return df.merge(meta, on="match_id", how="left")
 
 
 # ──────────────────────────────────────────────────────────────────────────

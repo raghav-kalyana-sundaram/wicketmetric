@@ -533,6 +533,7 @@ export function useMatchImpactPerformances(
     team: params.team ?? undefined,
     event: params.event ?? undefined,
     player_id: params.player_id ?? undefined,
+    match_tier: params.match_tier ?? "all",
     discipline: params.discipline ?? "combined",
     order: params.order ?? "desc",
     page: params.page ?? 1,

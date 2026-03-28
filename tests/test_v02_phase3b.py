@@ -354,6 +354,7 @@ class TestComputeVenueBaselines:
         assert "venue" in result.columns
         assert "venue_difficulty" in result.columns
         assert "venue_difficulty_raw" in result.columns
+        assert "venue_difficulty_index" in result.columns
         assert "venue_avg_par_sr" in result.columns
         # Should have exactly 3 venues (each has 10 matches, threshold=3)
         assert len(result) == 3
@@ -376,6 +377,11 @@ class TestComputeVenueBaselines:
         v2 = result[result["venue"] == "Venue_2"]["venue_difficulty_raw"].iloc[0]
         # v0 should be harder (more positive) than v2
         assert v0 > v2
+        # 0–100 index ranks hardest venue above easiest
+        i0 = result[result["venue"] == "Venue_0"]["venue_difficulty_index"].iloc[0]
+        i2 = result[result["venue"] == "Venue_2"]["venue_difficulty_index"].iloc[0]
+        assert i0 > i2
+        assert 0 <= i0 <= 100 and 0 <= i2 <= 100
 
     def test_empty_input(self):
         result = compute_venue_baselines(pd.DataFrame(), min_matches=5)
@@ -539,6 +545,19 @@ class TestVenueEnrichment:
         deliveries = _make_deliveries_with_venue(n_matches=20, n_venues=5)
         result = enrich_innings_with_venue(bat, deliveries)
         assert "venue" in result.columns
+
+    def test_enrich_innings_with_match_meta(self):
+        from src.venue import enrich_innings_with_match_meta
+
+        bat = _make_bat_innings(include_venue=True)
+        deliveries = _make_deliveries_with_venue(n_matches=20, n_venues=5)
+        if "event_name" not in deliveries.columns:
+            deliveries["event_name"] = "Test Series"
+        if "winner" not in deliveries.columns:
+            deliveries["winner"] = "Team A"
+        result = enrich_innings_with_match_meta(bat, deliveries)
+        assert "event_name" in result.columns
+        assert "winner" in result.columns
 
     def test_no_venue_in_deliveries(self):
         ctx = _make_match_ctx()

@@ -163,14 +163,18 @@ interface LeaderboardPreset {
 }
 
 const LEADERBOARD_PRESETS: LeaderboardPreset[] = [
-  { id: "overall", label: "Career overall", role: "bat", sort: "rating_overall", order: "desc" },
-  { id: "overall", label: "Career overall", role: "bowl", sort: "rating_overall", order: "desc" },
+  { id: "overall", label: "Best overall", role: "bat", sort: "rating_overall", order: "desc" },
+  { id: "overall", label: "Best overall", role: "bowl", sort: "rating_overall", order: "desc" },
   { id: "recent_form", label: "Recent form", role: "bat", sort: "peak_window_composite", order: "desc" },
   { id: "recent_form", label: "Recent form", role: "bowl", sort: "peak_window_composite", order: "desc" },
   { id: "power_hitters", label: "Power hitters", role: "bat", sort: "score_power", order: "desc" },
-  { id: "anchors", label: "Anchors", role: "bat", sort: "score_acceleration", order: "desc" },
+  { id: "anchors", label: "Best anchors", role: "bat", sort: "score_control", order: "desc" },
+  { id: "finishers", label: "Best finishers", role: "bat", sort: "score_acceleration", order: "desc", position_group: "lower" },
+  { id: "pressure", label: "Best under pressure", role: "bat", sort: "clutch_index", order: "desc" },
   { id: "death", label: "Death specialists", role: "bowl", sort: "rating_overall", order: "desc", phase_group: "death" },
   { id: "powerplay", label: "Powerplay bowlers", role: "bowl", sort: "rating_overall", order: "desc", phase_group: "powerplay" },
+  { id: "control_bowl", label: "Control bowlers", role: "bowl", sort: "score_accuracy", order: "desc" },
+  { id: "wicket_takers", label: "Wicket takers", role: "bowl", sort: "score_threat", order: "desc" },
 ];
 
 const METRIC_COLUMN_CONFIG: Record<string, MetricColumnConfig> = {
@@ -700,7 +704,7 @@ function getBattingColumns(
     },
     {
       key: "score_1",
-      label: "ACL",
+      label: "Acceleration",
       shortLabel: "ACL",
       sortKey: "score_acceleration",
       metricKey: "score_acceleration",
@@ -717,7 +721,7 @@ function getBattingColumns(
     },
     {
       key: "score_2",
-      label: "POW",
+      label: "Power",
       shortLabel: "POW",
       sortKey: "score_power",
       metricKey: "score_power",
@@ -734,7 +738,7 @@ function getBattingColumns(
     },
     {
       key: "score_3",
-      label: "CTL",
+      label: "Control",
       shortLabel: "CTL",
       sortKey: "score_control",
       metricKey: "score_control",
@@ -1032,7 +1036,7 @@ function getBowlingColumns(
     },
     {
       key: "score_1",
-      label: "ACC",
+      label: "Accuracy",
       shortLabel: "ACC",
       sortKey: "score_accuracy",
       metricKey: "score_accuracy",
@@ -1049,7 +1053,7 @@ function getBowlingColumns(
     },
     {
       key: "score_2",
-      label: "CTL",
+      label: "Control",
       shortLabel: "CTL",
       sortKey: "score_control",
       metricKey: "score_control",
@@ -1066,7 +1070,7 @@ function getBowlingColumns(
     },
     {
       key: "score_3",
-      label: "THR",
+      label: "Threat",
       shortLabel: "THR",
       sortKey: "score_threat",
       metricKey: "score_threat",
@@ -1999,14 +2003,18 @@ export default function RankingsPage() {
                   aria-hidden
                 />
                 <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">Who is best at what?</p>
                   <h1 className="page-title">Leaderboards</h1>
-                  {(sort !== (DEFAULT_SORT[role] ?? "rating_current") ||
-                    order !== "desc") && (
-                    <p className="mt-1 text-xs text-text-muted">
-                      Sorted by {SORT_LABEL_MAP[sort] ?? sort}
-                      {order === "asc" ? " (ascending)" : ""}
-                    </p>
-                  )}
+                  <p className="mt-1 text-xs text-text-secondary max-w-lg">
+                    Role-aware, phase-aware, era-adjusted rankings built from ball-by-ball data.
+                    {(sort !== (DEFAULT_SORT[role] ?? "rating_current") ||
+                      order !== "desc") && (
+                      <span className="text-text-muted">
+                        {" "}Sorted by {SORT_LABEL_MAP[sort] ?? sort}
+                        {order === "asc" ? " (ascending)" : ""}.
+                      </span>
+                    )}
+                  </p>
                 </div>
               </div>
             </div>

@@ -9,8 +9,24 @@ import {
   AlertTriangle,
   Circle,
   CircleDot,
+  Trophy,
+  Target,
+  TrendingUp,
   Zap,
 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import CrossLinkBar, { type CrossLink } from "@/components/CrossLinkBar";
 import { WinProbabilityMomentumChart } from "@/components/WinProbabilityMomentumChart";
 import type { Innings, Scorecard } from "@/components/scorecard/scorecardTypes";
 import {
@@ -26,6 +42,8 @@ import {
   getBallFeedPresentation,
   type BallFeedKind,
 } from "@/lib/scorecardDetailHelpers";
+import BattingFrameworkTable from "@/components/scorecard/BattingFrameworkTable";
+import BowlingFrameworkTable from "@/components/scorecard/BowlingFrameworkTable";
 import {
   computeMatchImpact,
   formatCombinedSummary,
@@ -34,7 +52,7 @@ import {
 } from "@/lib/scorecardMatchImpact";
 import "@/styles/scorecards.css";
 
-type ViewTab = "scorecard" | "balls" | "impact";
+type ViewTab = "scorecard" | "balls" | "impact" | "stats" | "overs";
 
 function PlayerLink({
   id,
@@ -189,6 +207,219 @@ function BallByBallFeed({ rows }: { rows: BallFeedRow[] }): JSX.Element {
   );
 }
 
+type OverSummaryRow = {
+  inningKey: string;
+  team: string;
+  over: number;
+  runs: number;
+  wickets: number;
+  legalBalls: number;
+  cumRuns: number;
+  runRate: number;
+};
+
+type PhaseBreakdown = {
+  phase: "Power Play" | "Middle Overs" | "Final Overs";
+  runs: number;
+  wickets: number;
+};
+
+type TeamScoringBreakdown = {
+  team: string;
+  phases: PhaseBreakdown[];
+  sixes: number;
+  fours: number;
+  boundaryRuns: number;
+  dotBallPct: number;
+  extras: number;
+};
+
+type PartnershipRow = {
+  inningKey: string;
+  team: string;
+  pair: string;
+  runs: number;
+  balls: number;
+  wicketOver: string | null;
+};
+
+function overBucket(overOneBased: number): PhaseBreakdown["phase"] {
+  if (overOneBased <= 6) return "Power Play";
+  if (overOneBased <= 15) return "Middle Overs";
+  return "Final Overs";
+}
+
+function buildOverSummaries(inningsList: [string, Innings][]): OverSummaryRow[] {
+  const rows: OverSummaryRow[] = [];
+  for (const [inningKey, inn] of inningsList) {
+    const timeline = buildInningsTimeline(inn.bowling ?? []);
+    const perOver = new Map<number, { runs: number; wickets: number; legalBalls: number }>();
+    for (const ball of timeline) {
+      const overOneBased = Number(ball.over ?? 0) + 1;
+      const curr = perOver.get(overOneBased) ?? { runs: 0, wickets: 0, legalBalls: 0 };
+      curr.runs += Number(ball.total_runs ?? 0);
+      if (ball.is_wicket) curr.wickets += 1;
+      if (ball.is_legal) curr.legalBalls += 1;
+      perOver.set(overOneBased, curr);
+    }
+    let cumRuns = 0;
+    const orderedOvers = Array.from(perOver.keys()).sort((a, b) => a - b);
+    for (const over of orderedOvers) {
+      const item = perOver.get(over);
+      if (!item) continue;
+      cumRuns += item.runs;
+      rows.push({
+        inningKey,
+        team: inn.batting_team ?? `Innings ${inningKey}`,
+        over,
+        runs: item.runs,
+        wickets: item.wickets,
+        legalBalls: item.legalBalls,
+        cumRuns,
+        runRate: over > 0 ? cumRuns / over : 0,
+      });
+    }
+  }
+  return rows;
+}
+
+function buildScoringBreakdown(inningsList: [string, Innings][]): TeamScoringBreakdown[] {
+  return inningsList.map(([, inn]) => {
+    const timeline = buildInningsTimeline(inn.bowling ?? []);
+    const phaseRuns = new Map<PhaseBreakdown["phase"], { runs: number; wickets: number }>([
+      ["Power Play", { runs: 0, wickets: 0 }],
+      ["Middle Overs", { runs: 0, wickets: 0 }],
+      ["Final Overs", { runs: 0, wickets: 0 }],
+    ]);
+    let legalBalls = 0;
+    let dotBalls = 0;
+    let extras = 0;
+    for (const ball of timeline) {
+      const phase = overBucket(Number(ball.over ?? 0) + 1);
+      const slot = phaseRuns.get(phase)!;
+      slot.runs += Number(ball.total_runs ?? 0);
+      if (ball.is_wicket) slot.wickets += 1;
+      if (ball.is_legal) {
+        legalBalls += 1;
+        if (Number(ball.total_runs ?? 0) === 0) dotBalls += 1;
+      }
+      extras += Math.max(0, Number(ball.total_runs ?? 0) - Number(ball.batter_runs ?? 0));
+    }
+    const sixes = (inn.batting ?? []).reduce((acc, b) => acc + Number(b.sixes ?? 0), 0);
+    const fours = (inn.batting ?? []).reduce((acc, b) => acc + Number(b.fours ?? 0), 0);
+    return {
+      team: inn.batting_team ?? "Team",
+      phases: [
+        { phase: "Power Play", ...phaseRuns.get("Power Play")! },
+        { phase: "Middle Overs", ...phaseRuns.get("Middle Overs")! },
+        { phase: "Final Overs", ...phaseRuns.get("Final Overs")! },
+      ],
+      sixes,
+      fours,
+      boundaryRuns: fours * 4 + sixes * 6,
+      dotBallPct: legalBalls > 0 ? (dotBalls / legalBalls) * 100 : 0,
+      extras,
+    };
+  });
+}
+
+function buildPartnerships(
+  inningsList: [string, Innings][],
+  nameById: Map<string, string>,
+): PartnershipRow[] {
+  const rows: PartnershipRow[] = [];
+  for (const [inningKey, inn] of inningsList) {
+    const timeline = buildInningsTimeline(inn.bowling ?? []);
+    if (timeline.length === 0) continue;
+    let activePair: [string, string] | null = null;
+    let partnershipRuns = 0;
+    let partnershipBalls = 0;
+    let pendingOutId: string | null = null;
+    const pairLabel = (a: string, b: string) => {
+      const nameA = nameById.get(a) ?? a;
+      const nameB = nameById.get(b) ?? b;
+      return `${nameA} / ${nameB}`;
+    };
+    const flush = (wicketOver: string | null) => {
+      if (!activePair) return;
+      if (partnershipRuns <= 0 && partnershipBalls <= 0) return;
+      rows.push({
+        inningKey,
+        team: inn.batting_team ?? `Innings ${inningKey}`,
+        pair: pairLabel(activePair[0], activePair[1]),
+        runs: partnershipRuns,
+        balls: partnershipBalls,
+        wicketOver,
+      });
+    };
+
+    for (const ball of timeline) {
+      const batterId = String(ball.batter_id ?? ball.batter ?? "");
+      if (!batterId) continue;
+      if (!activePair) {
+        activePair = [batterId, batterId];
+      } else if (activePair[0] === activePair[1] && activePair[0] !== batterId) {
+        activePair = [activePair[0], batterId];
+      } else if (!activePair.includes(batterId)) {
+        if (pendingOutId && activePair.includes(pendingOutId)) {
+          activePair = activePair[0] === pendingOutId ? [batterId, activePair[1]] : [activePair[0], batterId];
+        } else {
+          flush(null);
+          activePair = [activePair[1], batterId];
+          partnershipRuns = 0;
+          partnershipBalls = 0;
+        }
+      }
+      partnershipRuns += Number(ball.total_runs ?? 0);
+      if (ball.is_legal) partnershipBalls += 1;
+      if (ball.is_wicket && ball.player_out_id && activePair.includes(String(ball.player_out_id))) {
+        const overText = `${ball.over ?? "?"}.${ball.ball_idx ?? "?"}`;
+        flush(overText);
+        pendingOutId = String(ball.player_out_id);
+        partnershipRuns = 0;
+        partnershipBalls = 0;
+      } else {
+        pendingOutId = null;
+      }
+    }
+    flush(null);
+  }
+  return rows.sort((a, b) => b.runs - a.runs || a.balls - b.balls);
+}
+
+function prettyTossDecision(decision?: string | null): string | null {
+  if (!decision) return null;
+  const d = String(decision).trim().toLowerCase();
+  if (!d) return null;
+  if (d === "bat") return "bat first";
+  if (d === "field" || d === "bowl") return "field first";
+  return d;
+}
+
+function computeResultLine(
+  winner: string | null | undefined,
+  inningsList: [string, Innings][],
+): string | null {
+  if (!winner) return null;
+  if (inningsList.length < 2) return `${winner} won`;
+  const first = inningsList[0]?.[1];
+  const second = inningsList[1]?.[1];
+  if (!first || !second) return `${winner} won`;
+  const firstTotal = Number(first.innings_total ?? 0);
+  const secondTotal = Number(second.innings_total ?? 0);
+  const secondWkts = Number(second.innings_wickets ?? 0);
+  const firstTeam = first.batting_team ?? "";
+  const secondTeam = second.batting_team ?? "";
+
+  if (winner === firstTeam && firstTotal > secondTotal) {
+    return `${winner} won by ${firstTotal - secondTotal} runs`;
+  }
+  if (winner === secondTeam && secondTotal >= firstTotal) {
+    return `${winner} won by ${Math.max(0, 10 - secondWkts)} wickets`;
+  }
+  return `${winner} won`;
+}
+
 export interface ScorecardDetailBodyProps {
   scorecard: Scorecard;
   /** Live scorecard id for breadcrumb; null for simulation. */
@@ -202,6 +433,9 @@ export default function ScorecardDetailBody({
   variant,
 }: ScorecardDetailBodyProps): JSX.Element {
   const [view, setView] = useState<ViewTab>("scorecard");
+  const [statsSection, setStatsSection] = useState<
+    "all" | "scoring" | "performances" | "partnerships" | "manhattan" | "runrate" | "worm"
+  >("all");
   const [ballsInnKey, setBallsInnKey] = useState<string>("");
 
   const inningsList = useMemo((): [string, Innings][] => {
@@ -220,6 +454,121 @@ export default function ScorecardDetailBody({
   } = useMemo(() => computeMatchImpact(inningsList), [inningsList]);
 
   const playerOfMatch = impactCombined[0] ?? null;
+  const overSummaries = useMemo(() => buildOverSummaries(inningsList), [inningsList]);
+  const scoringBreakdown = useMemo(() => buildScoringBreakdown(inningsList), [inningsList]);
+  const partnerships = useMemo(
+    () => buildPartnerships(inningsList, nameById).slice(0, 12),
+    [inningsList, nameById],
+  );
+
+  const topBatters = useMemo(() => {
+    const rows = inningsList.flatMap(([, inn]) =>
+      (inn.batting ?? []).map((b) => ({
+        name: b.batter ?? b.batter_id ?? "Unknown",
+        team: inn.batting_team ?? "Team",
+        runs: Number(b.runs ?? 0),
+        balls: Number(b.balls ?? 0),
+        fours: Number(b.fours ?? 0),
+        sixes: Number(b.sixes ?? 0),
+      })),
+    );
+    return rows.sort((a, b) => b.runs - a.runs || a.balls - b.balls).slice(0, 4);
+  }, [inningsList]);
+
+  const topBowlers = useMemo(() => {
+    const rows = inningsList.flatMap(([, inn]) =>
+      (inn.bowling ?? []).map((bw) => ({
+        name: bw.bowler ?? bw.bowler_id ?? "Unknown",
+        team: inn.bowling_team ?? "Team",
+        wickets: Number(bw.wickets ?? 0),
+        runs: Number(bw.runs_conceded ?? 0),
+        overs: bw.overs ?? "-",
+        economy: Number(bw.economy ?? 0),
+      })),
+    );
+    return rows
+      .sort((a, b) => b.wickets - a.wickets || a.runs - b.runs || a.economy - b.economy)
+      .slice(0, 4);
+  }, [inningsList]);
+
+  const overCompareRows = useMemo(() => {
+    const teamA = inningsList[0]?.[1]?.batting_team ?? "Team A";
+    const teamB = inningsList[1]?.[1]?.batting_team ?? "Team B";
+    const aRows = overSummaries.filter((r) => r.inningKey === inningsList[0]?.[0]);
+    const bRows = overSummaries.filter((r) => r.inningKey === inningsList[1]?.[0]);
+    const maxOver = Math.max(
+      aRows.length ? Math.max(...aRows.map((r) => r.over)) : 0,
+      bRows.length ? Math.max(...bRows.map((r) => r.over)) : 0,
+    );
+    const aMap = new Map(aRows.map((r) => [r.over, r]));
+    const bMap = new Map(bRows.map((r) => [r.over, r]));
+    const out: Array<{
+      over: number;
+      aRuns: number;
+      aWkts: number;
+      bRuns: number;
+      bWkts: number;
+      impactful: boolean;
+      aText: string;
+      bText: string;
+    }> = [];
+    for (let over = 1; over <= maxOver; over += 1) {
+      const a = aMap.get(over);
+      const b = bMap.get(over);
+      const aRuns = a?.runs ?? 0;
+      const bRuns = b?.runs ?? 0;
+      const aWkts = a?.wickets ?? 0;
+      const bWkts = b?.wickets ?? 0;
+      const impact = Math.max(aRuns + aWkts * 6, bRuns + bWkts * 6);
+      out.push({
+        over,
+        aRuns,
+        aWkts,
+        bRuns,
+        bWkts,
+        impactful: impact >= 14 || aWkts >= 2 || bWkts >= 2,
+        aText: `${aRuns}/${aWkts}`,
+        bText: `${bRuns}/${bWkts}`,
+      });
+    }
+    return { teamA, teamB, rows: out };
+  }, [overSummaries, inningsList]);
+
+  const maxPartnership = partnerships.reduce((m, p) => Math.max(m, p.runs), 0);
+  const chartRows = useMemo(() => {
+    const firstInnKey = inningsList[0]?.[0];
+    const secondInnKey = inningsList[1]?.[0];
+    const teamA = inningsList[0]?.[1]?.batting_team ?? "Team A";
+    const teamB = inningsList[1]?.[1]?.batting_team ?? "Team B";
+    const aMap = new Map(
+      overSummaries.filter((r) => r.inningKey === firstInnKey).map((r) => [r.over, r]),
+    );
+    const bMap = new Map(
+      overSummaries.filter((r) => r.inningKey === secondInnKey).map((r) => [r.over, r]),
+    );
+    const maxOver = Math.max(
+      aMap.size ? Math.max(...Array.from(aMap.keys())) : 0,
+      bMap.size ? Math.max(...Array.from(bMap.keys())) : 0,
+    );
+    const rows: Array<{
+      over: number;
+      [key: string]: number;
+    }> = [];
+    for (let over = 1; over <= maxOver; over += 1) {
+      const a = aMap.get(over);
+      const b = bMap.get(over);
+      rows.push({
+        over,
+        [teamA]: a?.runs ?? 0,
+        [teamB]: b?.runs ?? 0,
+        [`${teamA} RR`]: a?.runRate ?? 0,
+        [`${teamB} RR`]: b?.runRate ?? 0,
+        [`${teamA} Cum`]: a?.cumRuns ?? 0,
+        [`${teamB} Cum`]: b?.cumRuns ?? 0,
+      });
+    }
+    return { rows, teamA, teamB };
+  }, [inningsList, overSummaries]);
 
   const firstInnKey = inningsList[0]?.[0] ?? "";
   const activeBallsKey = ballsInnKey || firstInnKey;
@@ -257,6 +606,59 @@ export default function ScorecardDetailBody({
   const teams = meta.teams ?? [];
   const oversLimit =
     typeof meta.overs_limit === "number" && meta.overs_limit > 0 ? meta.overs_limit : 20;
+
+  const matchSummary = useMemo(() => {
+    let bestBatter: { name: string; runs: number } | null = null;
+    let bestBowler: { name: string; wickets: number; runs: number } | null = null;
+    let totalSixes = 0;
+
+    for (const [, inn] of inningsList) {
+      for (const b of inn.batting ?? []) {
+        const r = Number(b.runs ?? 0);
+        const s = Number(b.sixes ?? 0);
+        totalSixes += s;
+        if (!bestBatter || r > bestBatter.runs) {
+          bestBatter = { name: b.batter ?? "Unknown", runs: r };
+        }
+      }
+      for (const bw of inn.bowling ?? []) {
+        const w = Number(bw.wickets ?? 0);
+        const rc = Number(bw.runs_conceded ?? 0);
+        if (!bestBowler || w > bestBowler.wickets || (w === bestBowler.wickets && rc < bestBowler.runs)) {
+          bestBowler = { name: bw.bowler ?? "Unknown", wickets: w, runs: rc };
+        }
+      }
+    }
+
+    return { bestBatter, bestBowler, totalSixes };
+  }, [inningsList]);
+
+  const tossLine = useMemo(() => {
+    const tossWinner = meta.toss_winner;
+    const tossDecision = prettyTossDecision(meta.toss_decision);
+    if (!tossWinner) return null;
+    return tossDecision ? `${tossWinner} won the toss and chose to ${tossDecision}` : `${tossWinner} won the toss`;
+  }, [meta.toss_winner, meta.toss_decision]);
+
+  const resultLine = useMemo(
+    () => computeResultLine(meta.winner, inningsList),
+    [meta.winner, inningsList],
+  );
+
+  const crossLinks = useMemo((): CrossLink[] => {
+    const links: CrossLink[] = [
+      { label: "View player profiles", to: "/search", icon: <Target size={12} /> },
+      { label: "All scorecards", to: "/scorecards", icon: <Trophy size={12} /> },
+      { label: "Top performances", to: "/performances", icon: <TrendingUp size={12} /> },
+    ];
+    if (meta.venue) {
+      links.push({
+        label: `Venue: ${meta.venue}`,
+        to: `/venues?${new URLSearchParams({ venue: String(meta.venue), vtab: "overview" }).toString()}`,
+      });
+    }
+    return links;
+  }, [meta.venue]);
 
   return (
     <div className="scorecard-detail page-stack text-text-primary max-w-5xl min-w-0">
@@ -319,6 +721,88 @@ export default function ScorecardDetailBody({
         nameById={nameById}
       />
 
+      <section className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <article className="rounded-lg border border-surface-elevated bg-surface p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">Result</p>
+          <p className="text-sm font-medium text-text-primary">
+            {resultLine ?? (meta.winner ? `${meta.winner} won` : "Result unavailable")}
+          </p>
+          {meta.dls_applied ? (
+            <p className="mt-1 text-xs text-amber-500/90">Revised target method applied</p>
+          ) : null}
+        </article>
+
+        <article className="rounded-lg border border-surface-elevated bg-surface p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">Toss</p>
+          <p className="text-sm font-medium text-text-primary">
+            {tossLine ?? "Toss details unavailable in this scorecard"}
+          </p>
+        </article>
+
+        <article className="rounded-lg border border-surface-elevated bg-surface p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">Player of the Match</p>
+          {playerOfMatch ? (
+            <>
+              <p className="text-sm font-medium text-text-primary">
+                <PlayerLink
+                  id={playerOfMatch.playerId}
+                  name={playerOfMatch.name}
+                  className="text-primary hover:underline"
+                />
+              </p>
+              <p className="mt-1 text-xs text-text-muted tabular-nums">
+                {playerOfMatch.totalImpact.toFixed(2)} impact
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-text-muted">Not available</p>
+          )}
+        </article>
+
+        <article className="rounded-lg border border-surface-elevated bg-surface p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">CricMetrics MVP</p>
+          {impactCombined[0] ? (
+            <>
+              <p className="text-sm font-medium text-text-primary">
+                <PlayerLink
+                  id={impactCombined[0].playerId}
+                  name={impactCombined[0].name}
+                  className="text-primary hover:underline"
+                />
+              </p>
+              <p className="mt-1 text-xs text-text-muted tabular-nums">
+                Bat {impactCombined[0].batImpact.toFixed(2)} · Bowl {impactCombined[0].bowlImpact.toFixed(2)}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-text-muted">No qualifying MVP line</p>
+          )}
+        </article>
+
+        <article className="rounded-lg border border-surface-elevated bg-surface p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">Best batting</p>
+          <p className="text-sm font-medium text-text-primary">
+            {matchSummary.bestBatter
+              ? `${matchSummary.bestBatter.name} (${matchSummary.bestBatter.runs})`
+              : "Unavailable"}
+          </p>
+        </article>
+
+        <article className="rounded-lg border border-surface-elevated bg-surface p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">Best bowling</p>
+          <p className="text-sm font-medium text-text-primary">
+            {matchSummary.bestBowler
+              ? `${matchSummary.bestBowler.name} (${matchSummary.bestBowler.wickets}/${matchSummary.bestBowler.runs})`
+              : "Unavailable"}
+          </p>
+          {matchSummary.totalSixes > 0 ? (
+            <p className="mt-1 text-xs text-text-muted tabular-nums">
+              Match sixes: {matchSummary.totalSixes}
+            </p>
+          ) : null}
+        </article>
+      </section>
+
       <div
         className="scorecard-view-tabs flex flex-wrap gap-2 mb-6"
         role="tablist"
@@ -327,6 +811,8 @@ export default function ScorecardDetailBody({
         {(
           [
             ["scorecard", "Scorecard"],
+            ["stats", "Stats"],
+            ["overs", "Overs"],
             ["balls", "Ball-by-ball"],
             ["impact", "Match impact"],
           ] as const
@@ -337,7 +823,10 @@ export default function ScorecardDetailBody({
             role="tab"
             aria-selected={view === id}
             className={view === id ? "btn-primary btn-sm" : "btn-secondary btn-sm"}
-            onClick={() => setView(id)}
+            onClick={() => {
+              setView(id);
+              if (id !== "stats") setStatsSection("all");
+            }}
           >
             {label}
           </button>
@@ -374,9 +863,9 @@ export default function ScorecardDetailBody({
             <strong className="text-text-primary">Match impact</strong> uses parallel scales so
             you can compare batters and bowlers on fair footing. Batting:{" "}
             <span className="tabular-nums text-text-primary">runs² ÷ balls</span> (a quick 70 off
-            30 beats 90 off 60). Bowling with wickets: a weighted{" "}
-            <span className="tabular-nums text-text-primary">wickets² × balls ÷ runs</span> core
-            (same idea as batting — productivity squared per run/ball), tuned so a spell like{" "}
+            30 beats 90 off 60). Bowling with wickets:{" "}
+            <span className="tabular-nums text-text-primary">wickets × balls ÷ runs</span> (linear
+            in wickets so one extra wicket does not explode past peers), tuned so a spell like{" "}
             <span className="tabular-nums">4/15</span> rates alongside or above a very fast{" "}
             <span className="tabular-nums">50</span>, plus an extra for{" "}
             <span className="tabular-nums text-text-primary">runs saved</span> vs the leave-one-out
@@ -385,6 +874,10 @@ export default function ScorecardDetailBody({
             <strong className="text-text-primary">Player of the match</strong> is whoever has the
             highest <span className="tabular-nums text-text-primary">bat + bowl</span> impact (only
             disciplines you qualify for count).
+            Below, <strong className="text-text-primary">Batting analytics</strong> and{" "}
+            <strong className="text-text-primary">Bowling analytics</strong> add 10-metric views
+            (phase, pressure, in-match quality) from the same ball-by-ball feed — orthogonal to the
+            simple impact numbers.
           </p>
         </div>
       )}
@@ -540,6 +1033,19 @@ export default function ScorecardDetailBody({
 
           <section className="rounded-lg border border-surface-elevated bg-surface overflow-hidden shadow-sm">
             <div className="border-b border-slate-200 bg-slate-100/80 px-4 py-2 dark:border-white/[0.07] dark:bg-[#080808]">
+              <h2 className="font-semibold text-text-primary">Batting analytics</h2>
+              <p className="text-xs text-text-muted font-normal mt-1">
+                Outcome + process + context from this match’s deliveries (see tooltips on column
+                headers).
+              </p>
+            </div>
+            <div className="p-4">
+              <BattingFrameworkTable inningsList={inningsList} />
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-surface-elevated bg-surface overflow-hidden shadow-sm">
+            <div className="border-b border-slate-200 bg-slate-100/80 px-4 py-2 dark:border-white/[0.07] dark:bg-[#080808]">
               <h2 className="font-semibold text-text-primary">Bowling impact</h2>
             </div>
             <div className="p-4 overflow-x-auto">
@@ -585,7 +1091,301 @@ export default function ScorecardDetailBody({
               )}
             </div>
           </section>
+
+          <section className="rounded-lg border border-surface-elevated bg-surface overflow-hidden shadow-sm">
+            <div className="border-b border-slate-200 bg-slate-100/80 px-4 py-2 dark:border-white/[0.07] dark:bg-[#080808]">
+              <h2 className="font-semibold text-text-primary">Bowling analytics</h2>
+              <p className="text-xs text-text-muted font-normal mt-1">
+                Control, threat, phase execution, and chase pressure from this match’s deliveries.
+              </p>
+            </div>
+            <div className="p-4">
+              <BowlingFrameworkTable inningsList={inningsList} />
+            </div>
+          </section>
         </div>
+      )}
+
+      {view === "stats" && (
+        <div className="space-y-6 mb-10">
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["all", "All"],
+                ["scoring", "Scoring Breakdown"],
+                ["performances", "Best Performances"],
+                ["partnerships", "Partnerships"],
+                ["manhattan", "Manhattan"],
+                ["runrate", "Run Rate Graph"],
+                ["worm", "Worm"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={statsSection === id ? "btn-primary btn-sm" : "btn-secondary btn-sm"}
+                onClick={() => setStatsSection(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {(statsSection === "all" || statsSection === "scoring") && (
+            <section className="rounded-lg border border-surface-elevated bg-surface p-4">
+              <h2 className="text-xl font-semibold text-text-primary mb-4">Scoring Breakdown</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                {scoringBreakdown.map((team) => (
+                  <article
+                    key={team.team}
+                    className="rounded-lg border border-surface-elevated/70 bg-surface-elevated/20 p-3"
+                  >
+                    <h3 className="text-lg font-semibold text-text-primary mb-3">{team.team}</h3>
+                    <div className="space-y-2 text-sm">
+                      {team.phases.map((phase) => (
+                        <div key={phase.phase} className="flex items-center justify-between">
+                          <span className="text-text-secondary">{phase.phase}</span>
+                          <span className="tabular-nums text-text-primary">
+                            {phase.runs}/{phase.wickets}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="border-t border-surface-elevated pt-2 mt-2" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-text-secondary">Sixes</span>
+                        <span className="tabular-nums">{team.sixes}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-text-secondary">Fours</span>
+                        <span className="tabular-nums">{team.fours}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-text-secondary">Runs in boundaries</span>
+                        <span className="tabular-nums">{team.boundaryRuns}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-text-secondary">Dot balls</span>
+                        <span className="tabular-nums">{team.dotBallPct.toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-text-secondary">Runs in extras</span>
+                        <span className="tabular-nums">{team.extras}</span>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {(statsSection === "all" || statsSection === "performances") && (
+            <section className="rounded-lg border border-surface-elevated bg-surface p-4">
+              <h2 className="text-xl font-semibold text-text-primary mb-4">Best Performances</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <article className="rounded-lg border border-surface-elevated/70 bg-surface-elevated/20 p-3">
+                  <h3 className="text-lg font-semibold text-text-primary mb-2">Batters</h3>
+                  <div className="space-y-2">
+                    {topBatters.map((b, idx) => (
+                      <div
+                        key={`${b.name}-${idx}`}
+                        className="flex items-center justify-between text-sm border-b border-surface-elevated/40 pb-2 last:border-b-0 last:pb-0"
+                      >
+                        <div>
+                          <p className="font-medium text-text-primary">{b.name}</p>
+                          <p className="text-xs text-text-muted">{b.team}</p>
+                        </div>
+                        <p className="tabular-nums text-text-primary">
+                          {b.runs} ({b.balls}) · {b.fours}x4 · {b.sixes}x6
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+                <article className="rounded-lg border border-surface-elevated/70 bg-surface-elevated/20 p-3">
+                  <h3 className="text-lg font-semibold text-text-primary mb-2">Bowlers</h3>
+                  <div className="space-y-2">
+                    {topBowlers.map((b, idx) => (
+                      <div
+                        key={`${b.name}-${idx}`}
+                        className="flex items-center justify-between text-sm border-b border-surface-elevated/40 pb-2 last:border-b-0 last:pb-0"
+                      >
+                        <div>
+                          <p className="font-medium text-text-primary">{b.name}</p>
+                          <p className="text-xs text-text-muted">{b.team}</p>
+                        </div>
+                        <p className="tabular-nums text-text-primary">
+                          {b.wickets}/{b.runs} ({b.overs}) · Econ {b.economy.toFixed(2)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              </div>
+            </section>
+          )}
+
+          {(statsSection === "all" || statsSection === "partnerships") && (
+            <section className="rounded-lg border border-surface-elevated bg-surface p-4">
+              <h2 className="text-xl font-semibold text-text-primary mb-4">Partnerships</h2>
+              <div className="space-y-2">
+                {partnerships.length === 0 ? (
+                  <p className="text-sm text-text-muted">No partnership data available.</p>
+                ) : (
+                  partnerships.map((p, idx) => (
+                    <div key={`${p.team}-${idx}`} className="grid grid-cols-[1fr_auto] gap-3 items-center">
+                      <div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-text-secondary">
+                            {p.team} · {p.pair}
+                          </span>
+                          <span className="tabular-nums text-text-primary">
+                            {p.runs} ({p.balls})
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-surface-elevated mt-1 overflow-hidden">
+                          <div
+                            className="h-full bg-primary"
+                            style={{
+                              width: `${maxPartnership > 0 ? (p.runs / maxPartnership) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <span className="text-xs text-text-muted tabular-nums min-w-[4rem] text-right">
+                        {p.wicketOver ? `${p.wicketOver} ov` : "not out"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
+
+          {(statsSection === "all" || statsSection === "manhattan") && (
+            <section className="rounded-lg border border-surface-elevated bg-surface p-4">
+              <h2 className="text-xl font-semibold text-text-primary mb-3">Manhattan</h2>
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartRows.rows}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                    <XAxis dataKey="over" />
+                    <YAxis />
+                    <RechartsTooltip />
+                    <Legend />
+                    <Bar dataKey={chartRows.teamA} fill="#1d7ff5" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey={chartRows.teamB} fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          )}
+
+          {(statsSection === "all" || statsSection === "runrate") && (
+            <section className="rounded-lg border border-surface-elevated bg-surface p-4">
+              <h2 className="text-xl font-semibold text-text-primary mb-3">Run Rate Graph</h2>
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartRows.rows}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                    <XAxis dataKey="over" />
+                    <YAxis />
+                    <RechartsTooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey={`${chartRows.teamA} RR`}
+                      stroke="#1d7ff5"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={`${chartRows.teamB} RR`}
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          )}
+
+          {(statsSection === "all" || statsSection === "worm") && (
+            <section className="rounded-lg border border-surface-elevated bg-surface p-4">
+              <h2 className="text-xl font-semibold text-text-primary mb-3">Worm</h2>
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartRows.rows}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                    <XAxis dataKey="over" />
+                    <YAxis />
+                    <RechartsTooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey={`${chartRows.teamA} Cum`}
+                      stroke="#1d7ff5"
+                      strokeWidth={2.2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={`${chartRows.teamB} Cum`}
+                      stroke="#f59e0b"
+                      strokeWidth={2.2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+
+      {view === "overs" && (
+        <section className="mb-10 rounded-lg border border-surface-elevated bg-surface overflow-hidden">
+          <div className="px-4 py-3 border-b border-surface-elevated">
+            <h2 className="text-lg font-semibold text-text-primary">Over Highlights</h2>
+            <p className="text-xs text-text-muted mt-1">
+              Impactful overs are highlighted based on wickets or high run swings.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="scorecard-table w-full text-sm">
+              <thead>
+                <tr className="border-b border-surface-elevated text-left text-text-muted">
+                  <th className="py-2 px-3">Ovs</th>
+                  <th className="py-2 px-3">{overCompareRows.teamA}</th>
+                  <th className="py-2 px-3">{overCompareRows.teamB}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overCompareRows.rows.map((r) => (
+                  <tr
+                    key={r.over}
+                    className={
+                      r.impactful
+                        ? "border-b border-surface-elevated/60 bg-primary/10"
+                        : "border-b border-surface-elevated/60"
+                    }
+                  >
+                    <td className="py-2 px-3 tabular-nums">{r.over}</td>
+                    <td className="py-2 px-3 tabular-nums">
+                      {r.aText}
+                      <span className="text-text-muted ml-2">({r.aRuns} runs)</span>
+                    </td>
+                    <td className="py-2 px-3 tabular-nums">
+                      {r.bText}
+                      <span className="text-text-muted ml-2">({r.bRuns} runs)</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {view === "balls" && (
@@ -779,6 +1579,8 @@ export default function ScorecardDetailBody({
           ← Back to Simulation Hub
         </Link>
       )}
+
+      <CrossLinkBar links={crossLinks} title="Explore more" className="mt-8" />
     </div>
   );
 }

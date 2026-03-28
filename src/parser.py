@@ -11,6 +11,68 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+
+
+def _cricsheet_json_files(data_dir: Path) -> list[Path]:
+    """Return Cricsheet match JSON paths under *data_dir*.
+
+    Cricsheet zips usually place ``*.json`` in the archive root, but some
+    archives add one extra directory level. We accept:
+
+    - ``data_dir/*.json``
+    - ``data_dir/<single_subdir>/*.json`` (ignores ``__MACOSX``)
+    """
+    data_dir = data_dir.resolve()
+    if not data_dir.is_dir():
+        return []
+
+    direct = sorted(data_dir.glob("*.json"))
+    if direct:
+        return direct
+
+    subdirs = [
+        d
+        for d in data_dir.iterdir()
+        if d.is_dir() and d.name != "__MACOSX" and not d.name.startswith(".")
+    ]
+    if len(subdirs) == 1:
+        nested = sorted(subdirs[0].glob("*.json"))
+        if nested:
+            print(
+                f"  Using nested JSON directory: {subdirs[0].name}/ "
+                f"({len(nested):,} files under {data_dir})"
+            )
+            return nested
+
+    all_nested: list[Path] = []
+    for d in subdirs:
+        all_nested.extend(d.glob("*.json"))
+    if all_nested:
+        print(
+            f"  Using JSON files from {len(subdirs)} subdirs under {data_dir} "
+            f"({len(all_nested):,} files)"
+        )
+        return sorted(all_nested)
+
+    return []
+
+
+def _wicket_fielder_names(wkt: dict) -> list[str]:
+    """Fielder names from a Cricsheet wicket object (caught, stumped, run-out, etc.)."""
+    raw = wkt.get("fielders") or []
+    if not isinstance(raw, (list, tuple)):
+        return []
+    names: list[str] = []
+    for fe in raw:
+        if isinstance(fe, dict):
+            n = fe.get("name")
+            if n:
+                names.append(str(n))
+        elif isinstance(fe, str) and fe.strip():
+            names.append(fe.strip())
+    return names
+
+
 import orjson
 import pandas as pd
 
@@ -153,6 +215,7 @@ def _parse_single_match(filepath: str) -> Optional[dict]:
                     "is_legal": is_legal,
                     "is_batter_ball": is_batter_ball,
                     "is_wicket": is_wicket,
+                    "wicket_fielders": _wicket_fielder_names(wkt) if is_wicket else None,
                     "wicket_kind": wicket_kind,
                     "player_out": player_out,
                     "player_out_id": _reg(player_out) if player_out else None,
@@ -165,7 +228,10 @@ def _parse_single_match(filepath: str) -> Optional[dict]:
                     "team_wickets_before": cum_wickets,
                     "target_runs": target_runs,
                     "winner": winner,
+                    "toss_winner": toss.get("winner"),
+                    "toss_decision": toss.get("decision"),
                     "overs_limit": overs_limit,
+                    "outcome_method": outcome.get("method"),
                 }
 
                 deliveries.append(row)
@@ -208,8 +274,13 @@ def parse_all_matches(
     match_infos : list[dict]
         Per-match metadata for downstream use.
     """
-    json_files = sorted(Path(data_dir).glob("*.json"))
-    # README.txt will be skipped because it doesn't parse as valid JSON
+    json_files = _cricsheet_json_files(Path(data_dir))
+    # README.txt in root is skipped (not *.json); stray non-match JSON fails in worker.
+    if not json_files:
+        raise RuntimeError(
+            f"No Cricsheet match JSON (*.json) found under {data_dir!s} "
+            "(looked in this folder and one level of subfolders, excluding __MACOSX)."
+        )
 
     if max_workers is None:
         max_workers = min(os.cpu_count() or 4, 8)
@@ -246,7 +317,8 @@ def parse_all_matches(
 
     if not all_deliveries:
         raise RuntimeError(
-            "No deliveries parsed — check data_dir path and file contents."
+            "No deliveries parsed — check data_dir points at Cricsheet match JSON "
+            "(files named *.json in the folder or in one subfolder after unzip)."
         )
 
     # --------------- Build DataFrame ---------------

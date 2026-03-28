@@ -51,6 +51,7 @@ import {
   fmtPhase,
   fmtMatchupEdge,
   matchupEdgeScore,
+  matchupEdgeDescription,
 } from "@/lib/format";
 import type {
   PlayerSummary,
@@ -59,9 +60,20 @@ import type {
   MatchupPhase,
   MatchupExploreParams,
 } from "@/api/types";
+import ConfidenceBadge from "@/components/ConfidenceBadge";
+import CrossLinkBar from "@/components/CrossLinkBar";
+import type { CrossLink } from "@/components/CrossLinkBar";
 import SocialShareTrigger from "@/components/SocialShareTrigger";
 import { SOCIAL_EXPORT_ROOT_CLASS } from "@/lib/socialCapture";
 import { subjectsFromPlayers } from "@/lib/socialGraphicComposite";
+
+// ── Cross-links ──────────────────────────────────────────────────
+
+const CROSS_LINKS: CrossLink[] = [
+  { label: "Player rankings", to: "/rankings" },
+  { label: "Compare players", to: "/compare" },
+  { label: "Match scorecards", to: "/scorecards" },
+];
 
 // ── Sort options for explorer ────────────────────────────────────
 
@@ -113,7 +125,9 @@ function DominanceGauge({ value, size = "md" }: DominanceGaugeProps) {
           className="font-score font-semibold text-xs text-center px-1"
           style={{ color: colour }}
         >
-          {score != null ? `${fmtMatchupEdge(value)}/100` : "—"} · {label}
+          {score != null
+            ? `${fmtMatchupEdge(value)}/100 — ${matchupEdgeDescription(score)}`
+            : "—"}
         </span>
         <span className="text-right leading-tight max-w-[5.5rem]">
           Batter
@@ -364,6 +378,7 @@ function HeadToHeadView({ data }: HeadToHeadViewProps) {
 
           {/* Dominance gauge */}
           <DominanceGauge value={data.dominance_index} size="lg" />
+          <ConfidenceBadge balls={data.balls} />
         </div>
       </div>
 
@@ -759,6 +774,7 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
                           currentOrder={order}
                           onSort={toggleSort}
                         />
+                        <th className="text-center">Confidence</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -801,6 +817,14 @@ function ExplorerView({ initialPlayerId, initialRole }: ExplorerViewProps) {
                                 ? `${fmtMatchupEdge(m.dominance_index)}/100`
                                 : "—"}
                             </span>
+                            {m.dominance_index != null && (
+                              <div className="text-[10px] text-text-muted leading-tight mt-0.5">
+                                {matchupEdgeDescription(matchupEdgeScore(m.dominance_index))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="text-center">
+                            <ConfidenceBadge balls={m.balls} />
                           </td>
                         </tr>
                       ))}
@@ -928,14 +952,15 @@ export default function Matchups() {
     <div className="app-page page-stack animate-fade-in">
       {/* Header */}
       <div className="page-header">
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted">
+          Who thrives against whom?
+        </p>
         <h1 className="page-title flex items-center gap-3">
           <Swords size={28} className="text-primary" />
-          {isExplorer ? "Matchup Explorer" : "Head-to-Head Matchups"}
+          {isExplorer ? "Matchup Explorer" : "Matchups"}
         </h1>
         <p className="page-subtitle">
-          {isExplorer
-            ? "Browse all matchups for any player. Sort by matchup edge, balls, strike rate, or dismissals."
-            : "Analyse the head-to-head record between any batter and bowler, or explore all matchups."}
+          Ball-by-ball batter vs bowler contest analysis with matchup edge scores.
         </p>
       </div>
 
@@ -1034,6 +1059,12 @@ export default function Matchups() {
       {/* Explorer Mode */}
       {(activeTab === "explore" || isExplorer) &&
         (activeTab === "explore" || isExplorer) && <ExplorerView />}
+
+      {/* Cross-links */}
+      <CrossLinkBar
+        title="Related"
+        links={CROSS_LINKS}
+      />
     </div>
   );
 }

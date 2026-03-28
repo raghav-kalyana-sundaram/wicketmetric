@@ -37,6 +37,7 @@ import {
 import { useEras, usePlayerProfile } from "@/api/queries";
 import { isBatterProfile, isBowlerProfile } from "@/api/types";
 import type { PlayerProfile } from "@/api/types";
+import CrossLinkBar from "@/components/CrossLinkBar";
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import GradeBadge from "@/components/GradeBadge";
 import ScoreBar from "@/components/ScoreBar";
@@ -541,6 +542,7 @@ export default function Eras() {
     <div className="app-page page-stack">
       {/* ── Page header ─────────────────────────────────────── */}
       <div className="page-header">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">How has the game evolved?</p>
         <h1 className="page-title flex items-center gap-2">
           <Calendar size={24} className="text-primary" />
           Era Explorer
@@ -960,6 +962,15 @@ export default function Eras() {
         </p>
         <p>Years with fewer than 10 recorded innings are excluded.</p>
       </div>
+
+      <CrossLinkBar
+        links={[
+          { label: "Player rankings", to: "/rankings" },
+          { label: "Venue analysis", to: "/venues" },
+          { label: "Top performances", to: "/performances" },
+          { label: "Methodology", to: "/glossary" },
+        ]}
+      />
     </div>
   );
 }

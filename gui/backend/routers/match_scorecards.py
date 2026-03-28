@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import date, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
+
+from data_loader import DEFAULT_FORMAT, VALID_FORMATS
+from schemas import (
+    LatestScorecardSummary,
+    MatchImpactPerformanceRow,
+    MatchImpactPerformancesResponse,
+)
+from t20i_team_tiers import is_t20_international_format, main_team_name_set
 
 
 # Dependency placeholder — overridden in app.py at startup to return DataStore
@@ -16,6 +26,9 @@ def _get_store():
 
 router = APIRouter(prefix="/api", tags=["match_scorecards"])
 
+_FORMAT_QUERY_PATTERN = "^(" + "|".join(VALID_FORMATS) + ")$"
+_MATCH_TIER_PATTERN = r"^(all|main_only|associate_fixture)$"
+
 
 def _load_scorecard_file(path: Path) -> Optional[Dict[str, Any]]:
     """Load a single scorecard JSON file and return its dict, or None on error."""
@@ -24,6 +37,111 @@ def _load_scorecard_file(path: Path) -> Optional[Dict[str, Any]]:
             return json.load(fh)
     except Exception:
         return None
+
+
+def _normalize_meta_teams(raw: Any) -> Optional[List[str]]:
+    if not isinstance(raw, list):
+        return None
+    out = [str(x).strip() for x in raw if x is not None and str(x).strip()]
+    return out or None
+
+
+def _teams_from_scorecard(sc: Dict[str, Any]) -> Optional[List[str]]:
+    """
+    Team short names for display: prefer meta.teams; if missing or incomplete,
+    derive ordered unique sides from innings batting_team / bowling_team.
+    """
+    meta = sc.get("meta") or {}
+    meta_teams = _normalize_meta_teams(meta.get("teams"))
+    if meta_teams and len(meta_teams) >= 2:
+        return meta_teams
+
+    innings_map = sc.get("innings") or {}
+    if not isinstance(innings_map, dict):
+        return meta_teams
+
+    def _inn_sort_key(key: Any) -> int:
+        try:
+            return int(key)
+        except (TypeError, ValueError):
+            return 0
+
+    seen: List[str] = []
+    for k in sorted(innings_map.keys(), key=_inn_sort_key):
+        inn = innings_map[k]
+        if not isinstance(inn, dict):
+            continue
+        for fld in ("batting_team", "bowling_team"):
+            v = inn.get(fld)
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s and s not in seen:
+                seen.append(s)
+    if len(seen) >= 2:
+        return seen[:2]
+    return meta_teams
+
+
+def _parse_meta_date(raw: Any) -> Optional[date]:
+    if raw is None:
+        return None
+    try:
+        if isinstance(raw, datetime):
+            return raw.date()
+        s = str(raw).strip()
+        if not s:
+            return None
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=32)
+def _cached_latest_scorecard(sc_dir_resolved: str) -> Optional[Dict[str, Any]]:
+    """Scan all scorecard JSONs once per directory path (process lifetime)."""
+    root = Path(sc_dir_resolved)
+    if not root.is_dir():
+        return None
+    best_d: Optional[date] = None
+    best_meta: Optional[Dict[str, Any]] = None
+    best_path: Optional[Path] = None
+    for path in root.glob("*.json"):
+        sc = _load_scorecard_file(path)
+        if sc is None:
+            continue
+        meta = sc.get("meta") or {}
+        d = _parse_meta_date(meta.get("date"))
+        if d is None:
+            continue
+        if best_d is None or d > best_d:
+            best_d = d
+            best_meta = meta
+            best_path = path
+    if best_meta is None or best_path is None:
+        return None
+    raw_teams = best_meta.get("teams")
+    teams: Optional[List[str]] = None
+    if isinstance(raw_teams, list):
+        teams = [str(x) for x in raw_teams if x is not None and str(x).strip()]
+        if not teams:
+            teams = None
+    return {
+        "match_id": str(best_meta.get("match_id") or best_path.stem),
+        "date": best_meta.get("date"),
+        "venue": best_meta.get("venue"),
+        "teams": teams,
+        "event_name": best_meta.get("event_name"),
+    }
+
+
+def compute_latest_scorecard_summary(store: Any) -> Optional[Dict[str, Any]]:
+    """Newest scorecard in ``store.output_dir/scorecards`` by ``meta.date``."""
+    out = getattr(store, "output_dir", None)
+    if out is None:
+        return None
+    sc_dir = (Path(out) / "scorecards").resolve()
+    return _cached_latest_scorecard(str(sc_dir))
 
 
 def _sanitize_json_values(value: Any) -> Any:
@@ -69,6 +187,20 @@ def search_scorecards(
     player_id: Optional[str] = Query(
         None, description="Filter by player id (batter_id or bowler_id)"
     ),
+    match_tier: str = Query(
+        "all",
+        description=(
+            "T20I only (ignored for IPL). "
+            "all | main_only (both teams in top ICC tier from config) | "
+            "associate_fixture (at least one associate / unlisted side)"
+        ),
+        pattern=_MATCH_TIER_PATTERN,
+    ),
+    format: str = Query(
+        DEFAULT_FORMAT,
+        description="Dataset slice; selects T20I vs IPL.",
+        pattern=_FORMAT_QUERY_PATTERN,
+    ),
     limit: int = Query(100, ge=1, le=1000),
     store=Depends(_get_store),
 ):
@@ -86,9 +218,9 @@ def search_scorecards(
     if not sc_dir.exists():
         return []
 
-    # Collect results up to `limit`
+    # Collect all matches that pass filters, then sort by meta.date (newest first)
+    # and apply ``limit``. Iterating sorted filenames alone orders by match_id, not date.
     results: List[Dict[str, Any]] = []
-    count = 0
 
     # Normalize filters
     team_l = team.lower() if team else None
@@ -107,10 +239,10 @@ def search_scorecards(
 
     d_from = parse_date(date_from)
     d_to = parse_date(date_to)
+    eff_tier = _effective_match_tier(format, match_tier)
+    main_set = main_team_name_set() if eff_tier != "all" else frozenset()
 
-    for path in sorted(sc_dir.glob("*.json")):
-        if count >= limit:
-            break
+    for path in sc_dir.glob("*.json"):
         sc = _load_scorecard_file(path)
         if sc is None:
             continue
@@ -119,17 +251,18 @@ def search_scorecards(
         # Date filter: meta.date may be a string or None
         ok = True
         if d_from or d_to:
-            meta_date = meta.get("date")
-            try:
-                mdate = datetime.fromisoformat(meta_date).date() if meta_date else None
-            except Exception:
-                mdate = None
+            mdate = _parse_meta_date(meta.get("date"))
             if d_from and (mdate is None or mdate < d_from):
                 ok = False
             if d_to and (mdate is None or mdate > d_to):
                 ok = False
             if not ok:
                 continue
+
+        if eff_tier != "all" and not _scorecard_passes_match_tier(
+            sc, tier=eff_tier, main_names=main_set
+        ):
+            continue
 
         # Team filter
         if team_l:
@@ -171,33 +304,281 @@ def search_scorecards(
                 "date": meta.get("date"),
                 "venue": meta.get("venue"),
                 "teams": meta.get("teams"),
+                "event_name": meta.get("event_name"),
                 "innings_count": len(sc.get("innings", {})),
             }
         )
-        count += 1
 
-    return results
+    def _row_sort_date(row: Dict[str, Any]) -> date:
+        parsed = _parse_meta_date(row.get("date"))
+        return parsed if parsed is not None else date.min
+
+    results.sort(key=_row_sort_date, reverse=True)
+    return results[:limit]
 
 
-@router.get("/scorecards/{match_id}")
-def get_scorecard(match_id: str, store=Depends(_get_store)):
+def _scorecard_passes_team_filter(sc: Dict[str, Any], team_l: Optional[str]) -> bool:
+    if not team_l:
+        return True
+    meta = sc.get("meta") or {}
+    for t in meta.get("teams") or []:
+        if t and team_l in str(t).lower():
+            return True
+    for inn in (sc.get("innings") or {}).values():
+        if not isinstance(inn, dict):
+            continue
+        for k in ("batting_team", "bowling_team"):
+            v = inn.get(k)
+            if v and team_l in str(v).lower():
+                return True
+    return False
+
+
+def _scorecard_passes_match_tier(
+    sc: Dict[str, Any],
+    *,
+    tier: str,
+    main_names: frozenset[str],
+) -> bool:
+    """T20I ICC-tier filter using both sides from scorecard meta / innings."""
+    t = (tier or "all").strip().lower()
+    if t == "all":
+        return True
+    sides = _teams_from_scorecard(sc) or []
+    if len(sides) < 2:
+        return False
+    a, b = sides[0], sides[1]
+    in_main = a in main_names and b in main_names
+    has_assoc = a not in main_names or b not in main_names
+    if t == "main_only":
+        return in_main
+    if t == "associate_fixture":
+        return has_assoc
+    return True
+
+
+def _effective_match_tier(format_key: str, match_tier: Optional[str]) -> str:
+    if not is_t20_international_format(format_key):
+        return "all"
+    mt = (match_tier or "all").strip().lower()
+    return mt if mt in ("main_only", "associate_fixture") else "all"
+
+
+def _scorecard_passes_event_filter(sc: Dict[str, Any], event_l: Optional[str]) -> bool:
+    if not event_l:
+        return True
+    meta = sc.get("meta") or {}
+    ev = meta.get("event_name")
+    return bool(ev and event_l in str(ev).lower())
+
+
+@router.get(
+    "/scorecards/performances/by-impact",
+    response_model=MatchImpactPerformancesResponse,
+)
+def list_impact_performances(
+    *,
+    date_from: Optional[str] = Query(
+        None, description="ISO date (inclusive) yyyy-mm-dd"
+    ),
+    date_to: Optional[str] = Query(None, description="ISO date (inclusive) yyyy-mm-dd"),
+    team: Optional[str] = Query(
+        None, description="Team name substring (meta or innings teams, case-insensitive)"
+    ),
+    event: Optional[str] = Query(
+        None, description="Event / series name substring (case-insensitive)"
+    ),
+    player_id: Optional[str] = Query(
+        None, description="Restrict to this player id (batter_id / bowler_id)"
+    ),
+    match_tier: str = Query(
+        "all",
+        description=(
+            "T20I only (ignored for IPL). "
+            "all | main_only | associate_fixture — same as /scorecards/search"
+        ),
+        pattern=_MATCH_TIER_PATTERN,
+    ),
+    format: str = Query(
+        DEFAULT_FORMAT,
+        description="Dataset slice; selects T20I vs IPL.",
+        pattern=_FORMAT_QUERY_PATTERN,
+    ),
+    discipline: str = Query(
+        "combined",
+        description="combined (bat+bowl), bat (batting impact only), bowl (bowling only)",
+    ),
+    order: str = Query("desc", description="Sort direction: asc or desc"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100),
+    store=Depends(_get_store),
+):
     """
-    Retrieve the full scorecard JSON for a single match_id.
+    All qualifying match-impact performances across scorecards, filterable and paginated.
 
-    Returns 404 if the file does not exist or cannot be read.
+    Uses the same impact formulas as the scorecard Match impact tab. Sorting is by
+    total combined impact, batting impact only, or bowling impact only according to
+    ``discipline``.
     """
+    from match_impact import compute_match_impact_combined_rows
+
+    disc = (discipline or "combined").strip().lower()
+    if disc not in ("combined", "bat", "bowl"):
+        raise HTTPException(
+            status_code=400,
+            detail="discipline must be one of: combined, bat, bowl",
+        )
+    ord_l = (order or "desc").strip().lower()
+    if ord_l not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail="order must be asc or desc")
+
     out = getattr(store, "output_dir", None)
     if out is None:
         raise HTTPException(status_code=503, detail="Data store not available")
-    sc_path = Path(out) / "scorecards" / f"{match_id}.json"
-    if not sc_path.exists():
-        raise HTTPException(status_code=404, detail=f"Scorecard not found: {match_id}")
-    sc = _load_scorecard_file(sc_path)
-    if sc is None:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to read scorecard: {match_id}"
-        )
-    return JSONResponse(content=_sanitize_json_values(sc))
+    sc_dir = Path(out) / "scorecards"
+    if not sc_dir.exists():
+        return MatchImpactPerformancesResponse()
+
+    team_l = team.lower() if team else None
+    event_l = event.lower() if event else None
+    pid_filter = str(player_id).strip() if player_id is not None else None
+
+    def parse_date(s: Optional[str]) -> Optional[date]:
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s).date()
+        except Exception:
+            return None
+
+    d_from = parse_date(date_from)
+    d_to = parse_date(date_to)
+    eff_tier = _effective_match_tier(format, match_tier)
+    main_set = main_team_name_set() if eff_tier != "all" else frozenset()
+
+    collected: List[Dict[str, Any]] = []
+
+    for path in sc_dir.glob("*.json"):
+        sc = _load_scorecard_file(path)
+        if sc is None:
+            continue
+
+        meta = sc.get("meta") or {}
+        mdate = _parse_meta_date(meta.get("date"))
+        if d_from and (mdate is None or mdate < d_from):
+            continue
+        if d_to and (mdate is None or mdate > d_to):
+            continue
+        if eff_tier != "all" and not _scorecard_passes_match_tier(
+            sc, tier=eff_tier, main_names=main_set
+        ):
+            continue
+        if not _scorecard_passes_team_filter(sc, team_l):
+            continue
+        if not _scorecard_passes_event_filter(sc, event_l):
+            continue
+
+        for prow in compute_match_impact_combined_rows(sc.get("innings") or {}):
+            plid = str(prow.get("player_id") or "")
+            if pid_filter and plid != pid_filter:
+                continue
+            bi = float(prow.get("bat_impact") or 0)
+            boi = float(prow.get("bowl_impact") or 0)
+            if disc == "bat" and bi <= 0:
+                continue
+            if disc == "bowl" and boi <= 0:
+                continue
+
+            teams_out = _teams_from_scorecard(sc)
+
+            collected.append(
+                {
+                    "match_id": str(meta.get("match_id") or path.stem),
+                    "date": meta.get("date"),
+                    "venue": meta.get("venue"),
+                    "event_name": meta.get("event_name"),
+                    "teams": teams_out,
+                    "player_id": plid,
+                    "player_name": str(prow.get("name") or plid),
+                    "total_impact": float(prow.get("total_impact") or 0),
+                    "bat_impact": bi,
+                    "bowl_impact": boi,
+                    "bat_runs": prow.get("bat_runs"),
+                    "bat_balls": prow.get("bat_balls"),
+                    "bowl_wickets": prow.get("bowl_wickets"),
+                    "bowl_runs_conceded": prow.get("bowl_runs_conceded"),
+                    "bowl_balls": prow.get("bowl_balls"),
+                    "_d_ord": mdate.toordinal() if mdate is not None else -1,
+                }
+            )
+
+    if disc == "bat":
+        sk = "bat_impact"
+    elif disc == "bowl":
+        sk = "bowl_impact"
+    else:
+        sk = "total_impact"
+
+    reverse = ord_l == "desc"
+
+    def _sort_tuple(row: Dict[str, Any]) -> tuple:
+        v = float(row.get(sk) or 0)
+        d_ord = int(row.get("_d_ord") or -1)
+        mid = str(row.get("match_id") or "")
+        pl = str(row.get("player_id") or "")
+        if reverse:
+            return (-v, -d_ord, mid, pl)
+        return (v, d_ord, mid, pl)
+
+    collected.sort(key=_sort_tuple)
+
+    total = len(collected)
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    page_adj = min(page, total_pages)
+    start = (page_adj - 1) * per_page
+    slice_rows = collected[start : start + per_page]
+
+    _perf_keys = (
+        "match_id",
+        "date",
+        "venue",
+        "event_name",
+        "teams",
+        "player_id",
+        "player_name",
+        "total_impact",
+        "bat_impact",
+        "bowl_impact",
+        "bat_runs",
+        "bat_balls",
+        "bowl_wickets",
+        "bowl_runs_conceded",
+        "bowl_balls",
+    )
+    performances = [
+        MatchImpactPerformanceRow(**{k: r[k] for k in _perf_keys}) for r in slice_rows
+    ]
+
+    return MatchImpactPerformancesResponse(
+        performances=performances,
+        total=total,
+        page=page_adj,
+        per_page=per_page,
+        total_pages=total_pages,
+    )
+
+
+@router.get("/scorecards/latest", response_model=LatestScorecardSummary)
+def get_latest_scorecard(store=Depends(_get_store)):
+    """Newest match in ``scorecards/`` by ``meta.date`` (full scan; cached per dir)."""
+    raw = compute_latest_scorecard_summary(store)
+    if not raw:
+        raise HTTPException(status_code=404, detail="No scorecards available")
+    return LatestScorecardSummary(**raw)
+
+
+# Static path segments must be registered before ``/scorecards/{match_id}`` so
+# ``/scorecards/player/...`` is not captured as a match id.
 
 
 @router.get("/scorecards/player/{player_id}")
@@ -222,8 +603,6 @@ def player_scorecard_list(
     pid = str(player_id)
 
     for path in sorted(sc_dir.glob("*.json")):
-        if len(performances) >= limit:
-            break
         sc = _load_scorecard_file(path)
         if sc is None:
             continue
@@ -285,3 +664,80 @@ def player_scorecard_list(
 
     performances_sorted = sorted(performances, key=_sort_key)
     return performances_sorted[:limit]
+
+
+@router.get("/scorecards/player/{player_id}/match-impact")
+def player_match_impact_performances(player_id: str, store=Depends(_get_store)):
+    """
+    Every scorecard match where this player has a qualifying match-impact line
+    (same rules as the scorecard Match impact tab), sorted by combined
+    ``total_impact`` descending. No truncation — all matches are returned.
+    """
+    from match_impact import combined_row_for_player
+
+    out = getattr(store, "output_dir", None)
+    if out is None:
+        raise HTTPException(status_code=503, detail="Data store not available")
+    sc_dir = Path(out) / "scorecards"
+    if not sc_dir.exists():
+        return JSONResponse(content=[])
+
+    pid = str(player_id)
+    rows: List[Dict[str, Any]] = []
+
+    for path in sorted(sc_dir.glob("*.json")):
+        sc = _load_scorecard_file(path)
+        if sc is None:
+            continue
+        row = combined_row_for_player(sc, pid)
+        if row is None:
+            continue
+        meta = sc.get("meta") or {}
+        teams_out = _teams_from_scorecard(sc)
+        rows.append(
+            {
+                "match_id": str(meta.get("match_id") or path.stem),
+                "date": meta.get("date"),
+                "venue": meta.get("venue"),
+                "event_name": meta.get("event_name"),
+                "teams": teams_out,
+                "total_impact": row["total_impact"],
+                "bat_impact": row["bat_impact"],
+                "bowl_impact": row["bowl_impact"],
+                "bat_runs": row.get("bat_runs"),
+                "bat_balls": row.get("bat_balls"),
+                "bowl_wickets": row.get("bowl_wickets"),
+                "bowl_runs_conceded": row.get("bowl_runs_conceded"),
+                "bowl_balls": row.get("bowl_balls"),
+            }
+        )
+
+    def _item_sort_key(item: Dict[str, Any]) -> tuple:
+        d = _parse_meta_date(item.get("date"))
+        d_ord = d.toordinal() if d is not None else -1
+        tid = str(item.get("match_id") or "")
+        return (-float(item.get("total_impact") or 0), -d_ord, tid)
+
+    rows.sort(key=_item_sort_key)
+    return JSONResponse(content=_sanitize_json_values(rows))
+
+
+@router.get("/scorecards/{match_id}")
+def get_scorecard(match_id: str, store=Depends(_get_store)):
+    """
+    Retrieve the full scorecard JSON for a single match_id.
+
+    Returns 404 if the file does not exist or cannot be read.
+    """
+    out = getattr(store, "output_dir", None)
+    if out is None:
+        raise HTTPException(status_code=503, detail="Data store not available")
+    sc_path = Path(out) / "scorecards" / f"{match_id}.json"
+    if not sc_path.exists():
+        raise HTTPException(status_code=404, detail=f"Scorecard not found: {match_id}")
+    sc = _load_scorecard_file(sc_path)
+    if sc is None:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read scorecard: {match_id}"
+        )
+    return JSONResponse(content=_sanitize_json_values(sc))

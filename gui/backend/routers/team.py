@@ -16,6 +16,7 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from rating_display import batting_display_ratings, bowling_display_ratings
 from schemas import PlayerSummary, TeamAnalysis
 
 if TYPE_CHECKING:
@@ -69,9 +70,25 @@ def _safe_str(v: Any, default: str = "") -> str:
     return s
 
 
-def _row_to_player_summary(row: Any, role: str) -> PlayerSummary:
+def _normalise_phase_group(raw: Any) -> str | None:
+    s = _safe_str(raw, "").strip().lower()
+    if not s or s in ("unknown", "nan", "none"):
+        return None
+    return s
+
+
+def _row_to_player_summary(
+    row: Any,
+    role: str,
+    *,
+    phase_group: str | None = None,
+    allrounder_class: str | None = None,
+) -> PlayerSummary:
     """Convert a pandas Series (career row) to a PlayerSummary."""
     if role == "bat":
+        rating_overall, rating_current = batting_display_ratings(row)
+        mp = _safe_int(row.get("modal_position"))
+        modal_position = mp if mp is not None and 1 <= mp <= 11 else None
         return PlayerSummary(
             id=_safe_str(row.get("batter_id"), ""),
             name=_safe_str(row.get("batter"), "Unknown"),
@@ -92,8 +109,24 @@ def _row_to_player_summary(row: Any, role: str) -> PlayerSummary:
             is_provisional=bool(row.get("is_provisional_bat", True)),
             overall_score=_safe_float(row.get("overall_score"))
             or _safe_float(row.get("composite_batting")),
+            rating_current=rating_current,
+            rating_overall=rating_overall,
+            modal_position=modal_position,
+            recent_team=(
+                _safe_str(row.get("recent_team"), "").strip() or None
+                if hasattr(row, "get")
+                else (
+                    _safe_str(getattr(row, "recent_team", None), "").strip() or None
+                )
+            ),
+            phase_group=None,
+            allrounder_class=allrounder_class,
         )
     else:
+        rating_overall, rating_current = bowling_display_ratings(row)
+        pg = phase_group if phase_group is not None else _normalise_phase_group(
+            row.get("phase_group")
+        )
         return PlayerSummary(
             id=_safe_str(row.get("bowler_id"), ""),
             name=_safe_str(row.get("bowler"), "Unknown"),
@@ -114,6 +147,18 @@ def _row_to_player_summary(row: Any, role: str) -> PlayerSummary:
             is_provisional=bool(row.get("is_provisional_bowl", True)),
             overall_score=_safe_float(row.get("overall_score"))
             or _safe_float(row.get("composite_bowling")),
+            rating_current=rating_current,
+            rating_overall=rating_overall,
+            modal_position=None,
+            recent_team=(
+                _safe_str(row.get("recent_team"), "").strip() or None
+                if hasattr(row, "get")
+                else (
+                    _safe_str(getattr(row, "recent_team", None), "").strip() or None
+                )
+            ),
+            phase_group=pg,
+            allrounder_class=allrounder_class,
         )
 
 
@@ -269,6 +314,356 @@ def _get_genuine_batters_df(store: Any) -> "pd.DataFrame":
     return store.bat_careers.loc[mask]
 
 
+_DEFAULT_SLOT_SEQUENCE = (
+    "opener",
+    "opener",
+    "top_order",
+    "top_order",
+    "middle_order",
+    "middle_order",
+    "finisher_wk",
+    "allrounder",
+    "bowler",
+    "bowler",
+    "bowler",
+)
+
+_VALID_SLOT_TYPES = frozenset(
+    {
+        "opener",
+        "top_order",
+        "middle_order",
+        "finisher_wk",
+        "allrounder",
+        "bowler",
+    }
+)
+
+
+def _parse_slot_types(slot_types_param: str | None, n: int) -> list[str]:
+    if not slot_types_param or not str(slot_types_param).strip():
+        return [
+            _DEFAULT_SLOT_SEQUENCE[i] if i < len(_DEFAULT_SLOT_SEQUENCE) else "bowler"
+            for i in range(n)
+        ]
+    parts = [p.strip().lower() for p in str(slot_types_param).split(",") if p.strip()]
+    out = [p if p in _VALID_SLOT_TYPES else "bowler" for p in parts]
+    while len(out) < n:
+        i = len(out)
+        out.append(
+            _DEFAULT_SLOT_SEQUENCE[i] if i < len(_DEFAULT_SLOT_SEQUENCE) else "bowler"
+        )
+    return out[:n]
+
+
+def _parse_bowling_phases(param: str | None, n: int) -> list[str | None]:
+    if not param or not str(param).strip():
+        return [None] * n
+    out: list[str | None] = []
+    for p in str(param).split(","):
+        t = p.strip().lower()
+        if t in ("pp", "powerplay", "pp_heavy"):
+            out.append("pp_heavy")
+        elif t in ("middle", "mid", "middle_heavy"):
+            out.append("middle_heavy")
+        elif t in ("death", "death_heavy"):
+            out.append("death_heavy")
+        elif t in ("", "-", "none", "na"):
+            out.append(None)
+        else:
+            out.append(None)
+    while len(out) < n:
+        out.append(None)
+    return out[:n]
+
+
+def _allrounder_classify(
+    bat_row: dict | None,
+    bowl_row: dict | None,
+    is_genuine_bat: bool,
+    is_genuine_bowl: bool,
+) -> str | None:
+    if not (bat_row and bowl_row and is_genuine_bat and is_genuine_bowl):
+        return None
+    bat_arch = _safe_str(bat_row.get("archetype"), "")
+    bowl_arch = _safe_str(bowl_row.get("archetype"), "")
+    if bat_arch == "All-Round Elite" and (
+        bowl_arch == "All-Round Threat" or bowl_arch in _BOWLING_ARCHETYPES
+    ):
+        return "genuine"
+    try:
+        wb = float(
+            bat_row.get("war_batting")
+            or bat_row.get("composite_batting")
+            or bat_row.get("overall_score")
+            or 0
+        )
+        wl = float(
+            bowl_row.get("war_bowling")
+            or bowl_row.get("composite_bowling")
+            or bowl_row.get("overall_score")
+            or 0
+        )
+    except (TypeError, ValueError):
+        wb, wl = 0.0, 0.0
+    if bowl_arch in _BOWLING_ARCHETYPES and wl >= wb * 0.9:
+        return "bowling"
+    if bat_arch in _BATTING_ARCHETYPES and wb >= wl * 0.9:
+        return "batting"
+    return "genuine"
+
+
+def _is_bowling_role_slot(slot: str) -> bool:
+    return slot in ("bowler", "allrounder")
+
+
+def _bowl_matches(row: dict) -> int:
+    return _safe_int(row.get("matches")) or 0
+
+
+def _include_in_bowling_aggregate(
+    slot_type: str,
+    bowl_row: dict,
+    bat_row: dict | None,
+    is_genuine_bat: bool,
+    is_genuine_bowl: bool,
+) -> bool:
+    if not bowl_row or not is_genuine_bowl:
+        return False
+    bowl_arch = _safe_str(bowl_row.get("archetype"), "")
+    matches = _bowl_matches(bowl_row)
+    if bowl_arch in _BOWLING_ARCHETYPES:
+        return True
+    if bat_row and is_genuine_bat:
+        if _safe_str(bat_row.get("archetype"), "") == "All-Round Elite" and (
+            bowl_arch == "All-Round Threat" or bowl_arch in _BOWLING_ARCHETYPES
+        ):
+            return True
+    if _is_bowling_role_slot(slot_type) and matches >= 10:
+        return True
+    return False
+
+
+def _effective_phase_group(bowl_row: dict, user_phase: str | None) -> str | None:
+    if user_phase:
+        return user_phase
+    return _normalise_phase_group(bowl_row.get("phase_group"))
+
+
+def _bowler_covers_death(bowl_row: dict, user_phase: str | None) -> bool:
+    arch = _safe_str(bowl_row.get("archetype"), "")
+    if "Death" in arch:
+        return True
+    return _effective_phase_group(bowl_row, user_phase) == "death_heavy"
+
+
+def _bowler_covers_pp(bowl_row: dict, user_phase: str | None) -> bool:
+    arch = _safe_str(bowl_row.get("archetype"), "")
+    if "Powerplay" in arch or arch == "Powerplay Enforcer":
+        return True
+    return _effective_phase_group(bowl_row, user_phase) == "pp_heavy"
+
+
+def _is_spin_bowler_row(bowl_row: dict) -> bool:
+    arch = _safe_str(bowl_row.get("archetype"), "").lower()
+    if "spin" in arch or "spinner" in arch:
+        return True
+    style = _safe_str(bowl_row.get("bowling_style"), "").lower()
+    return any(
+        k in style for k in ("spin", "orthodox", "wrist", "leg break", "off break")
+    )
+
+
+def _death_entry_finisher_ok(store: Any, batter_id: str, bat_row: dict | None) -> bool:
+    if not bat_row:
+        return False
+    cdf = getattr(store, "bat_careers_ctx_entry_death", None)
+    if cdf is None or cdf.empty or "batter_id" not in cdf.columns:
+        return False
+    mask = cdf["batter_id"] == batter_id
+    sub = cdf.loc[mask]
+    if sub.empty:
+        return False
+    row = sub.iloc[0]
+    spow = _safe_float(row.get("score_power"))
+    if spow is not None and spow >= 58.0:
+        return True
+    sr = _safe_float(row.get("career_sr"))
+    return sr is not None and sr >= 135.0
+
+
+def _role_fit_warnings_for_slot(
+    slot_type: str,
+    bat_row: dict | None,
+    is_genuine_bat: bool,
+    name: str,
+) -> list[str]:
+    out: list[str] = []
+    if not bat_row or not is_genuine_bat:
+        return out
+    mp = _safe_int(bat_row.get("modal_position"))
+    if mp is None or not (1 <= mp <= 11):
+        return out
+    arch = _safe_str(bat_row.get("archetype"), "")
+    if slot_type == "opener" and mp not in (1, 2) and "Opener" not in arch:
+        out.append(
+            f"{name}: usually bats ~#{mp}; opener slot is atypical (role fit)."
+        )
+    elif slot_type == "finisher_wk" and mp <= 3:
+        out.append(
+            f"{name}: often top-order (~#{mp}); finisher/WK slot may be a role mismatch."
+        )
+    elif slot_type == "middle_order" and mp in (1, 2) and "Opener" not in arch:
+        out.append(
+            f"{name}: modal top-order (~#{mp}); middle-order slot is atypical."
+        )
+    return out
+
+
+def _evaluate_composition(
+    entries: list[dict], store: Any
+) -> tuple[list[str], list[str], dict[str, bool | str]]:
+    critical: list[str] = []
+    advisory: list[str] = []
+    summary: dict[str, bool | str] = {}
+
+    bowling_pool: list[dict] = []
+    for e in entries:
+        br = e["bowl_row"]
+        if not br:
+            continue
+        if e["is_genuine_bowl"] or (
+            _is_bowling_role_slot(e["slot_type"]) and _bowl_matches(br) >= 5
+        ):
+            bowling_pool.append(e)
+
+    n_pool = len(bowling_pool)
+    summary["bowling_options_count"] = str(n_pool)
+    if n_pool < 6:
+        critical.append(
+            f"Fewer than six realistic bowling options (have {n_pool})."
+        )
+    summary["sixth_bowler_ok"] = n_pool >= 6
+
+    has_death = any(
+        _bowler_covers_death(b["bowl_row"], b.get("user_bowl_phase"))
+        for b in bowling_pool
+    )
+    if not has_death and n_pool >= 3:
+        critical.append("No clear death-phase bowling profile in the attack.")
+    summary["death_covered"] = has_death
+
+    has_pp_bowl = any(
+        _bowler_covers_pp(b["bowl_row"], b.get("user_bowl_phase"))
+        for b in bowling_pool
+    )
+    if not has_pp_bowl and n_pool >= 3:
+        critical.append("No clear powerplay bowling profile in the attack.")
+    summary["pp_bowling_covered"] = has_pp_bowl
+
+    has_pp_bat = False
+    for e in entries:
+        if not e["is_genuine_bat"] or not e["bat_row"]:
+            continue
+        br = e["bat_row"]
+        arch = _safe_str(br.get("archetype"), "")
+        if e["slot_type"] == "opener" or "Opener" in arch:
+            has_pp_bat = True
+            break
+        acc = _safe_float(br.get("score_acceleration"))
+        if acc is not None and acc >= 55:
+            has_pp_bat = True
+            break
+    if not has_pp_bat and len(entries) >= 5:
+        critical.append("Limited powerplay batting intent in the top order.")
+    summary["pp_batting_covered"] = has_pp_bat
+
+    fin_ok = False
+    for e in entries:
+        if not e["is_genuine_bat"] or not e["bat_row"]:
+            continue
+        br = e["bat_row"]
+        arch = _safe_str(br.get("archetype"), "")
+        if "Finish" in arch and e["slot_type"] in (
+            "finisher_wk",
+            "middle_order",
+            "allrounder",
+        ):
+            fin_ok = True
+            break
+        if _death_entry_finisher_ok(store, e["pid"], br):
+            fin_ok = True
+            break
+    if not fin_ok and len(entries) >= 6:
+        critical.append("Finisher / late-entry batting strength is unclear.")
+    summary["finisher_depth_ok"] = fin_ok
+
+    strong_spinners = [
+        b
+        for b in bowling_pool
+        if _is_spin_bowler_row(b["bowl_row"]) and _bowl_matches(b["bowl_row"]) >= 10
+    ]
+    any_spin = any(
+        _is_spin_bowler_row(b["bowl_row"]) for b in bowling_pool
+    )
+    if not any_spin:
+        advisory.append(
+            "No clear spin option in the attack (may matter on slower surfaces)."
+        )
+    elif not strong_spinners:
+        advisory.append("Spin appears part-time or low-volume only.")
+
+    return critical, advisory, summary
+
+
+def _pick_balanced_bowler_ids(bowl_df: Any, exclude: set[str], k: int) -> list[str]:
+    """Prefer at least one death- and one powerplay-profile bowler when available."""
+    if bowl_df is None or getattr(bowl_df, "empty", True) or k <= 0:
+        return []
+    taken: list[str] = []
+    bid_col = "bowler_id"
+
+    def walk(pred) -> None:
+        nonlocal taken
+        if len(taken) >= k:
+            return
+        for _, row in bowl_df.iterrows():
+            if len(taken) >= k:
+                return
+            bid = str(row.get(bid_col, "") or "")
+            if not bid or bid in exclude or bid in taken:
+                continue
+            if pred(row):
+                taken.append(bid)
+
+    walk(lambda row: _bowler_covers_death(row.to_dict(), None))
+    walk(lambda row: _bowler_covers_pp(row.to_dict(), None))
+
+    for _, row in bowl_df.iterrows():
+        if len(taken) >= k:
+            break
+        bid = str(row.get(bid_col, "") or "")
+        if bid and bid not in exclude and bid not in taken:
+            taken.append(bid)
+    return taken
+
+
+def _handedness_advisory(entries: list[dict]) -> str | None:
+    hands: list[str] = []
+    for e in entries:
+        br = e.get("bat_row")
+        if not br:
+            continue
+        h = _safe_str(br.get("batting_hand"), "").strip().upper()[:1]
+        if h in ("L", "R"):
+            hands.append(h)
+    if len(hands) < 6:
+        return None
+    if len(set(hands)) == 1:
+        return "Batting lineup is single-handed; variety can help matchups."
+    return None
+
+
 def _avg_col(rows: list, col: str) -> float | None:
     """Compute the average of a column across a list of row dicts, ignoring NaN."""
     values = []
@@ -393,10 +788,16 @@ async def analyse_team(
     slot_types: str | None = Query(
         None,
         description=(
-            "Comma-separated slot types aligned with ids. "
-            "Values: opener, top_order, middle_order, finisher_wk, allrounder, bowler. "
-            "Kept for URL compatibility but NO LONGER used for role classification. "
-            "Role classification is now derived from the player's actual data."
+            "Comma-separated slot types aligned with ids: "
+            "opener, top_order, middle_order, finisher_wk, allrounder, bowler. "
+            "Drives role fit and which part-timers count in bowling averages."
+        ),
+    ),
+    bowling_phases: str | None = Query(
+        None,
+        description=(
+            "Optional comma-aligned phase tags: pp, middle, death, or empty. "
+            "Overrides phase for composition checks."
         ),
     ),
     store=Depends(_get_store),
@@ -440,13 +841,20 @@ async def analyse_team(
             detail="Maximum 15 player IDs allowed (11 players + subs)",
         )
 
+    n = len(player_ids)
+    slots = _parse_slot_types(slot_types, n)
+    user_phases = _parse_bowling_phases(bowling_phases, n)
+
     batter_summaries: list[PlayerSummary] = []
     bowler_summaries: list[PlayerSummary] = []
-    bat_rows: list[dict] = []  # rows that contribute to batting aggregates
-    bowl_rows: list[dict] = []  # rows that contribute to bowling aggregates
+    bat_rows: list[dict] = []
+    bowl_rows_agg: list[dict] = []
+    entries: list[dict] = []
 
-    for _idx, pid in enumerate(player_ids):
-        # Look up this player in both career datasets
+    for idx, pid in enumerate(player_ids):
+        slot_type = slots[idx] if idx < len(slots) else "bowler"
+        user_phase = user_phases[idx] if idx < len(user_phases) else None
+
         bat_row_dict: dict | None = None
         bowl_row_dict: dict | None = None
 
@@ -463,10 +871,8 @@ async def analyse_team(
                 bowl_row_dict = matches.iloc[0].to_dict()
 
         if bat_row_dict is None and bowl_row_dict is None:
-            # Player ID not found in either dataset — skip silently
             continue
 
-        # Determine genuine roles using heuristic checks
         is_genuine_bat = (
             _is_genuine_batter(bat_row_dict, store) if bat_row_dict else False
         )
@@ -474,17 +880,12 @@ async def analyse_team(
             _is_genuine_bowler(bowl_row_dict, store) if bowl_row_dict else False
         )
 
-        # Fallback: if a player doesn't pass *either* genuine check,
-        # include them in whichever dataset they actually appear in so
-        # that every player contributes to at least one role.
         if not is_genuine_bat and not is_genuine_bowl:
             if bat_row_dict and not bowl_row_dict:
                 is_genuine_bat = True
             elif bowl_row_dict and not bat_row_dict:
                 is_genuine_bowl = True
             elif bat_row_dict and bowl_row_dict:
-                # Exists in both but passes neither — use composite scores
-                # to decide primary role, and include in that one.
                 bat_score = bat_row_dict.get("overall_score") or bat_row_dict.get(
                     "composite_batting", 0
                 )
@@ -497,46 +898,106 @@ async def analyse_team(
                     else:
                         is_genuine_bowl = True
                 except (TypeError, ValueError):
-                    is_genuine_bat = True  # default to batter
+                    is_genuine_bat = True
 
-        # Add to batting aggregates
+        display_name = _safe_str(
+            (bat_row_dict or {}).get("batter")
+            or (bowl_row_dict or {}).get("bowler")
+            or "Unknown",
+            "Unknown",
+        )
+        ar_class = _allrounder_classify(
+            bat_row_dict, bowl_row_dict, is_genuine_bat, is_genuine_bowl
+        )
+
         if is_genuine_bat and bat_row_dict:
-            batter_summaries.append(_row_to_player_summary(bat_row_dict, "bat"))
+            batter_summaries.append(
+                _row_to_player_summary(bat_row_dict, "bat", allrounder_class=ar_class)
+            )
             bat_rows.append(bat_row_dict)
 
-        # Add to bowling aggregates
-        if is_genuine_bowl and bowl_row_dict:
-            bowler_summaries.append(_row_to_player_summary(bowl_row_dict, "bowl"))
-            bowl_rows.append(bowl_row_dict)
+        show_bowl = bool(
+            bowl_row_dict
+            and (
+                is_genuine_bowl
+                or (
+                    _is_bowling_role_slot(slot_type)
+                    and _bowl_matches(bowl_row_dict) >= 5
+                )
+            )
+        )
+        if show_bowl and bowl_row_dict:
+            bowler_summaries.append(
+                _row_to_player_summary(
+                    bowl_row_dict,
+                    "bowl",
+                    phase_group=user_phase,
+                    allrounder_class=ar_class,
+                )
+            )
 
-    # Compute aggregates
+        if bowl_row_dict and _include_in_bowling_aggregate(
+            slot_type,
+            bowl_row_dict,
+            bat_row_dict,
+            is_genuine_bat,
+            is_genuine_bowl,
+        ):
+            bowl_rows_agg.append(bowl_row_dict)
+
+        entries.append(
+            {
+                "pid": pid,
+                "name": display_name,
+                "slot_type": slot_type,
+                "bat_row": bat_row_dict,
+                "bowl_row": bowl_row_dict,
+                "is_genuine_bat": is_genuine_bat,
+                "is_genuine_bowl": is_genuine_bowl,
+                "user_bowl_phase": user_phase,
+            }
+        )
+
     avg_acceleration = _avg_col(bat_rows, "score_acceleration")
     avg_bat_power = _avg_col(bat_rows, "score_power")
     avg_bat_control = _avg_col(bat_rows, "score_control")
 
-    avg_accuracy = _avg_col(bowl_rows, "score_accuracy")
-    avg_bowl_control = _avg_col(bowl_rows, "score_control")
-    avg_threat = _avg_col(bowl_rows, "score_threat")
+    avg_accuracy = _avg_col(bowl_rows_agg, "score_accuracy")
+    avg_bowl_control = _avg_col(bowl_rows_agg, "score_control")
+    avg_threat = _avg_col(bowl_rows_agg, "score_threat")
 
     total_war_batting = _sum_col(bat_rows, "war_batting")
-    total_war_bowling = _sum_col(bowl_rows, "war_bowling")
+    total_war_bowling = _sum_col(bowl_rows_agg, "war_bowling")
 
-    # Clutch: average across both batting and bowling
     all_clutch_vals: list[dict] = []
     for r in bat_rows:
         ci = r.get("clutch_index") or r.get("clutch_index_bat")
         if ci is not None:
             all_clutch_vals.append({"clutch": ci})
-    for r in bowl_rows:
+    for r in bowl_rows_agg:
         ci = r.get("clutch_index_bowl")
         if ci is not None:
             all_clutch_vals.append({"clutch": ci})
     avg_clutch = _avg_col(all_clutch_vals, "clutch")
 
-    # Detect weaknesses
-    weaknesses = _detect_weaknesses(bat_rows, bowl_rows, store)
+    weaknesses = _detect_weaknesses(bat_rows, bowl_rows_agg, store)
 
-    # Deduplicate player summaries by ID
+    comp_crit, comp_adv, comp_summary = _evaluate_composition(entries, store)
+    hnote = _handedness_advisory(entries)
+    if hnote:
+        comp_adv = [*comp_adv, hnote]
+
+    role_fit_warnings: list[str] = []
+    for e in entries:
+        role_fit_warnings.extend(
+            _role_fit_warnings_for_slot(
+                e["slot_type"],
+                e["bat_row"],
+                e["is_genuine_bat"],
+                e["name"],
+            )
+        )
+
     seen_bat_ids: set[str] = set()
     unique_batters: list[PlayerSummary] = []
     for ps in batter_summaries:
@@ -565,8 +1026,14 @@ async def analyse_team(
         total_war_bowling=_safe_float(total_war_bowling),
         avg_clutch=_safe_float(avg_clutch),
         weaknesses=weaknesses,
+        composition_critical=comp_crit,
+        composition_advisory=comp_adv,
+        role_fit_warnings=role_fit_warnings,
+        composition_summary=comp_summary,
         genuine_batter_count=len(bat_rows),
-        genuine_bowler_count=len(bowl_rows),
+        genuine_bowler_count=len(bowler_summaries),
+        bowling_aggregate_count=len(bowl_rows_agg),
+        player_ids_ordered=[e["pid"] for e in entries],
     )
 
 
@@ -577,8 +1044,10 @@ async def analyse_team(
 )
 async def auto_fill_team(
     strategy: str = Query(
-        "war",
-        description="Auto-fill strategy: war, power, control, country",
+        "balanced",
+        description=(
+            "Auto-fill: balanced, bat_heavy, bowl_heavy, war, power, control, country"
+        ),
     ),
     country: str | None = Query(
         None,
@@ -636,6 +1105,12 @@ async def auto_fill_team(
             )
         bat_sort_col = "war_batting"
         bowl_sort_col = "war_bowling"
+    elif strategy == "bat_heavy":
+        bat_sort_col = "war_batting"
+        bowl_sort_col = "war_bowling"
+    elif strategy in ("balanced", "bowl_heavy"):
+        bat_sort_col = "war_batting"
+        bowl_sort_col = "war_bowling"
 
     # ── Filter and sort batters ───────────────────────────────
     bat_df = store.bat_careers.copy() if not store.bat_careers.empty else pd.DataFrame()
@@ -683,93 +1158,68 @@ async def auto_fill_team(
                 bowl_sort_col, ascending=False, na_position="last"
             )
 
-    # ── Greedy selection ──────────────────────────────────────
-    # Pick top 5 bowlers first, then top 6 batters (who aren't already
-    # selected as bowlers). This ensures the XI has bowling coverage.
+    # ── Greedy selection (batters listed before bowlers in XI order) ──
+    if strategy == "bowl_heavy":
+        max_bowlers, max_batters = 6, 5
+    else:
+        max_bowlers, max_batters = 5, 6
 
     selected_ids: set[str] = set()
-    selected_bat_rows: list[dict] = []
-    selected_bowl_rows: list[dict] = []
-    batter_summaries: list[PlayerSummary] = []
-    bowler_summaries: list[PlayerSummary] = []
+    bowl_ids_ordered: list[str] = []
 
-    # Pick top 5 bowlers
-    max_bowlers = 5
-    if not bowl_df.empty:
+    if strategy == "balanced":
+        bowl_ids_ordered = _pick_balanced_bowler_ids(
+            bowl_df, exclude_ids, max_bowlers
+        )
+        selected_ids.update(bowl_ids_ordered)
+    elif not bowl_df.empty:
         for _, row in bowl_df.iterrows():
-            if len(selected_bowl_rows) >= max_bowlers:
+            if len(bowl_ids_ordered) >= max_bowlers:
                 break
-            bid = str(row.get("bowler_id", ""))
+            bid = str(row.get("bowler_id", "") or "")
             if bid and bid not in selected_ids:
                 selected_ids.add(bid)
-                row_dict = row.to_dict()
-                selected_bowl_rows.append(row_dict)
-                bowler_summaries.append(_row_to_player_summary(row_dict, "bowl"))
+                bowl_ids_ordered.append(bid)
 
-    # Pick top 6 batters (not already selected)
-    max_batters = 11 - len(selected_bowl_rows)
+    bat_ids_ordered: list[str] = []
     if not bat_df.empty:
         for _, row in bat_df.iterrows():
-            if len(selected_bat_rows) >= max_batters:
+            if len(bat_ids_ordered) >= max_batters:
                 break
-            bid = str(row.get("batter_id", ""))
+            bid = str(row.get("batter_id", "") or "")
             if bid and bid not in selected_ids:
                 selected_ids.add(bid)
-                row_dict = row.to_dict()
-                selected_bat_rows.append(row_dict)
-                batter_summaries.append(_row_to_player_summary(row_dict, "bat"))
+                bat_ids_ordered.append(bid)
 
-    # If we still haven't reached 11, fill with more bowlers
     if len(selected_ids) < 11 and not bowl_df.empty:
         for _, row in bowl_df.iterrows():
             if len(selected_ids) >= 11:
                 break
-            bid = str(row.get("bowler_id", ""))
+            bid = str(row.get("bowler_id", "") or "")
             if bid and bid not in selected_ids:
                 selected_ids.add(bid)
-                row_dict = row.to_dict()
-                selected_bowl_rows.append(row_dict)
-                bowler_summaries.append(_row_to_player_summary(row_dict, "bowl"))
+                bowl_ids_ordered.append(bid)
 
-    # Compute aggregates
-    avg_acceleration = _avg_col(selected_bat_rows, "score_acceleration")
-    avg_bat_power = _avg_col(selected_bat_rows, "score_power")
-    avg_bat_control = _avg_col(selected_bat_rows, "score_control")
+    if strategy == "bat_heavy" and len(bat_ids_ordered) < max_batters and not bat_df.empty:
+        for _, row in bat_df.iterrows():
+            if len(bat_ids_ordered) >= max_batters:
+                break
+            bid = str(row.get("batter_id", "") or "")
+            if bid and bid not in selected_ids:
+                selected_ids.add(bid)
+                bat_ids_ordered.append(bid)
 
-    avg_accuracy = _avg_col(selected_bowl_rows, "score_accuracy")
-    avg_bowl_control = _avg_col(selected_bowl_rows, "score_control")
-    avg_threat = _avg_col(selected_bowl_rows, "score_threat")
-
-    total_war_batting = _sum_col(selected_bat_rows, "war_batting")
-    total_war_bowling = _sum_col(selected_bowl_rows, "war_bowling")
-
-    all_clutch_vals: list[dict] = []
-    for r in selected_bat_rows:
-        ci = r.get("clutch_index") or r.get("clutch_index_bat")
-        if ci is not None:
-            all_clutch_vals.append({"clutch": ci})
-    for r in selected_bowl_rows:
-        ci = r.get("clutch_index_bowl")
-        if ci is not None:
-            all_clutch_vals.append({"clutch": ci})
-    avg_clutch = _avg_col(all_clutch_vals, "clutch")
-
-    weaknesses = _detect_weaknesses(selected_bat_rows, selected_bowl_rows, store)
-
-    return TeamAnalysis(
-        player_count=len(selected_ids),
-        batters=batter_summaries,
-        bowlers=bowler_summaries,
-        avg_acceleration=_safe_float(avg_acceleration),
-        avg_bat_power=_safe_float(avg_bat_power),
-        avg_bat_control=_safe_float(avg_bat_control),
-        avg_accuracy=_safe_float(avg_accuracy),
-        avg_bowl_control=_safe_float(avg_bowl_control),
-        avg_threat=_safe_float(avg_threat),
-        total_war_batting=_safe_float(total_war_batting),
-        total_war_bowling=_safe_float(total_war_bowling),
-        avg_clutch=_safe_float(avg_clutch),
-        weaknesses=weaknesses,
+    xi_ids = bat_ids_ordered + bowl_ids_ordered
+    xi_ids = xi_ids[:11]
+    slot_str = ",".join(
+        _DEFAULT_SLOT_SEQUENCE[i] if i < len(_DEFAULT_SLOT_SEQUENCE) else "bowler"
+        for i in range(len(xi_ids))
+    )
+    return await analyse_team(
+        ids=",".join(xi_ids),
+        slot_types=slot_str,
+        bowling_phases=None,
+        store=store,
     )
 
 

@@ -21,14 +21,19 @@ export type BattingLine = {
   deliveries?: Array<{
     over?: number | null;
     ball_idx?: number | null;
+    batter_runs?: number | null;
     team_score_before?: number | null;
+    team_wickets_before?: number | null;
     total_runs?: number | null;
     is_wicket?: boolean | null;
     player_out_id?: string | null;
     bowler?: string | null;
+    bowler_id?: string | null;
     wicket_fielders?: string[] | null;
     is_wide?: boolean | null;
     is_noball?: boolean | null;
+    is_batter_ball?: boolean | null;
+    phase?: string | null;
   }> | null;
 };
 
@@ -76,6 +81,8 @@ export type Innings = {
   bowling: BowlingLine[];
   innings_total?: number | null;
   innings_wickets?: number | null;
+  /** Chasing target (runs to win); set in 2nd innings when present in source data. */
+  target_runs?: number | null;
 };
 
 export type Scorecard = {
@@ -86,6 +93,8 @@ export type Scorecard = {
     event_name?: string | null;
     teams?: string[] | null;
     winner?: string | null;
+    toss_winner?: string | null;
+    toss_decision?: string | null;
     overs_limit?: number | null;
     dls_applied?: boolean | null;
   };

@@ -487,11 +487,9 @@ def compute_icc_ranking_weight(team_name: str) -> float:
     Returns
     -------
     float
-        Weight in [ICC_RANKING_FLOOR, ICC_RANKING_CEILING].
-        Top teams (~270 rating) → ~1.20 (20% bonus).
-        Mid-tier (~175 rating) → ~1.02 (roughly neutral).
-        Low associates (~50 rating) → ~0.79.
-        Unranked / unknown → ICC_RANKING_FLOOR (0.70).
+        Weight in ``[ICC_RANKING_FLOOR, ICC_RANKING_CEILING]`` (from config).
+        Stronger ICC ratings map closer to the ceiling; weak associates and
+        unknown teams map closer to the floor (see ``config.yaml``).
     """
     rating = ICC_RANKING_RATINGS.get(team_name, ICC_RANKING_DEFAULT_RATING)
     max_r = max(ICC_RANKING_MAX_RATING, 1.0)  # avoid division by zero
@@ -1300,6 +1298,7 @@ def extract_batting_innings(
         entry_team_score=("team_score_before", "first"),
         entry_team_wickets=("team_wickets_before", "first"),
         date=("date", "first"),
+        entry_over=("over", "min"),
     ).reset_index()
 
     # ── Dismissal info ──

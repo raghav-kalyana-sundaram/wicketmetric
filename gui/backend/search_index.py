@@ -47,6 +47,10 @@ class PlayerEntry:
     score_3_label: str = "control"
     is_provisional: bool = True
     overall_score: float = 0.0
+    rating_current: float | None = None
+    rating_overall: float | None = None
+    modal_position: int | None = None  # batters only
+    recent_team: str | None = None  # latest-match side (batting_team / bowling_team)
 
     @property
     def index_key(self) -> str:
@@ -75,6 +79,10 @@ class PlayerEntry:
             "score_3_label": self.score_3_label,
             "is_provisional": self.is_provisional,
             "overall_score": _safe_float(self.overall_score),
+            "rating_current": _safe_float(self.rating_current),
+            "rating_overall": _safe_float(self.rating_overall),
+            "modal_position": self.modal_position,
+            "recent_team": self.recent_team,
         }
 
 
@@ -488,6 +496,8 @@ class TrigramIndex:
 
 def _extract_batting_entries(bat_careers: "pd.DataFrame") -> list[PlayerEntry]:
     """Extract PlayerEntry objects from batting careers DataFrame."""
+    from rating_display import batting_display_ratings
+
     entries: list[PlayerEntry] = []
     if bat_careers.empty:
         return entries
@@ -496,6 +506,11 @@ def _extract_batting_entries(bat_careers: "pd.DataFrame") -> list[PlayerEntry]:
         pid = _safe_str(row.get("batter_id"), "")
         if not pid:
             continue
+
+        ro, rc = batting_display_ratings(row)
+        mp = _safe_int(row.get("modal_position", 0))
+        modal = mp if 1 <= mp <= 11 else None
+        rteam = _safe_str(row.get("recent_team"), "").strip() or None
 
         entries.append(
             PlayerEntry(
@@ -517,6 +532,10 @@ def _extract_batting_entries(bat_careers: "pd.DataFrame") -> list[PlayerEntry]:
                 score_3_label="control",
                 is_provisional=bool(row.get("is_provisional_bat", True)),
                 overall_score=_nan_to_zero(row.get("overall_score", 0)),
+                rating_current=_safe_float(rc),
+                rating_overall=_safe_float(ro),
+                modal_position=modal,
+                recent_team=rteam,
             )
         )
     return entries
@@ -524,6 +543,8 @@ def _extract_batting_entries(bat_careers: "pd.DataFrame") -> list[PlayerEntry]:
 
 def _extract_bowling_entries(bowl_careers: "pd.DataFrame") -> list[PlayerEntry]:
     """Extract PlayerEntry objects from bowling careers DataFrame."""
+    from rating_display import bowling_display_ratings
+
     entries: list[PlayerEntry] = []
     if bowl_careers.empty:
         return entries
@@ -532,6 +553,9 @@ def _extract_bowling_entries(bowl_careers: "pd.DataFrame") -> list[PlayerEntry]:
         pid = _safe_str(row.get("bowler_id"), "")
         if not pid:
             continue
+
+        ro, rc = bowling_display_ratings(row)
+        rteam = _safe_str(row.get("recent_team"), "").strip() or None
 
         entries.append(
             PlayerEntry(
@@ -553,6 +577,10 @@ def _extract_bowling_entries(bowl_careers: "pd.DataFrame") -> list[PlayerEntry]:
                 score_3_label="threat",
                 is_provisional=bool(row.get("is_provisional_bowl", True)),
                 overall_score=_nan_to_zero(row.get("overall_score", 0)),
+                rating_current=_safe_float(rc),
+                rating_overall=_safe_float(ro),
+                modal_position=None,
+                recent_team=rteam,
             )
         )
     return entries

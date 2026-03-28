@@ -773,6 +773,8 @@ export interface MatchImpactPerformancesParams {
   team?: string | null;
   event?: string | null;
   player_id?: string | null;
+  /** T20I only (ignored for IPL). */
+  match_tier?: "all" | "main_only" | "associate_fixture";
   discipline?: "combined" | "bat" | "bowl";
   order?: "asc" | "desc";
   page?: number;
@@ -785,6 +787,8 @@ export interface PlayerMatchImpactRow {
   date?: string | null;
   venue?: string | null;
   event_name?: string | null;
+  /** Short team names from scorecard meta, when present (typically two sides). */
+  teams?: string[] | null;
   total_impact: number;
   bat_impact: number;
   bowl_impact: number;
@@ -793,6 +797,13 @@ export interface PlayerMatchImpactRow {
   bowl_wickets?: number | null;
   bowl_runs_conceded?: number | null;
   bowl_balls?: number | null;
+}
+
+/** ICC rating–based tiers for T20I filters (from config); null for IPL. */
+export interface T20ITeamTiers {
+  top_n: number;
+  main: string[];
+  associates: string[];
 }
 
 export interface ApiMeta {
@@ -806,6 +817,7 @@ export interface ApiMeta {
   /** Latest career last_match_date across bat/bowl tables (yyyy-mm-dd). */
   data_through_date?: string | null;
   latest_scorecard?: LatestScorecardSummary | null;
+  t20i_team_tiers?: T20ITeamTiers | null;
 }
 
 // ── Grade type (for type-safe grade handling) ────────────────────

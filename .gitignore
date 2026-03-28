@@ -22,7 +22,12 @@ cricketdata/
 .DS_Store
 Thumbs.db
 
-# Legacy output dir
+# Large archives (GitHub file limit 100 MB)
+cricket-output.tar.gz
+
+# Pipeline Parquet / CSV (large; keep out of git)
+data/output/
+# Legacy repo-root output dirs
 output/
 output_t20i/
 output_ipl/
@@ -34,3 +39,5 @@ output_ipl/
 .env.production
 .env.development
 .env.test
+.vercel
+.env*.local

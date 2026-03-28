@@ -1011,6 +1011,7 @@ async function searchScorecards(
     team?: string | null;
     player_id?: string | null;
     limit?: number;
+    match_tier?: "all" | "main_only" | "associate_fixture";
   },
   signal?: AbortSignal,
 ): Promise<Array<Record<string, unknown>>> {
@@ -1022,6 +1023,7 @@ async function searchScorecards(
       team: params?.team,
       player_id: params?.player_id,
       limit: params?.limit ?? 500,
+      match_tier: params?.match_tier && params.match_tier !== "all" ? params.match_tier : undefined,
     },
     { signal },
   );
@@ -1071,6 +1073,10 @@ async function getMatchImpactPerformances(
       team: params.team ?? undefined,
       event: params.event ?? undefined,
       player_id: params.player_id ?? undefined,
+      match_tier:
+        params.match_tier && params.match_tier !== "all"
+          ? params.match_tier
+          : undefined,
       discipline: params.discipline ?? "combined",
       order: params.order ?? "desc",
       page: params.page ?? 1,

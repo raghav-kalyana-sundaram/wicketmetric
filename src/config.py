@@ -171,6 +171,7 @@ _DEFAULTS: Dict[str, Any] = {
         "curve": 1.0,
         "max_rating": 272,
         "default_rating": 50,
+        "t20i_main_team_count": 15,
         "ratings": {
             "India": 272,
             "England": 260,
@@ -180,6 +181,7 @@ _DEFAULTS: Dict[str, Any] = {
             "Pakistan": 238,
             "West Indies": 235,
             "Sri Lanka": 227,
+            "Afghanistan": 224,
             "Bangladesh": 223,
             "Zimbabwe": 202,
             "Ireland": 200,

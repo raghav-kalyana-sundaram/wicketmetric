@@ -19,6 +19,7 @@ Built with **FastAPI** (Python backend) and **React + TypeScript** (Vite fronten
 - [Pages & Routes](#pages--routes)
 - [Key Components](#key-components)
 - [Theming](#theming)
+- [UI guide (frontend)](#ui-guide-frontend)
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
 
@@ -28,7 +29,7 @@ Built with **FastAPI** (Python backend) and **React + TypeScript** (Vite fronten
 
 - **Python 3.11+** with pip
 - **Node.js 18+** with npm
-- **Pipeline outputs** — the GUI reads from pre-computed Parquet/CSV files in the `output/` directory. Run the Cricket Metrics pipeline first to generate these files:
+- **Pipeline outputs** — the GUI reads from pre-computed Parquet/CSV files under `data/output/` (per-slice subfolders such as `data/output/mens_t20i/`). Run the Cricket Metrics pipeline first to generate these files:
   - `batting_careers_full.parquet`
   - `bowling_careers_full.parquet`
   - `batting_innings_detail.parquet`
@@ -58,8 +59,8 @@ source .venv/bin/activate  # macOS/Linux
 # Install dependencies
 pip install -r requirements.txt
 
-# Do NOT set OUTPUT_DIR — the backend auto-discovers output_t20i/ and output_ipl/
-# If you previously exported it, unset it first:
+# Do NOT set OUTPUT_DIR — the backend auto-discovers slices under data/output/<format>/
+# (and legacy repo-root output_t20i/ / output_ipl/). If you previously exported it, unset:
 unset OUTPUT_DIR
 
 # Start the API server
@@ -109,7 +110,7 @@ This starts:
 - **Backend** on port `8000`
 - **Frontend** on port `3000`
 
-The Docker Compose file mounts the `output/` directory from the project root into the backend container.
+The Docker Compose file mounts `data/output/` from the project root into the backend container at `/app/output`.
 
 To stop:
 ```bash
@@ -207,7 +208,7 @@ gui/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OUTPUT_DIR` | `../../output` (relative to `backend/`) | Path to the pipeline output directory containing Parquet files |
+| `OUTPUT_DIR` | `../../data/output` (relative to `backend/`) | Path to the pipeline output directory containing Parquet files |
 | `PORT` | `8000` | Server port |
 | `HOST` | `0.0.0.0` | Server host |
 | `RELOAD` | `false` | Enable auto-reload for development |
@@ -350,6 +351,10 @@ The app supports **dark mode** (default) and **light mode**, toggled via the the
 - On first visit, the app respects the OS `prefers-color-scheme` preference.
 - The Tailwind config uses `darkMode: "class"`, toggling the `dark` class on `<html>`.
 - All colour tokens are defined in `tailwind.config.ts` under `theme.extend.colors`.
+
+### UI guide (frontend)
+
+Site-wide visual standards (dark-first monochrome, win probability as reference) live in **[frontend/UI_GUIDE.md](frontend/UI_GUIDE.md)**. For a full dark-mode pass driven by that guide, use **[frontend/DARK_MODE_REDESIGN_PROMPT.md](frontend/DARK_MODE_REDESIGN_PROMPT.md)**.
 
 ### Score Colour Mapping
 
