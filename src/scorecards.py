@@ -26,7 +26,8 @@ Design notes
     'match_id', 'date', 'innings_num', 'batting_team', 'bowling_team',
     'over', 'ball_idx', 'batter', 'batter_id', 'bowler', 'bowler_id',
     'batter_runs', 'total_runs', 'extras_runs', 'is_wide', 'is_noball',
-    'is_batter_ball', 'is_wicket', 'wicket_kind', 'player_out', 'player_out_id',
+    'is_batter_ball', 'is_wicket', 'wicket_kind', 'wicket_fielders',
+    'player_out', 'player_out_id',
     'is_legal'
 - Balls faced for batters counts deliveries where `is_batter_ball` is True.
   (Noballs are included as batter-faced deliveries because most scorecards
@@ -54,6 +55,22 @@ _NON_BOWLER_WICKET_KINDS = {
 }
 
 
+def _wp_json_float(row: pd.Series, col: str) -> Any:
+    """Round win-probability floats to 3 dp for JSON; None if missing/invalid."""
+    if col not in row.index:
+        return None
+    v = row.get(col)
+    if pd.isna(v):
+        return None
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(x) or math.isinf(x):
+        return None
+    return round(x, 3)
+
+
 def _overs_from_balls(balls: int) -> str:
     """
     Represent balls as overs string 'O.B' where B = remaining legal balls (0-5).
@@ -75,6 +92,21 @@ def _safe_div(
         return numer / denom
     except Exception:
         return default
+
+
+def _coerce_fielders_list(val: Any) -> Optional[List[str]]:
+    """Normalise wicket fielder names from a DataFrame cell (list or ndarray)."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    try:
+        if hasattr(val, "tolist"):
+            val = val.tolist()
+    except Exception:
+        return None
+    if not isinstance(val, (list, tuple)):
+        return None
+    out = [str(x).strip() for x in val if x is not None and str(x).strip()]
+    return out or None
 
 
 def _build_batting_innings(
@@ -136,6 +168,9 @@ def _build_batting_innings(
         dismissal_player_out_id = None
         dismissal_over = None
         dismissal_ball_idx = None
+        dismissal_bowler = None
+        dismissal_bowler_id = None
+        dismissal_fielders = None
         if dismissal_row is not None:
             dismissal_kind = dismissal_row.get("wicket_kind")
             dismissal_player_out_id = dismissal_row.get("player_out_id")
@@ -146,6 +181,17 @@ def _build_batting_innings(
                 int(dismissal_row.get("ball_idx"))
                 if "ball_idx" in dismissal_row
                 else None
+            )
+            _db = dismissal_row.get("bowler")
+            dismissal_bowler = (
+                None if _db is None or pd.isna(_db) else str(_db)
+            )
+            _dbid = dismissal_row.get("bowler_id")
+            dismissal_bowler_id = (
+                None if _dbid is None or pd.isna(_dbid) else str(_dbid)
+            )
+            dismissal_fielders = _coerce_fielders_list(
+                dismissal_row.get("wicket_fielders")
             )
 
         # Per-phase runs (powerplay/middle/death)
@@ -170,6 +216,9 @@ def _build_batting_innings(
             "dismissal_player_out_id": dismissal_player_out_id,
             "dismissal_over": dismissal_over,
             "dismissal_ball_idx": dismissal_ball_idx,
+            "dismissal_bowler": dismissal_bowler,
+            "dismissal_bowler_id": dismissal_bowler_id,
+            "dismissal_fielders": dismissal_fielders,
             "per_phase_runs": per_phase_runs,
         }
 
@@ -208,6 +257,9 @@ def _build_batting_innings(
                         "player_out_id": row.get("player_out_id"),
                         "bowler_id": row.get("bowler_id"),
                         "bowler": row.get("bowler"),
+                        "wicket_fielders": _coerce_fielders_list(
+                            row.get("wicket_fielders")
+                        ),
                         "phase": row.get("phase"),
                         "team_score_before": int(row.get("team_score_before"))
                         if "team_score_before" in row
@@ -306,37 +358,45 @@ def _build_bowling_innings(
         if include_deliveries:
             deliveries = []
             for _, row in g.sort_values(["over", "ball_idx"]).iterrows():
-                deliveries.append(
-                    {
-                        "over": int(row.get("over")) if "over" in row else None,
-                        "ball_idx": int(row.get("ball_idx"))
-                        if "ball_idx" in row
-                        else None,
-                        "batter": row.get("batter"),
-                        "batter_id": row.get("batter_id"),
-                        "batter_runs": int(row.get("batter_runs"))
-                        if "batter_runs" in row
-                        else 0,
-                        "total_runs": int(row.get("total_runs"))
-                        if "total_runs" in row
-                        else 0,
-                        "is_wide": bool(row.get("is_wide"))
-                        if "is_wide" in row
-                        else False,
-                        "is_noball": bool(row.get("is_noball"))
-                        if "is_noball" in row
-                        else False,
-                        "is_legal": bool(row.get("is_legal"))
-                        if "is_legal" in row
-                        else True,
-                        "is_wicket": bool(row.get("is_wicket"))
-                        if "is_wicket" in row
-                        else False,
-                        "wicket_kind": row.get("wicket_kind"),
-                        "player_out_id": row.get("player_out_id"),
-                        "phase": row.get("phase"),
-                    }
-                )
+                dlv: Dict[str, Any] = {
+                    "over": int(row.get("over")) if "over" in row else None,
+                    "ball_idx": int(row.get("ball_idx"))
+                    if "ball_idx" in row
+                    else None,
+                    "batter": row.get("batter"),
+                    "batter_id": row.get("batter_id"),
+                    "batter_runs": int(row.get("batter_runs"))
+                    if "batter_runs" in row
+                    else 0,
+                    "total_runs": int(row.get("total_runs"))
+                    if "total_runs" in row
+                    else 0,
+                    "is_wide": bool(row.get("is_wide"))
+                    if "is_wide" in row
+                    else False,
+                    "is_noball": bool(row.get("is_noball"))
+                    if "is_noball" in row
+                    else False,
+                    "is_legal": bool(row.get("is_legal"))
+                    if "is_legal" in row
+                    else True,
+                    "is_wicket": bool(row.get("is_wicket"))
+                    if "is_wicket" in row
+                    else False,
+                    "wicket_kind": row.get("wicket_kind"),
+                    "player_out_id": row.get("player_out_id"),
+                    "phase": row.get("phase"),
+                }
+                wb = _wp_json_float(row, "win_prob_before")
+                wa = _wp_json_float(row, "win_prob_after")
+                wpa_v = _wp_json_float(row, "wpa")
+                if wb is not None:
+                    dlv["win_prob_before"] = wb
+                if wa is not None:
+                    dlv["win_prob_after"] = wa
+                if wpa_v is not None:
+                    dlv["wpa"] = wpa_v
+                deliveries.append(dlv)
             entry["deliveries"] = deliveries
 
         bowlers.append(entry)
@@ -392,6 +452,26 @@ def build_scorecards(
     for match_id, match_grp in df.groupby("match_id", observed=True):
         # Extract match-level metadata from the first row (if present)
         first_row = match_grp.iloc[0]
+        om = first_row.get("outcome_method")
+        dls_applied = False
+        if isinstance(om, str) and om.strip():
+            ol = om.lower().strip()
+            dls_applied = (
+                "d/l" in ol
+                or "dls" in ol
+                or "duckworth" in ol
+                or ol == "dl"
+            )
+        try:
+            olimit = first_row.get("overs_limit")
+            overs_limit_meta = (
+                int(olimit)
+                if olimit is not None and not pd.isna(olimit)
+                else 20
+            )
+        except (TypeError, ValueError):
+            overs_limit_meta = 20
+
         match_meta = {
             "match_id": match_id,
             "date": first_row.get("date").to_pydatetime()
@@ -403,6 +483,14 @@ def build_scorecards(
             if "batting_team" in match_grp.columns
             else None,
             "winner": first_row.get("winner") if "winner" in first_row else None,
+            "toss_winner": first_row.get("toss_winner")
+            if "toss_winner" in first_row
+            else None,
+            "toss_decision": first_row.get("toss_decision")
+            if "toss_decision" in first_row
+            else None,
+            "dls_applied": dls_applied,
+            "overs_limit": overs_limit_meta,
         }
 
         innings_map: Dict[int, Dict[str, Any]] = {}
@@ -444,6 +532,21 @@ def build_scorecards(
 
             innings_info["innings_total"] = innings_total
             innings_info["innings_wickets"] = innings_wickets
+
+            # Chasing target from Cricsheet (NaN in first innings) — used for pressure metrics in UI.
+            target_runs_out: Optional[int] = None
+            if "target_runs" in inn_grp_sorted.columns:
+                tr_series = pd.to_numeric(
+                    inn_grp_sorted["target_runs"], errors="coerce"
+                ).dropna()
+                if len(tr_series) > 0:
+                    try:
+                        trv = float(tr_series.iloc[0])
+                        if trv > 0:
+                            target_runs_out = int(round(trv))
+                    except (TypeError, ValueError):
+                        pass
+            innings_info["target_runs"] = target_runs_out
 
             # Build batting and bowling lists
             batting = _build_batting_innings(
@@ -669,8 +772,28 @@ def iter_scorecards(deliveries_df: pd.DataFrame, include_deliveries: bool = True
         )
         match_scorecard: Dict[str, Any] = {}
 
-        # Minimal match meta
+        # Minimal match meta (keep keys aligned with build_scorecards)
         first_row = mg.iloc[0]
+        om = first_row.get("outcome_method")
+        dls_applied = False
+        if isinstance(om, str) and om.strip():
+            ol = om.lower().strip()
+            dls_applied = (
+                "d/l" in ol
+                or "dls" in ol
+                or "duckworth" in ol
+                or ol == "dl"
+            )
+        try:
+            olimit = first_row.get("overs_limit")
+            overs_limit_meta = (
+                int(olimit)
+                if olimit is not None and not pd.isna(olimit)
+                else 20
+            )
+        except (TypeError, ValueError):
+            overs_limit_meta = 20
+
         match_info = {
             "match_id": str(match_id),
             "date": first_row.get("date") if "date" in first_row else None,
@@ -681,6 +804,15 @@ def iter_scorecards(deliveries_df: pd.DataFrame, include_deliveries: bool = True
             "teams": list(mg["batting_team"].dropna().unique())
             if "batting_team" in mg.columns
             else [],
+            "winner": first_row.get("winner") if "winner" in first_row else None,
+            "toss_winner": first_row.get("toss_winner")
+            if "toss_winner" in first_row
+            else None,
+            "toss_decision": first_row.get("toss_decision")
+            if "toss_decision" in first_row
+            else None,
+            "dls_applied": dls_applied,
+            "overs_limit": overs_limit_meta,
         }
         match_scorecard["meta"] = match_info
 

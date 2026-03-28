@@ -4,7 +4,7 @@ This document describes how to deploy the **frontend** to [Vercel](https://verce
 
 ## Prerequisites
 
-- Pipeline data: the backend needs Parquet/CSV output from the Cricket Metrics pipeline (`output_t20i/`, `output_ipl/`, or a single directory via `OUTPUT_DIR`). Generate this locally with `python src/main.py` (and optionally `--scorecards-only`), then upload or mount it for the backend.
+- Pipeline data: the backend loads Parquet/CSV from up to four slices under one tree: `data/output/mens_t20i`, `data/output/womens_t20i`, `data/output/mens_ipl`, `data/output/womens_ipl` (or legacy repo-root `output/…`, `output_t20i` / `output_ipl`, and `output/womens_t20` for an older women’s intl folder name). Generate locally with `python src/main.py` or run [`scripts/sync_cricsheet.sh`](scripts/sync_cricsheet.sh) to download Cricsheet zips and build all four. Restart the API after refreshing data.
 - GitHub repo pushed and connected to both Vercel and Railway.
 
 ---
@@ -15,17 +15,25 @@ This document describes how to deploy the **frontend** to [Vercel](https://verce
 
 1. Go to [railway.app](https://railway.app) and sign in (e.g. with GitHub).
 2. **New Project** → **Deploy from GitHub repo** → select this repository.
-3. In the new service, open **Settings** → **Root Directory** and set it to **`gui/backend`** (required).
-4. With Root Directory = `gui/backend`, Railway will use **`gui/backend/Dockerfile`** (or Nixpacks if no Dockerfile). Do **not** leave Root Directory empty, or the build will fail (the repo root has no `Dockerfile`; see `Dockerfile.repo` for local full-image builds only).
-5. Build and start are configured in `gui/backend/railway.toml` when using Nixpacks; the Dockerfile in `gui/backend` works with this root directory.
+3. **Root Directory:** You can use either:
+   - **Leave empty (repo root):** Railway uses the root **`Dockerfile`**, which copies only `gui/backend/` (no pipeline data in the image). Provide data at runtime via a **Volume** and **`DATA_ROOT`** (see § 1.2).
+   - **Set to `gui/backend`:** Railway uses **`gui/backend/Dockerfile`**; same result — data via volume + `DATA_ROOT` or `OUTPUT_DIR`.
 
 ### 1.2 Provide pipeline data
 
 The API loads data at startup. Choose one approach:
 
-- **Option A — Volume (recommended for larger data):** In Railway, add a **Volume** to the service, mount it (e.g. at `/data`), and set the variable **`DATA_ROOT=/data`**. Then place `output_t20i` and/or `output_ipl` inside that volume (e.g. via a separate job or upload).
-- **Option B — Single directory:** Set **`OUTPUT_DIR`** to the path of a single pipeline output directory (e.g. `/data/output` if you mount a volume at `/data` and put the pipeline output there). This runs in legacy single-format mode.
-- **Option C — No data (empty API):** Do not set `OUTPUT_DIR` or `DATA_ROOT`. The app will start but endpoints will return empty results until data is available.
+- **Option A — One folder `output/` under `DATA_ROOT` (recommended):** Locally that tree is **`data/output/`** with subfolders **`mens_t20i`**, **`womens_t20i`**, **`mens_ipl`**, **`womens_ipl`**. Generate with [`scripts/sync_cricsheet.sh`](scripts/sync_cricsheet.sh) (from repo root) or manually:
+  ```bash
+  python src/main.py /path/to/t20s_male_json --output data/output/mens_t20i --format t20i
+  python src/main.py /path/to/t20s_female_json --output data/output/womens_t20i --format t20i
+  python src/main.py /path/to/ipl_male_json --output data/output/mens_ipl --format ipl
+  python src/main.py /path/to/wpl_female_json --output data/output/womens_ipl --format ipl
+  ```
+  On Railway, mount a **Volume** at e.g. `/data`, place the **`output`** folder on it (`/data/output/mens_t20i`, …), and set **`DATA_ROOT=/data`**.
+- **Option B — Legacy men’s only:** Put **`output_t20i`** and **`output_ipl`** inside the volume and set **`DATA_ROOT`** to the volume path. The backend maps those to **`mens_t20i`** and **`mens_ipl`**.
+- **Option C — Single format (legacy):** Set **`OUTPUT_DIR`** to one pipeline output directory. Only that format (e.g. T20I) is loaded.
+- **Option D — No data:** Do not set `OUTPUT_DIR` or `DATA_ROOT`. The app will start but endpoints will return empty results until data is available.
 
 ### 1.3 Variables
 
@@ -33,7 +41,7 @@ In Railway → your service → **Variables**, add if needed:
 
 | Variable       | Description |
 |----------------|-------------|
-| `DATA_ROOT`    | Optional. Root path for pipeline data; `output_t20i/` and `output_ipl/` are resolved under this path. |
+| `DATA_ROOT`    | Optional. Root path for pipeline data; resolves `output/{mens_t20i,womens_t20i,mens_ipl,womens_ipl}` or legacy `output_t20i` / `output_ipl` / `output/womens_t20`. |
 | `OUTPUT_DIR`   | Optional. Single pipeline output directory (legacy single-format mode). |
 | `CORS_ORIGINS` | Optional. Comma-separated allowed origins for API requests (e.g. `https://your-app.vercel.app`). Add your Vercel (or custom) frontend URL so the browser can call the API. |
 
@@ -41,7 +49,7 @@ In Railway → your service → **Variables**, add if needed:
 
 - Trigger a deploy (or push to the branch Railway watches). After a successful deploy, open **Settings** → **Networking** → **Generate Domain** to get a public URL (e.g. `https://your-app.up.railway.app`).
 - Use this URL as the **backend API base URL** for the frontend (no trailing slash).
-- **If the build fails** with `COPY gui/backend/ ... not found`: Root Directory must be **`gui/backend`** so the build context is the backend folder. The root-level Dockerfile has been renamed to `Dockerfile.repo` so Railway does not use it for this service.
+- **If the build fails** with `Dockerfile does not exist`: ensure the repo has a root **`Dockerfile`** (it only copies the backend; data is provided at runtime via volume + `DATA_ROOT`).
 
 ---
 
@@ -82,13 +90,13 @@ Push to the connected branch or trigger a deploy from the Vercel dashboard. The 
 - [ ] **Backend health:** open `https://your-railway-url.up.railway.app/api/meta`. You should get JSON. If you get CORS errors in the browser, add your Vercel URL to **`CORS_ORIGINS`** on Railway.
 - [ ] **Frontend loads data:** In Vercel, set **`VITE_API_URL`** to your Railway URL (e.g. `https://your-app.up.railway.app`, no trailing slash). Redeploy the frontend after changing it. Without this, the UI shows "Failed to load" because API requests go to the wrong place.
 - [ ] **CORS:** On Railway, set **`CORS_ORIGINS`** to your Vercel URL (e.g. `https://your-project.vercel.app`) so the browser allows API requests from the frontend.
-- [ ] Format/data: switch between T20I and IPL in the UI; if no data was provided to the backend, lists will be empty but the app should not crash.
+- [ ] Format/data: switch gender and T20 vs IPL in the UI; missing slices are skipped at startup—only loaded folders appear in the toggle.
 
 ---
 
 ## 4. Local development
 
-- **Backend:** `cd gui/backend && uvicorn app:app --reload --port 8000` (ensure `output_t20i`/`output_ipl` or `OUTPUT_DIR` is available).
+- **Backend:** `cd gui/backend && uvicorn app:app --reload --port 8000` (ensure `data/output/` subfolders or legacy `output_t20i`/`output_ipl` exist, or set `OUTPUT_DIR`).
 - **Frontend:** `cd gui/frontend && npm run dev`. The Vite dev server proxies `/api` to `http://localhost:8000`; no `VITE_API_URL` needed for local dev.
 
 See `gui/frontend/.env.example` and `gui/backend/.env.example` for optional local env vars.
@@ -99,7 +107,8 @@ See `gui/frontend/.env.example` and `gui/backend/.env.example` for optional loca
 
 | Issue | Fix |
 |-------|-----|
-| **Railway build fails:** `COPY gui/backend/ ... not found` | Set **Root Directory** to **`gui/backend`** (not repo root). The root `Dockerfile` was renamed to `Dockerfile.repo` so only the backend Dockerfile is used. |
+| **Railway build fails:** `Dockerfile does not exist` | Ensure the root **`Dockerfile`** is present (it builds from repo root; no pipeline data in image — use a volume + `DATA_ROOT`). |
+| **Railway build fails:** `COPY gui/backend/ ... not found` | Use **Root Directory** = repo root (empty) so the root Dockerfile’s context includes `gui/backend`, or set Root Directory to **`gui/backend`** to use `gui/backend/Dockerfile`. |
 | **Frontend shows "Failed to load"** on cards/rankings | Set **`VITE_API_URL`** in Vercel to your Railway API URL (e.g. `https://your-app.up.railway.app`), then redeploy the frontend. |
 | **API returns 403 or CORS errors in browser** | Set **`CORS_ORIGINS`** on Railway to your Vercel (or frontend) origin, e.g. `https://your-project.vercel.app`. |
 | **Backend starts but endpoints return empty** | Provide pipeline data via a volume + **`DATA_ROOT`**, or **`OUTPUT_DIR`**; see § 1.2. |

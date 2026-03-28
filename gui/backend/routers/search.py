@@ -24,6 +24,34 @@ def _get_search_index():
     raise RuntimeError("Search index not initialised")
 
 
+def _player_summary_from_search_entry(entry: dict) -> PlayerSummary:
+    """Map search index dict to API model (includes display ratings when present)."""
+    return PlayerSummary(
+        id=entry.get("id", ""),
+        name=entry.get("name", ""),
+        country=entry.get("country", ""),
+        role=entry.get("role", "bat"),
+        archetype=entry.get("archetype", ""),
+        grade_overall=entry.get("grade_overall", "D"),
+        innings_count=entry.get("innings_count", 0),
+        total_runs=entry.get("total_runs", 0),
+        career_sr=entry.get("career_sr"),
+        career_avg=entry.get("career_avg"),
+        score_1=entry.get("score_1"),
+        score_2=entry.get("score_2"),
+        score_3=entry.get("score_3"),
+        score_1_label=entry.get("score_1_label", "acceleration"),
+        score_2_label=entry.get("score_2_label", "power"),
+        score_3_label=entry.get("score_3_label", "control"),
+        is_provisional=entry.get("is_provisional", True),
+        overall_score=entry.get("overall_score"),
+        rating_current=entry.get("rating_current"),
+        rating_overall=entry.get("rating_overall"),
+        modal_position=entry.get("modal_position"),
+        recent_team=entry.get("recent_team"),
+    )
+
+
 @router.get("/search", response_model=SearchResponse)
 async def search_players(
     q: str = Query("", description="Search query (player name or substring)"),
@@ -68,30 +96,7 @@ async def search_players(
         limit=limit,
     )
 
-    results = []
-    for entry in raw_results:
-        results.append(
-            PlayerSummary(
-                id=entry.get("id", ""),
-                name=entry.get("name", ""),
-                country=entry.get("country", ""),
-                role=entry.get("role", "bat"),
-                archetype=entry.get("archetype", ""),
-                grade_overall=entry.get("grade_overall", "D"),
-                innings_count=entry.get("innings_count", 0),
-                total_runs=entry.get("total_runs", 0),
-                career_sr=entry.get("career_sr"),
-                career_avg=entry.get("career_avg"),
-                score_1=entry.get("score_1"),
-                score_2=entry.get("score_2"),
-                score_3=entry.get("score_3"),
-                score_1_label=entry.get("score_1_label", "acceleration"),
-                score_2_label=entry.get("score_2_label", "power"),
-                score_3_label=entry.get("score_3_label", "control"),
-                is_provisional=entry.get("is_provisional", True),
-                overall_score=entry.get("overall_score"),
-            )
-        )
+    results = [_player_summary_from_search_entry(entry) for entry in raw_results]
 
     return SearchResponse(results=results, total=len(results))
 
@@ -141,26 +146,4 @@ async def autocomplete(
         limit=limit,
     )
 
-    return [
-        PlayerSummary(
-            id=entry.get("id", ""),
-            name=entry.get("name", ""),
-            country=entry.get("country", ""),
-            role=entry.get("role", "bat"),
-            archetype=entry.get("archetype", ""),
-            grade_overall=entry.get("grade_overall", "D"),
-            innings_count=entry.get("innings_count", 0),
-            total_runs=entry.get("total_runs", 0),
-            career_sr=entry.get("career_sr"),
-            career_avg=entry.get("career_avg"),
-            score_1=entry.get("score_1"),
-            score_2=entry.get("score_2"),
-            score_3=entry.get("score_3"),
-            score_1_label=entry.get("score_1_label", "acceleration"),
-            score_2_label=entry.get("score_2_label", "power"),
-            score_3_label=entry.get("score_3_label", "control"),
-            is_provisional=entry.get("is_provisional", True),
-            overall_score=entry.get("overall_score"),
-        )
-        for entry in raw_results
-    ]
+    return [_player_summary_from_search_entry(entry) for entry in raw_results]

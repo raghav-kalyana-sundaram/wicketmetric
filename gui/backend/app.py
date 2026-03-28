@@ -19,7 +19,10 @@ Usage:
 
 Environment variables:
     OUTPUT_DIR  — Path to the pipeline output directory.
-                  Default: ../../output (relative to this file).
+                  Default: ../../data/output (relative to this file’s directory).
+
+    A ``.env`` file in this directory (``gui/backend/.env``) is loaded automatically
+    on startup so variables like ``DATA_ROOT`` work without ``export`` in the shell.
 """
 
 from __future__ import annotations
@@ -43,6 +46,39 @@ _BACKEND_DIR = Path(__file__).resolve().parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+
+def _load_env_file(path: Path) -> None:
+    """Load KEY=VALUE pairs into os.environ (does not override existing vars).
+
+    Uvicorn does not read ``.env`` files; this mirrors ``python-dotenv``'s
+    ``override=False`` behaviour so local ``gui/backend/.env`` works out of the box.
+    """
+    if not path.is_file():
+        return
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if "=" not in s:
+            continue
+        key, _, value = s.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        existing = os.environ.get(key)
+        if existing is None or (isinstance(existing, str) and existing.strip() == ""):
+            os.environ[key] = value
+
+
+_load_env_file(_BACKEND_DIR / ".env")
+
 from data_loader import (
     DEFAULT_FORMAT,
     VALID_FORMATS,
@@ -50,7 +86,19 @@ from data_loader import (
     MultiDataStore,
     load_all_data,
     load_data,
+    max_last_match_date_iso,
 )
+
+
+def _api_default_format(multi: MultiDataStore) -> str:
+    """Format key advertised to clients as default — must appear in ``available_formats`` when non-empty."""
+    avail = multi.available_formats
+    if DEFAULT_FORMAT in avail:
+        return DEFAULT_FORMAT
+    for k in VALID_FORMATS:
+        if k in avail:
+            return k
+    return DEFAULT_FORMAT
 from fastapi import Query as FastAPIQuery
 from routers import compare as compare_router
 from routers import eras as eras_router
@@ -60,11 +108,13 @@ from routers import player as player_router
 from routers import rankings as rankings_router
 
 # Import routers
+from routers import live_espn as live_espn_router
 from routers import search as search_router
 from routers import team as team_router
 from routers import venues as venues_router
-from schemas import MetaResponse
+from schemas import LatestScorecardSummary, MetaResponse, T20ITeamTiers
 from search_index import TrigramIndex, build_search_index
+from t20i_team_tiers import get_t20i_tier_config, is_t20_international_format
 
 # ── Global state (populated at startup) ───────────────────────────
 _multi_store: MultiDataStore | None = None
@@ -80,7 +130,7 @@ _search_index: TrigramIndex | None = None
 # They are wired up after startup so the lifespan context has populated
 # the globals.
 #
-# The `format` query parameter selects which dataset (T20I or IPL) to use.
+# The `format` query parameter selects which dataset slice to use.
 # All routers that depend on `get_store` / `get_search_index` will
 # automatically receive the correct dataset for the requested format.
 
@@ -96,6 +146,15 @@ def get_store(
             "DataStore not loaded. The application did not start correctly."
         )
     return _multi_store.get(format)
+
+
+def get_multi_store() -> MultiDataStore:
+    """Full multi-format store (used by compare endpoints for cross-slice lookup)."""
+    if _multi_store is None:
+        raise RuntimeError(
+            "MultiDataStore not loaded. The application did not start correctly."
+        )
+    return _multi_store
 
 
 def get_search_index(
@@ -138,7 +197,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # ── 1. Load pipeline outputs (all formats) ────────────────
     # If OUTPUT_DIR is explicitly set, load as single-format (legacy).
-    # Otherwise, use load_all_data() to discover output_t20i/ + output_ipl/.
+    # Otherwise, use load_all_data() to discover per-slice output folders.
     output_dir_env = os.environ.get("OUTPUT_DIR")
     if output_dir_env:
         # Legacy single-directory mode
@@ -154,7 +213,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         print(
             "\n⚠️  WARNING: No datasets loaded.\n"
             "   The API will start but most endpoints will return empty results.\n"
-            "   Ensure output_t20i/ and/or output_ipl/ exist, or set OUTPUT_DIR.\n"
+            "   Ensure pipeline output folders exist under data/output/ (or set DATA_ROOT / OUTPUT_DIR).\n"
         )
 
     # Legacy aliases (point to default format for any code that uses them)
@@ -189,8 +248,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Match scorecards router
     match_scorecards_router._get_store = get_store  # type: ignore[attr-defined]
 
-    # Compare router
-    compare_router._get_store = get_store  # type: ignore[attr-defined]
+    # Compare router (cross-format player resolution)
+    compare_router._get_multi_store = get_multi_store  # type: ignore[attr-defined]
 
     # Venues router
     venues_router._get_store = get_store  # type: ignore[attr-defined]
@@ -238,9 +297,9 @@ app = FastAPI(
         "similarity data, venue analysis, and more from pre-computed pipeline "
         "outputs. All data is read-only and loaded into memory at startup "
         "for sub-millisecond response times.\n\n"
-        "Supports multiple formats (T20I, IPL) via the `?format=` query parameter.\n\n"
-        "**Data source:** Cricsheet T20I & IPL ball-by-ball JSON, processed through "
-        "the Cricket Metrics pipeline."
+        "Supports multiple data slices (men's/women's T20 and IPL) via `?format=`.\n\n"
+        "**Data source:** Cricsheet international T20, IPL, and WPL ball-by-ball JSON, "
+        "processed through the Cricket Metrics pipeline."
     ),
     version="0.3.0",
     lifespan=lifespan,
@@ -259,6 +318,8 @@ _default_origins = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
     "http://localhost:4173",
 ]
 _cors_origins_env = os.environ.get("CORS_ORIGINS", "")
@@ -292,7 +353,7 @@ app.dependency_overrides[player_router._get_search_index] = get_search_index
 app.dependency_overrides[rankings_router._get_store] = get_store
 app.dependency_overrides[matchups_router._get_store] = get_store
 app.dependency_overrides[match_scorecards_router._get_store] = get_store
-app.dependency_overrides[compare_router._get_store] = get_store
+app.dependency_overrides[compare_router._get_multi_store] = get_multi_store
 app.dependency_overrides[venues_router._get_store] = get_store
 app.dependency_overrides[eras_router._get_store] = get_store
 app.dependency_overrides[team_router._get_store] = get_store
@@ -309,6 +370,7 @@ app.include_router(compare_router.router)
 app.include_router(venues_router.router)
 app.include_router(eras_router.router)
 app.include_router(team_router.router)
+app.include_router(live_espn_router.router)
 
 
 # ── Root / health / meta endpoints ────────────────────────────────
@@ -346,15 +408,15 @@ async def health_check():
 
 @app.get("/api/formats", tags=["meta"])
 async def list_formats():
-    """Return the list of available data formats (e.g. t20i, ipl).
+    """Return loaded dataset slice keys (e.g. mens_t20i, womens_t20i, womens_ipl).
 
-    The frontend uses this to know which toggle buttons to show.
+    The frontend uses this to know which gender/competition options to show.
     """
     if _multi_store is None:
         return {"formats": [], "default": DEFAULT_FORMAT}
     return {
         "formats": _multi_store.available_formats,
-        "default": DEFAULT_FORMAT,
+        "default": _api_default_format(_multi_store),
     }
 
 
@@ -377,6 +439,17 @@ async def api_metadata(
     if not store.loaded or idx is None:
         return MetaResponse(status="not_loaded")
 
+    latest_raw = match_scorecards_router.compute_latest_scorecard_summary(store)
+    latest_sc = (
+        LatestScorecardSummary(**latest_raw) if latest_raw is not None else None
+    )
+
+    tiers: T20ITeamTiers | None = None
+    if is_t20_international_format(format):
+        main_l, assoc_l, top_n = get_t20i_tier_config()
+        if main_l or assoc_l:
+            tiers = T20ITeamTiers(top_n=top_n, main=main_l, associates=assoc_l)
+
     return MetaResponse(
         status="ok",
         total_batters=len(store.bat_careers),
@@ -385,6 +458,9 @@ async def api_metadata(
         total_venues=len(store.venue),
         countries=idx.all_countries(),
         archetypes=idx.all_archetypes(),
+        data_through_date=max_last_match_date_iso(store),
+        latest_scorecard=latest_sc,
+        t20i_team_tiers=tiers,
     )
 
 

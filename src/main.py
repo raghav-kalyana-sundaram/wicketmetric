@@ -13,14 +13,15 @@ Usage
 
 Output
 ------
-    output/batting_profiles.csv          – One row per batter, 0-100 scores
-    output/bowling_profiles.csv          – One row per bowler, 0-100 scores
-    output/batting_careers_full.parquet  – Full career detail (for website)
-    output/bowling_careers_full.parquet  – Full career detail (for website)
-    output/batting_innings_detail.parquet – Per-innings component breakdown
-    output/bowling_spells_detail.parquet  – Per-spell component breakdown
-    output/potential_duplicates.csv      – Suspected player-ID duplicates (if any)
-    output/scorecards/                    – Per-match JSON scorecards (one file per match, e.g. <match_id>.json) containing ball-by-ball play-by-play and per-innings batting/bowling summaries for drill-down analysis
+    data/output/batting_profiles.csv          – One row per batter, 0-100 scores
+    data/output/bowling_profiles.csv          – One row per bowler, 0-100 scores
+    data/output/batting_careers_full.parquet  – Full career detail (for website)
+    data/output/batting_careers_ctx_entry_early.parquet / _death.parquet – Entry-phase batting leaderboards
+    data/output/bowling_careers_full.parquet  – Full career detail (for website)
+    data/output/batting_innings_detail.parquet – Per-innings component breakdown
+    data/output/bowling_spells_detail.parquet  – Per-spell component breakdown
+    data/output/potential_duplicates.csv      – Suspected player-ID duplicates (if any)
+    data/output/scorecards/                    – Per-match JSON scorecards (one file per match, e.g. <match_id>.json) containing ball-by-ball play-by-play and per-innings batting/bowling summaries for drill-down analysis
 """
 
 import os
@@ -71,6 +72,7 @@ from src.condition import (
     compute_all_condition_metrics,
 )
 from src.config import get_config, reload_config
+from src.context_batting_slices import build_entry_phase_bat_career_tables
 from src.context import build_full_context
 from src.era import (
     apply_era_adjustment_to_bowling,
@@ -118,6 +120,8 @@ from src.similarity import (
 )
 from src.venue import (
     compute_all_venue_metrics,
+    enrich_innings_with_match_meta,
+    enrich_innings_with_venue,
 )
 from src.war import (
     compute_allrounder_war,
@@ -129,6 +133,7 @@ from src.war import (
 )
 from src.wpa import (
     compute_all_wpa_metrics,
+    score_deliveries_win_probability,
 )
 
 # ---------------------------------------------------------------------------
@@ -138,7 +143,7 @@ from src.wpa import (
 
 def run_pipeline(
     data_dir: str,
-    output_dir: str = "output",
+    output_dir: str = "data/output",
     config_path: str | None = None,
     min_bat_innings: int | None = None,
     min_bowl_overs: int | None = None,
@@ -273,41 +278,6 @@ def run_pipeline(
     print(f"  Date range : {df['date'].min().date()} → {df['date'].max().date()}")
     unique_players = df["batter_id"].nunique() + df["bowler_id"].nunique()
     print(f"  Unique IDs : ~{unique_players:,} (batter + bowler, overlapping)")
-    print(f"  [{_elapsed()}]\n")
-
-    # ── Step 1a: Remove excluded teams (Afghanistan) ─────────────────────
-    # Filter out all matches involving Afghanistan — both matches where they
-    # bat and where they bowl.  This removes all Afghanistan players from
-    # the dataset entirely (they only appear in Afghanistan matches).
-    excluded_teams = {"Afghanistan"}
-    batting_teams = df["batting_team"]
-    bowling_teams = df["bowling_team"]
-    if hasattr(batting_teams, "cat"):
-        batting_teams = batting_teams.astype(str)
-    if hasattr(bowling_teams, "cat"):
-        bowling_teams = bowling_teams.astype(str)
-    excl_mask = batting_teams.isin(excluded_teams) | bowling_teams.isin(excluded_teams)
-    n_before = len(df)
-    matches_before = df["match_id"].nunique()
-    df = df[~excl_mask].reset_index(drop=True)
-    match_infos = [
-        mi
-        for mi in match_infos
-        if not any(t in excluded_teams for t in mi.get("teams", []))
-    ]
-    n_removed = n_before - len(df)
-    matches_removed = matches_before - df["match_id"].nunique()
-    if n_removed > 0:
-        print(f"  ✂ Excluded {', '.join(sorted(excluded_teams))} matches:")
-        print(f"    Matches removed   : {matches_removed:,}")
-        print(f"    Deliveries removed: {n_removed:,}")
-        print(
-            f"    Remaining         : {len(df):,} deliveries, {df['match_id'].nunique():,} matches"
-        )
-    # Re-apply categorical dtypes after filtering (categories may be stale)
-    for c in ["batting_team", "bowling_team"]:
-        if c in df.columns and hasattr(df[c], "cat"):
-            df[c] = df[c].cat.remove_unused_categories()
     print(f"  [{_elapsed()}]\n")
 
     # ── Step 1b: Build Expected Value (xR) models ────────────────────────
@@ -495,6 +465,14 @@ def run_pipeline(
     )
     print(f"  [{_elapsed()}]\n")
 
+    # Per-innings detail Parquet (and GUI /api/venues/players) needs ``venue``
+    # on each row.  Venue metrics enrich copies internally; persist the same
+    # join onto the tables we ship to disk.
+    bat_components = enrich_innings_with_venue(bat_components, df)
+    bowl_components = enrich_innings_with_venue(bowl_components, df)
+    bat_components = enrich_innings_with_match_meta(bat_components, df)
+    bowl_components = enrich_innings_with_match_meta(bowl_components, df)
+
     # ── Step 5: Aggregate career profiles ────────────────────────────────
     print("=" * 65)
     print("STEP 5 / 9 — Aggregating career profiles")
@@ -600,6 +578,23 @@ def run_pipeline(
     bat_careers = add_batting_grades(bat_careers)
     bat_careers = assign_batting_archetypes(bat_careers)
     print("  ✓ Batting grades & archetypes assigned")
+
+    bat_careers_ctx_entry_early, bat_careers_ctx_entry_death = (
+        build_entry_phase_bat_career_tables(
+            bat_components,
+            min_bat_innings=min_bat_innings,
+            survival_rates=survival_rates,
+            cabi_data=cabi_data,
+            shrinkage_k_bat=shrinkage_k_bat,
+            confidence_alpha=confidence_alpha,
+            is_franchise=is_franchise,
+            competition_gate_enabled=competition_gate_enabled,
+        )
+    )
+    print(
+        f"  ✓ Entry-phase batting careers: early {len(bat_careers_ctx_entry_early):,}, "
+        f"death {len(bat_careers_ctx_entry_death):,}"
+    )
 
     bowl_careers = add_bowling_grades(bowl_careers)
     bowl_careers = assign_bowling_archetypes(bowl_careers)
@@ -1473,6 +1468,8 @@ def run_pipeline(
         "bowling_careers_full.parquet": bowl_careers,
         "batting_innings_detail.parquet": bat_components,
         "bowling_spells_detail.parquet": bowl_components,
+        "batting_careers_ctx_entry_early.parquet": bat_careers_ctx_entry_early,
+        "batting_careers_ctx_entry_death.parquet": bat_careers_ctx_entry_death,
     }
 
     # All-Rounder WAR (Feature: All-Rounder Value Framework)
@@ -1551,7 +1548,21 @@ def run_pipeline(
     # Per-match scorecards (for GUI drill-down)
     sc_dir = os.path.join(output_dir, "scorecards")
     print("  Writing per-match scorecards...")
-    stream_write_scorecards(df, sc_dir, include_deliveries=True)
+    sc_wp = config.get("scorecards.win_probability", default=True)
+    df_for_scorecards = df
+    if wpa_enabled and not wpa_deliveries.empty:
+        df_for_scorecards = wpa_deliveries
+    elif sc_wp:
+        wpa_b = config.get("wpa.score_ratio_buckets", default=10)
+        wpa_rr = config.get("wpa.rr_ratio_buckets", default=8)
+        print("  Scoring win probability for scorecard JSON...")
+        df_for_scorecards = score_deliveries_win_probability(
+            df,
+            score_ratio_buckets=wpa_b,
+            rr_ratio_buckets=wpa_rr,
+            use_vectorised=True,
+        )
+    stream_write_scorecards(df_for_scorecards, sc_dir, include_deliveries=True)
     n_sc = (
         len([f for f in os.listdir(sc_dir) if f.endswith(".json")])
         if os.path.isdir(sc_dir)
@@ -1853,8 +1864,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output",
         dest="output_dir",
-        default=os.path.join(_PROJECT_ROOT, "output"),
-        help="Directory for CSV / Parquet outputs (default: output/)",
+        default=os.path.join(_PROJECT_ROOT, "data", "output"),
+        help="Directory for CSV / Parquet outputs (default: data/output/)",
     )
     parser.add_argument(
         "--format",
@@ -1886,26 +1897,25 @@ if __name__ == "__main__":
         print("=" * 65)
         print("  SCORECARDS-ONLY MODE")
         print("=" * 65)
+        cfg_sc = reload_config(args.config_path) if args.config_path else get_config()
         df, match_infos = parse_all_matches(data_path)
         print(f"  Parsed: {len(df):,} deliveries, {len(match_infos):,} matches")
 
-        excluded_teams = {"Afghanistan"}
-        batting_teams = df["batting_team"].astype(str)
-        bowling_teams = df["bowling_team"].astype(str)
-        excl_mask = batting_teams.isin(excluded_teams) | bowling_teams.isin(
-            excluded_teams
-        )
-        df = df[~excl_mask].reset_index(drop=True)
-        match_infos = [
-            mi
-            for mi in match_infos
-            if not any(t in excluded_teams for t in mi.get("teams", []))
-        ]
-        print(f"  After exclusions: {len(df):,} deliveries, {df['match_id'].nunique():,} matches")
-
         sc_dir = os.path.join(output_path, "scorecards")
         os.makedirs(sc_dir, exist_ok=True)
-        stream_write_scorecards(df, sc_dir, include_deliveries=True)
+        sc_wp = cfg_sc.get("scorecards.win_probability", default=True)
+        df_sc = df
+        if sc_wp:
+            wpa_b = cfg_sc.get("wpa.score_ratio_buckets", default=10)
+            wpa_rr = cfg_sc.get("wpa.rr_ratio_buckets", default=8)
+            print("  Scoring win probability for scorecards...")
+            df_sc = score_deliveries_win_probability(
+                df,
+                score_ratio_buckets=wpa_b,
+                rr_ratio_buckets=wpa_rr,
+                use_vectorised=True,
+            )
+        stream_write_scorecards(df_sc, sc_dir, include_deliveries=True)
         n_sc = len([f for f in os.listdir(sc_dir) if f.endswith(".json")])
         print(f"  ✓ Wrote {n_sc:,} scorecards to {sc_dir}/")
         print("=" * 65)

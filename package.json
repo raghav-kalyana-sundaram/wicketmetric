@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "upload:blob": "node scripts/upload-parquet-to-vercel-blob.mjs",
+    "upload:blob:dry": "node scripts/upload-parquet-to-vercel-blob.mjs --dry-run",
+    "upload:blob:private": "node scripts/upload-parquet-to-vercel-blob.mjs --private"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.3.2",
+    "vercel": "^50.37.3"
+  }
+}

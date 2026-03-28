@@ -372,6 +372,40 @@ const MONTHS_SHORT = [
   "Dec",
 ];
 
+const MONTHS_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/**
+ * Year and full month only, e.g. ``2024 December`` (UTC calendar parts).
+ */
+export function fmtYearMonth(
+  value: string | null | undefined,
+  fallback: string = "—",
+): string {
+  if (!value) return fallback;
+  try {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return fallback;
+    const month = MONTHS_LONG[d.getUTCMonth()];
+    const year = d.getUTCFullYear();
+    return `${year} ${month}`;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Format an ISO date string to a human-readable format.
  *
@@ -640,7 +674,8 @@ export function metricLabels(role: string): {
 }
 
 /**
- * Get short metric labels (3 chars) for compact displays.
+ * Get short metric labels (3 chars) for compact/dense table displays.
+ * Prefer metricLabels() for default user-facing labels.
  */
 export function metricLabelsShort(role: string): {
   s1: string;
@@ -651,6 +686,64 @@ export function metricLabelsShort(role: string): {
     return { s1: "ACC", s2: "CTL", s3: "THR" };
   }
   return { s1: "ACL", s2: "POW", s3: "CTL" };
+}
+
+/**
+ * Human-readable matchup edge description from a 0-100 score.
+ */
+export function matchupEdgeDescription(
+  score: number | null | undefined,
+): string {
+  if (score == null || isNaN(score)) return "No data";
+  if (score >= 80) return "Heavy batter advantage";
+  if (score >= 65) return "Batter advantage";
+  if (score >= 56) return "Slight batter advantage";
+  if (score >= 45) return "Even contest";
+  if (score >= 36) return "Slight bowler advantage";
+  if (score >= 21) return "Bowler advantage";
+  return "Heavy bowler advantage";
+}
+
+/**
+ * Generate a one-line plain-language identity summary for a player.
+ * Uses role, archetype, top dimensions, and phase strengths.
+ */
+export function playerIdentitySummary(player: {
+  role?: string | null;
+  archetype?: string | null;
+  score_1?: number | null;
+  score_2?: number | null;
+  score_3?: number | null;
+  overall_score?: number | null;
+  overall_grade?: string | null;
+}): string {
+  const role = player.role ?? "bat";
+  const labels = metricLabels(role);
+  const scores: Array<{ name: string; value: number }> = [];
+
+  if (player.score_1 != null) scores.push({ name: labels.s1, value: player.score_1 });
+  if (player.score_2 != null) scores.push({ name: labels.s2, value: player.score_2 });
+  if (player.score_3 != null) scores.push({ name: labels.s3, value: player.score_3 });
+
+  scores.sort((a, b) => b.value - a.value);
+
+  const archetype = player.archetype;
+  const topDims = scores.slice(0, 2);
+
+  const strengthDesc = topDims
+    .map((d) => {
+      if (d.value >= 85) return `elite ${d.name.toLowerCase()}`;
+      if (d.value >= 70) return `strong ${d.name.toLowerCase()}`;
+      return `solid ${d.name.toLowerCase()}`;
+    })
+    .join(" and ");
+
+  const roleLabel = role === "bowl" ? "bowler" : "batter";
+
+  if (archetype) {
+    return `${archetype} ${roleLabel} with ${strengthDesc}.`;
+  }
+  return `${roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)} with ${strengthDesc}.`;
 }
 
 // ── Ordinal formatting ───────────────────────────────────────────

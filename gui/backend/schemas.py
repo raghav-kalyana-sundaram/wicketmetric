@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # ── Helpers ───────────────────────────────────────────────────────
 
@@ -77,6 +77,18 @@ class PlayerSummary(BaseModel):
     is_provisional: bool = True
     overall_score: float | None = None
     metrics: dict[str, float | None] = {}
+    last_match_date: str | None = None  # ISO date of last game in this format
+    is_active: bool = False  # last_match within format-specific recency window
+    # Dual display ratings (spec: simple views use current, expanded use overall)
+    rating_current: float | None = None
+    rating_overall: float | None = None
+    modal_position: int | None = None  # 1–11 batting order (bat only)
+    # Squad / franchise from the player's most recent match in this format
+    recent_team: str | None = None
+    # Bowl: primary phase usage (pp_heavy / middle_heavy / death_heavy) when present
+    phase_group: str | None = None
+    # Team builder: dual-skill classification (never expose "bits" as a negative label in UI)
+    allrounder_class: str | None = None  # "genuine" | "batting" | "bowling" | None
 
 
 class PhaseSplit(BaseModel):
@@ -209,7 +221,7 @@ class VenueBaseline(BaseModel):
     avg_par_sr: float | None = None
     boundary_rate: float | None = None
     dot_pct: float | None = None
-    difficulty_score: float | None = None
+    difficulty_score: float | None = None  # 0–100 index (higher = harder)
 
 
 # ── Full profile (player detail page) ────────────────────────────
@@ -227,6 +239,8 @@ class BatterProfile(BaseModel):
     archetype: str = ""
     archetypes: list[str] = []
     position_group: str = ""
+    modal_position: int | None = None  # 1–11 most common batting slot
+    recent_team: str | None = None  # side played for in last game (batting_team)
 
     # Career stats
     innings_count: int = 0
@@ -249,6 +263,8 @@ class BatterProfile(BaseModel):
     grade_control: str = "D"
     overall_score: float | None = None
     overall_grade: str = "D"
+    rating_current: float | None = None
+    rating_overall: float | None = None
 
     # Provisional
     is_provisional: bool = True
@@ -309,6 +325,7 @@ class BowlerProfile(BaseModel):
     archetype: str = ""
     archetypes: list[str] = []
     phase_group: str = ""
+    recent_team: str | None = None  # side played for in last game (bowling_team)
 
     # Career stats
     matches: int = 0
@@ -331,6 +348,8 @@ class BowlerProfile(BaseModel):
     grade_threat: str = "D"
     overall_score: float | None = None
     overall_grade: str = "D"
+    rating_current: float | None = None
+    rating_overall: float | None = None
 
     # Provisional
     is_provisional: bool = True
@@ -430,6 +449,36 @@ class LeaderboardResponse(BaseModel):
     total_pages: int = 1
 
 
+class MatchImpactPerformanceRow(BaseModel):
+    """Single player performance in one scorecard match (match-impact model)."""
+
+    match_id: str = ""
+    date: str | None = None
+    venue: str | None = None
+    event_name: str | None = None
+    teams: list[str] | None = None
+    player_id: str = ""
+    player_name: str = ""
+    total_impact: float = 0.0
+    bat_impact: float = 0.0
+    bowl_impact: float = 0.0
+    bat_runs: int | None = None
+    bat_balls: int | None = None
+    bowl_wickets: int | None = None
+    bowl_runs_conceded: int | None = None
+    bowl_balls: int | None = None
+
+
+class MatchImpactPerformancesResponse(BaseModel):
+    """Paginated list of match impact performances across scorecards."""
+
+    performances: list[MatchImpactPerformanceRow] = []
+    total: int = 0
+    page: int = 1
+    per_page: int = 25
+    total_pages: int = 1
+
+
 class SearchResponse(BaseModel):
     """Search results response."""
 
@@ -488,6 +537,28 @@ class FormResponse(BaseModel):
     player_id: str = ""
     player_name: str = ""
     series: list[FormPoint] = []
+
+
+class FormBatchPoint(BaseModel):
+    """Single point for leaderboard form sparkline (date + composite)."""
+
+    date: str = ""
+    composite: float | None = None
+
+
+class FormBatchItem(BaseModel):
+    """Form summary for one player (last 2 years or from last game)."""
+
+    player_id: str = ""
+    form_points: list[FormBatchPoint] = []
+    last_played: str | None = None  # ISO date of last match
+    active: bool = False  # True if last match within format recency (1y T20I / 2y IPL)
+
+
+class FormBatchResponse(BaseModel):
+    """Batch form summary for leaderboard (form tracker)."""
+
+    results: list[FormBatchItem] = []
 
 
 # ── Similarity response ──────────────────────────────────────────
@@ -554,12 +625,25 @@ class TeamAnalysis(BaseModel):
     total_war_bowling: float | None = None
     avg_clutch: float | None = None
 
-    # Weaknesses (dimensions below 50th percentile)
+    # Dimensional weaknesses (percentile vs population) + structural notes
     weaknesses: list[str] = []
+
+    # T20 composition (critical vs advisory); backend source of truth
+    composition_critical: list[str] = []
+    composition_advisory: list[str] = []
+    # Slot/modal mismatches and similar (role fit, not player quality)
+    role_fit_warnings: list[str] = []
+
+    # Compact coverage flags for UI summary card
+    composition_summary: dict[str, bool | str] = Field(default_factory=dict)
 
     # Genuine counts (players that actually contribute to aggregates)
     genuine_batter_count: int = 0
     genuine_bowler_count: int = 0
+    # Bowlers counted in team bowling averages (Q8 subset)
+    bowling_aggregate_count: int = 0
+    # Request order (resolved players only); use to rebuild XI slots after auto-fill
+    player_ids_ordered: list[str] = Field(default_factory=list)
 
 
 # ── Meta / health ────────────────────────────────────────────────
@@ -577,6 +661,24 @@ class PlayerRoles(BaseModel):
     default_role: str = "bat"  # "bat" | "bowl" — whichever has more innings
 
 
+class LatestScorecardSummary(BaseModel):
+    """Most recent match in the scorecard JSON corpus (by meta.date)."""
+
+    match_id: str = ""
+    date: str | None = None
+    venue: str | None = None
+    teams: list[str] | None = None
+    event_name: str | None = None
+
+
+class T20ITeamTiers(BaseModel):
+    """ICC rating–based tiers for T20 international filters (see config ``icc_ranking``)."""
+
+    top_n: int = 15
+    main: list[str] = Field(default_factory=list)
+    associates: list[str] = Field(default_factory=list)
+
+
 class MetaResponse(BaseModel):
     """API metadata / health check."""
 
@@ -587,3 +689,18 @@ class MetaResponse(BaseModel):
     total_venues: int = 0
     countries: list[str] = []
     archetypes: dict[str, list[str]] = {}
+    data_through_date: str | None = Field(
+        default=None,
+        description="Latest last_match_date across career tables (ISO yyyy-mm-dd).",
+    )
+    latest_scorecard: LatestScorecardSummary | None = Field(
+        default=None,
+        description="Newest scorecard JSON by meta.date under output_dir/scorecards.",
+    )
+    t20i_team_tiers: T20ITeamTiers | None = Field(
+        default=None,
+        description=(
+            "Men's/women's T20I only: top ICC-rated sides (main) vs rest of table "
+            "(associates). Null for IPL formats."
+        ),
+    )

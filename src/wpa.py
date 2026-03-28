@@ -515,6 +515,68 @@ def compute_delivery_wpa(
     df["win_prob_after"] = wp_after
     df["wpa"] = df["win_prob_after"] - df["win_prob_before"]
 
+    return apply_chase_start_win_prob_continuity(df)
+
+
+def apply_chase_start_win_prob_continuity(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Align the **first ball of innings 2** with the end of innings 1.
+
+    The 2nd-innings lookup uses score/target ratio; at 0/0 that often maps to
+    ~50% for the chaser, which **re-anchors** the match and contradicts the
+    first-innings model's implied P(match win).
+
+    Here: after the last ball of innings 1, ``win_prob_after`` is P(innings-1
+    batting team wins). The chasing team is the opponent, so at the start of
+    the chase P(chaser wins) = 1 - that value. We set that as
+    ``win_prob_before`` on the **first delivery of innings 2** only and
+    recompute ``wpa`` for that row. Later deliveries are unchanged.
+
+    Innings 3+ (super overs) are not adjusted.
+    """
+    if df.empty:
+        return df
+    need = {
+        "match_id",
+        "innings_num",
+        "over",
+        "ball_idx",
+        "batting_team",
+        "win_prob_before",
+        "win_prob_after",
+        "wpa",
+    }
+    if not need.issubset(df.columns):
+        return df
+
+    for _, g in df.groupby("match_id", observed=True, sort=False):
+        g = g.sort_values(["innings_num", "over", "ball_idx"])
+        inn1 = g[g["innings_num"] == 1]
+        inn2 = g[g["innings_num"] == 2]
+        if inn1.empty or inn2.empty:
+            continue
+
+        last1 = inn1.iloc[-1]
+        first2_idx = inn2.index[0]
+
+        bat1 = str(last1["batting_team"])
+        bat2 = str(df.loc[first2_idx, "batting_team"])
+        if bat1 == bat2:
+            continue
+
+        wp1_end = float(last1["win_prob_after"])
+        if not np.isfinite(wp1_end):
+            continue
+        wp1_end = float(np.clip(wp1_end, 0.0, 1.0))
+
+        wp_before_chase = 1.0 - wp1_end
+        wp_before_chase = float(np.clip(wp_before_chase, 0.0, 1.0))
+
+        df.loc[first2_idx, "win_prob_before"] = wp_before_chase
+        wa = float(df.loc[first2_idx, "win_prob_after"])
+        if np.isfinite(wa):
+            df.loc[first2_idx, "wpa"] = wa - wp_before_chase
+
     return df
 
 
@@ -671,7 +733,7 @@ def compute_delivery_wpa_vectorised(
 
     df["wpa"] = df["win_prob_after"] - df["win_prob_before"]
 
-    return df
+    return apply_chase_start_win_prob_continuity(df)
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -889,6 +951,52 @@ def compute_match_wpa_summary(
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Delivery-level win probability (shared by WPA aggregates + scorecards)
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def score_deliveries_win_probability(
+    deliveries: pd.DataFrame,
+    *,
+    score_ratio_buckets: int = _DEFAULT_SCORE_RATIO_BUCKETS,
+    rr_ratio_buckets: int = _DEFAULT_FIRST_INN_SCORE_BUCKETS,
+    use_vectorised: bool = True,
+) -> pd.DataFrame:
+    """
+    Build WP models from ``deliveries`` and return a copy with
+    ``win_prob_before``, ``win_prob_after``, and ``wpa`` per row.
+
+    Used for per-match scorecard JSON (GUI charts) and as the first stage
+    of the full WPA pipeline.
+    """
+    wp_model_2nd = build_second_innings_wp_model(
+        deliveries,
+        score_ratio_buckets=score_ratio_buckets,
+    )
+    wp_model_1st, par_scores_1st = build_first_innings_wp_model(
+        deliveries,
+        rr_ratio_buckets=rr_ratio_buckets,
+    )
+    if use_vectorised:
+        return compute_delivery_wpa_vectorised(
+            deliveries,
+            wp_model_2nd,
+            wp_model_1st,
+            par_scores_1st,
+            score_ratio_buckets=score_ratio_buckets,
+            rr_ratio_buckets=rr_ratio_buckets,
+        )
+    return compute_delivery_wpa(
+        deliveries,
+        wp_model_2nd,
+        wp_model_1st,
+        par_scores_1st,
+        score_ratio_buckets=score_ratio_buckets,
+        rr_ratio_buckets=rr_ratio_buckets,
+    )
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Convenience wrapper (called from main.py)
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -925,18 +1033,14 @@ def compute_all_wpa_metrics(
         ``wp_model_1st`` : dict — 1st innings WP model
         ``par_scores_1st`` : dict — 1st innings par scores
     """
-    # Step 1: Build models
     wp_model_2nd = build_second_innings_wp_model(
         deliveries,
         score_ratio_buckets=score_ratio_buckets,
     )
-
     wp_model_1st, par_scores_1st = build_first_innings_wp_model(
         deliveries,
         rr_ratio_buckets=rr_ratio_buckets,
     )
-
-    # Step 2: Score deliveries
     if use_vectorised:
         wpa_df = compute_delivery_wpa_vectorised(
             deliveries,
@@ -956,7 +1060,6 @@ def compute_all_wpa_metrics(
             rr_ratio_buckets=rr_ratio_buckets,
         )
 
-    # Step 3: Aggregate
     batting_wpa = aggregate_batting_wpa(wpa_df)
     bowling_wpa = aggregate_bowling_wpa(wpa_df)
 

@@ -9,15 +9,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Zap, ChevronRight, Info } from "lucide-react";
+import { Zap, ChevronRight, Info, FileText, Trophy, GitCompare } from "lucide-react";
+import { useFormat } from "@/api/FormatContext";
+import { isFranchiseFormat } from "@/api/formatConstants";
 import { useMatchImpactPerformances } from "@/api/queries";
 import type {
   MatchImpactPerformanceRow,
   MatchImpactPerformancesParams,
 } from "@/api/types";
+import CrossLinkBar, { type CrossLink } from "@/components/CrossLinkBar";
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import Pagination from "@/components/Pagination";
-import { formatCombinedSummary } from "@/lib/scorecardMatchImpact";
+import {
+  formatCombinedSummary,
+  formatScorecardMatchLabel,
+} from "@/lib/scorecardMatchImpact";
 import { fmtDate } from "@/lib/format";
 import "@/styles/scorecards.css";
 
@@ -33,6 +39,13 @@ function parseDiscipline(
 
 function parseOrder(raw: string | null): "asc" | "desc" {
   return raw === "asc" ? "asc" : "desc";
+}
+
+function parseMatchTier(
+  raw: string | null,
+): "all" | "main_only" | "associate_fixture" {
+  if (raw === "main_only" || raw === "associate_fixture") return raw;
+  return "all";
 }
 
 function clampPerPage(n: number): number {
@@ -55,18 +68,34 @@ function rowToCombined(r: MatchImpactPerformanceRow) {
   };
 }
 
+const PERF_PRESETS = [
+  { id: "greatest-knocks", label: "Greatest knocks", discipline: "bat" as const, order: "desc" as const },
+  { id: "greatest-spells", label: "Greatest spells", discipline: "bowl" as const, order: "desc" as const },
+  { id: "best-allround", label: "Best all-round", discipline: "combined" as const, order: "desc" as const },
+  { id: "most-clutch", label: "Most clutch", discipline: "combined" as const, order: "desc" as const },
+];
+
+const CROSS_LINKS: CrossLink[] = [
+  { label: "Match scorecards", to: "/scorecards", icon: <FileText size={12} /> },
+  { label: "Player rankings", to: "/rankings", icon: <Trophy size={12} /> },
+  { label: "Compare players", to: "/compare", icon: <GitCompare size={12} /> },
+];
+
 type Draft = {
   dateFrom: string;
   dateTo: string;
   team: string;
   event: string;
   playerId: string | null;
+  matchTier: "all" | "main_only" | "associate_fixture";
   discipline: "combined" | "bat" | "bowl";
   order: "asc" | "desc";
   perPage: number;
 };
 
 export default function PerformancesPage(): JSX.Element {
+  const { format } = useFormat();
+  const isInternationalT20 = !isFranchiseFormat(format);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [draft, setDraft] = useState<Draft>(() => ({
@@ -75,6 +104,7 @@ export default function PerformancesPage(): JSX.Element {
     team: "",
     event: "",
     playerId: null,
+    matchTier: "all",
     discipline: "combined",
     order: "desc",
     perPage: 25,
@@ -90,11 +120,20 @@ export default function PerformancesPage(): JSX.Element {
       team: searchParams.get("team") ?? "",
       event: searchParams.get("event") ?? "",
       playerId: searchParams.get("player_id") || null,
+      matchTier: parseMatchTier(searchParams.get("match_tier")),
       discipline: parseDiscipline(searchParams.get("discipline")),
       order: parseOrder(searchParams.get("order")),
       perPage: pp,
     });
   }, [searchParams]);
+
+  useEffect(() => {
+    if (isInternationalT20) return;
+    if (!searchParams.has("match_tier")) return;
+    const p = new URLSearchParams(searchParams);
+    p.delete("match_tier");
+    setSearchParams(p, { replace: true });
+  }, [isInternationalT20, searchParams, setSearchParams]);
 
   const apiParams: MatchImpactPerformancesParams = useMemo(() => {
     const page = Math.max(
@@ -104,18 +143,21 @@ export default function PerformancesPage(): JSX.Element {
     const perPage = clampPerPage(
       parseInt(searchParams.get("per_page") || "25", 10),
     );
+    const mt = parseMatchTier(searchParams.get("match_tier"));
     return {
       date_from: searchParams.get("date_from") || undefined,
       date_to: searchParams.get("date_to") || undefined,
       team: searchParams.get("team") || undefined,
       event: searchParams.get("event") || undefined,
       player_id: searchParams.get("player_id") || undefined,
+      match_tier:
+        isInternationalT20 && mt !== "all" ? mt : "all",
       discipline: parseDiscipline(searchParams.get("discipline")),
       order: parseOrder(searchParams.get("order")),
       page,
       per_page: perPage,
     };
-  }, [searchParams]);
+  }, [searchParams, isInternationalT20]);
 
   const { data, isLoading, isFetching, isError, error, refetch } =
     useMatchImpactPerformances(apiParams);
@@ -140,10 +182,12 @@ export default function PerformancesPage(): JSX.Element {
         p.set("discipline", draft.discipline);
       if (draft.order !== "desc") p.set("order", draft.order);
       if (draft.perPage !== 25) p.set("per_page", String(draft.perPage));
+      if (isInternationalT20 && draft.matchTier !== "all")
+        p.set("match_tier", draft.matchTier);
       p.set("page", "1");
       setSearchParams(p);
     },
-    [draft, setSearchParams],
+    [draft, setSearchParams, isInternationalT20],
   );
 
   const onPageChange = useCallback(
@@ -185,25 +229,15 @@ export default function PerformancesPage(): JSX.Element {
   return (
     <div className="scorecards-page app-page page-stack text-text-primary pb-8">
       <div className="page-header">
+        <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-1">
+          What decided the biggest matches?
+        </p>
         <h1 className="page-title flex items-center gap-2">
           <Zap className="text-primary shrink-0" size={28} aria-hidden />
-          Match impact performances
+          Top Performances
         </h1>
         <p className="page-subtitle">
-          Individual performances from scorecards, ranked by the same{" "}
-          <strong className="text-text-primary font-medium">Match impact</strong>{" "}
-          model as each scorecard (batting runs² ÷ balls, bowling spell + runs
-          saved, combined where both qualify). Filter by period, team, series,
-          or player — like rankings, but one row per player per match.
-        </p>
-        <p className="text-sm text-text-muted mt-2">
-          <Link
-            to="/scorecards"
-            className="text-primary hover:underline inline-flex items-center gap-0.5"
-          >
-            Browse scorecards
-            <ChevronRight size={14} />
-          </Link>
+          The greatest innings, spells, and all-round performances ranked by match impact.
         </p>
       </div>
 
@@ -216,6 +250,34 @@ export default function PerformancesPage(): JSX.Element {
           matches where that discipline met minimum balls (5 bat / 6 bowl) and
           sort by that impact alone.
         </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {PERF_PRESETS.map(preset => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => {
+              setDraft(d => ({ ...d, discipline: preset.discipline, order: preset.order }));
+              const p = new URLSearchParams(searchParams);
+              if (preset.discipline !== "combined") {
+                p.set("discipline", preset.discipline);
+              } else {
+                p.delete("discipline");
+              }
+              if (preset.order !== "desc") {
+                p.set("order", preset.order);
+              } else {
+                p.delete("order");
+              }
+              p.set("page", "1");
+              setSearchParams(p);
+            }}
+            className="rounded-lg border border-surface-elevated/70 bg-surface-elevated/20 px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-primary/30 hover:text-primary dark:border-white/[0.06]"
+          >
+            {preset.label}
+          </button>
+        ))}
       </div>
 
       <form
@@ -272,6 +334,29 @@ export default function PerformancesPage(): JSX.Element {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          {isInternationalT20 && (
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-text-muted">Fixture tier (ICC T20I)</span>
+              <select
+                className={FIELD}
+                value={draft.matchTier}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    matchTier: parseMatchTier(e.target.value),
+                  }))
+                }
+              >
+                <option value="all">All T20I fixtures</option>
+                <option value="main_only">
+                  Main only (top 15 rated sides, both teams)
+                </option>
+                <option value="associate_fixture">
+                  At least one associate / unlisted side
+                </option>
+              </select>
+            </label>
+          )}
           <div className="flex flex-col gap-1 text-sm min-w-0">
             <span className="text-text-muted">Player</span>
             <PlayerAutocomplete
@@ -367,6 +452,7 @@ export default function PerformancesPage(): JSX.Element {
                 team: "",
                 event: "",
                 playerId: null,
+                matchTier: "all",
                 discipline: "combined",
                 order: "desc",
                 perPage: 25,
@@ -430,10 +516,7 @@ export default function PerformancesPage(): JSX.Element {
                 <tbody>
                   {data.performances.map((row, i) => {
                     const rank = (data.page - 1) * data.per_page + i + 1;
-                    const title =
-                      (row.event_name && String(row.event_name).trim()) ||
-                      (row.venue && String(row.venue).trim()) ||
-                      row.match_id;
+                    const matchLabel = formatScorecardMatchLabel(row);
                     return (
                       <tr key={`${row.match_id}-${row.player_id}-${i}`}>
                         <td className="text-text-muted tabular-nums">{rank}</td>
@@ -467,9 +550,9 @@ export default function PerformancesPage(): JSX.Element {
                         <td>
                           <Link
                             to={`/scorecards/${encodeURIComponent(row.match_id)}`}
-                            className="text-primary hover:underline inline-flex items-center gap-0.5 line-clamp-2"
+                            className="text-primary hover:underline inline-flex items-center gap-0.5 line-clamp-2 max-w-[min(28rem,50vw)] text-left"
                           >
-                            {title}
+                            {matchLabel}
                             <ChevronRight size={12} className="shrink-0 opacity-60" />
                           </Link>
                         </td>
@@ -495,6 +578,8 @@ export default function PerformancesPage(): JSX.Element {
           </>
         ) : null}
       </div>
+
+      <CrossLinkBar links={CROSS_LINKS} title="Explore more" className="mt-8" />
     </div>
   );
 }

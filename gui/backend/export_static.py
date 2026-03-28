@@ -15,7 +15,7 @@ Usage:
     python export_static.py --output ../frontend/public/api/
 
     # With a custom output directory:
-    python export_static.py --output /path/to/static/api/ --pipeline-output ../../output
+    python export_static.py --output /path/to/static/api/ --pipeline-output ../../data/output
 
     # Dry run (show what would be written):
     python export_static.py --output ../frontend/public/api/ --dry-run
@@ -51,7 +51,6 @@ Generated structure:
     ├── venues/
     │   ├── index.json
     │   ├── summary.json
-    │   ├── flat-track-index.json
     │   └── {venue_name}.json       (one per venue)
     ├── eras/
     │   └── index.json
@@ -79,6 +78,7 @@ if str(_BACKEND_DIR) not in sys.path:
 
 from data_loader import (
     DataStore,
+    max_last_match_date_iso,
     get_all_archetypes,
     get_all_countries,
     get_batter_by_id,
@@ -94,7 +94,14 @@ from data_loader import (
     get_matchups_for_bowler,
     load_data,
 )
+from rating_display import (
+    apply_display_rating_sort_column,
+    batting_display_ratings,
+    bowling_display_ratings,
+    drop_display_rating_sort_column,
+)
 from search_index import TrigramIndex, build_search_index
+from routers.match_scorecards import compute_latest_scorecard_summary
 
 # ── JSON helpers ──────────────────────────────────────────────────
 
@@ -229,6 +236,10 @@ def build_player_summary(row, role: str = "bat") -> dict:
     """Build a PlayerSummary dict from a career row."""
     if role == "bat":
         player_id = _safe_str(_get_val(row, "batter_id", ""))
+        ro, rc = batting_display_ratings(row)
+        mp = _safe_int(_get_val(row, "modal_position", 0)) or 0
+        modal = mp if 1 <= mp <= 11 else None
+        rt = _safe_str(_get_val(row, "recent_team", "")).strip() or None
         return {
             "id": player_id,
             "name": _safe_str(_get_val(row, "batter_name", _get_val(row, "name", ""))),
@@ -248,9 +259,15 @@ def build_player_summary(row, role: str = "bat") -> dict:
             "score_3_label": "control",
             "is_provisional": bool(_get_val(row, "is_provisional_bat", True)),
             "overall_score": _safe_float(_get_val(row, "overall_score")),
+            "rating_current": _safe_float(rc),
+            "rating_overall": _safe_float(ro),
+            "modal_position": modal,
+            "recent_team": rt,
         }
     else:
         player_id = _safe_str(_get_val(row, "bowler_id", ""))
+        ro, rc = bowling_display_ratings(row)
+        rt = _safe_str(_get_val(row, "recent_team", "")).strip() or None
         return {
             "id": player_id,
             "name": _safe_str(_get_val(row, "bowler_name", _get_val(row, "name", ""))),
@@ -273,6 +290,10 @@ def build_player_summary(row, role: str = "bat") -> dict:
             "score_3_label": "threat",
             "is_provisional": bool(_get_val(row, "is_provisional_bowl", True)),
             "overall_score": _safe_float(_get_val(row, "overall_score")),
+            "rating_current": _safe_float(rc),
+            "rating_overall": _safe_float(ro),
+            "modal_position": None,
+            "recent_team": rt,
         }
 
 
@@ -487,18 +508,19 @@ def build_venue_list(store: DataStore) -> list[dict]:
     if store.venue.empty:
         return []
 
+    from venue_analytics import attach_global_venue_difficulty_index
+
+    v = attach_global_venue_difficulty_index(store.venue)
     venues = []
-    for _, row in store.venue.iterrows():
+    for _, row in v.iterrows():
         venues.append(
             {
                 "venue": _safe_str(_get_val(row, "venue", "")),
-                "matches": _safe_int(_get_val(row, "matches", 0)) or 0,
-                "avg_par_sr": _safe_float(
-                    _get_val(row, "avg_par_sr", _get_val(row, "par_sr"))
-                ),
-                "boundary_rate": _safe_float(_get_val(row, "boundary_rate")),
-                "dot_pct": _safe_float(_get_val(row, "dot_pct")),
-                "difficulty_score": _safe_float(_get_val(row, "difficulty_score")),
+                "matches": _safe_int(_get_val(row, "venue_matches", 0)) or 0,
+                "avg_par_sr": _safe_float(_get_val(row, "venue_avg_par_sr")),
+                "boundary_rate": _safe_float(_get_val(row, "venue_avg_boundary_rate")),
+                "dot_pct": _safe_float(_get_val(row, "venue_avg_dot_pct")),
+                "difficulty_score": _safe_float(_get_val(row, "venue_difficulty_index")),
             }
         )
 
@@ -573,6 +595,7 @@ def export_static(
     countries = get_all_countries(store)
     archetypes = get_all_archetypes(store)
 
+    latest_sc = compute_latest_scorecard_summary(store)
     _write(
         "meta.json",
         {
@@ -583,6 +606,8 @@ def export_static(
             "total_venues": len(store.venue),
             "countries": countries,
             "archetypes": archetypes,
+            "data_through_date": max_last_match_date_iso(store),
+            "latest_scorecard": _clean_value(latest_sc) if latest_sc else None,
         },
     )
 
@@ -621,15 +646,18 @@ def export_static(
     if verbose:
         print("Exporting rankings...")
 
-    # Batting leaderboard (sorted by overall_score desc)
+    # Batting leaderboard (sorted like live API default: rating_current desc)
     bat_rankings = []
     if not store.bat_careers.empty:
-        sort_col = (
-            "overall_score" if "overall_score" in store.bat_careers.columns else None
-        )
-        bat_df = store.bat_careers
-        if sort_col:
-            bat_df = bat_df.sort_values(sort_col, ascending=False, na_position="last")
+        bat_df = store.bat_careers.copy()
+        bat_df, eff = apply_display_rating_sort_column(bat_df, "rating_current", "bat")
+        if eff in bat_df.columns:
+            bat_df = bat_df.sort_values(eff, ascending=False, na_position="last")
+        elif "overall_score" in bat_df.columns:
+            bat_df = bat_df.sort_values(
+                "overall_score", ascending=False, na_position="last"
+            )
+        bat_df = drop_display_rating_sort_column(bat_df)
         for _, row in bat_df.iterrows():
             bat_rankings.append(build_player_summary(row, "bat"))
 
@@ -644,15 +672,18 @@ def export_static(
         },
     )
 
-    # Bowling leaderboard
+    # Bowling leaderboard (rating_current desc, same as API)
     bowl_rankings = []
     if not store.bowl_careers.empty:
-        sort_col = (
-            "overall_score" if "overall_score" in store.bowl_careers.columns else None
-        )
-        bowl_df = store.bowl_careers
-        if sort_col:
-            bowl_df = bowl_df.sort_values(sort_col, ascending=False, na_position="last")
+        bowl_df = store.bowl_careers.copy()
+        bowl_df, eff = apply_display_rating_sort_column(bowl_df, "rating_current", "bowl")
+        if eff in bowl_df.columns:
+            bowl_df = bowl_df.sort_values(eff, ascending=False, na_position="last")
+        elif "overall_score" in bowl_df.columns:
+            bowl_df = bowl_df.sort_values(
+                "overall_score", ascending=False, na_position="last"
+            )
+        bowl_df = drop_display_rating_sort_column(bowl_df)
         for _, row in bowl_df.iterrows():
             bowl_rankings.append(build_player_summary(row, "bowl"))
 
@@ -700,6 +731,13 @@ def export_static(
             "flat_track_index_bowl",
         )
     ]
+
+    bat_sort_cols = sorted(
+        set(bat_sort_cols) | {"rating_current", "rating_overall"}
+    )
+    bowl_sort_cols = sorted(
+        set(bowl_sort_cols) | {"rating_current", "rating_overall"}
+    )
 
     _write("rankings/bat/columns.json", bat_sort_cols)
     _write("rankings/bowl/columns.json", bowl_sort_cols)
@@ -944,7 +982,7 @@ Examples:
         "--pipeline-output",
         type=str,
         default=None,
-        help="Path to pipeline output directory (default: OUTPUT_DIR env or ../../output)",
+        help="Path to pipeline output directory (default: OUTPUT_DIR env or ../../data/output)",
     )
     parser.add_argument(
         "--dry-run",

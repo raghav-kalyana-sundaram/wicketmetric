@@ -46,7 +46,6 @@ import type {
   // VenueBaseline,
   VenueDetail,
   VenueSummary,
-  FlatTrackResponse,
   InningsLogResponse,
   PlayerMatchImpactRow,
   SpellsLogResponse,
@@ -59,7 +58,6 @@ import type {
   MatchImpactPerformancesResponse,
   MatchupExploreParams,
   VenueListParams,
-  FlatTrackParams,
   SharedMatchupsResponse,
   EspnCricketMatchSummaryResponse,
   EspnCricketScoreboardResponse,
@@ -215,6 +213,18 @@ export const queryKeys = {
   // Venues
   venues: (params?: Partial<VenueListParams>) => ["venues", params] as const,
   venueDetail: (name: string) => ["venues", "detail", name] as const,
+  venueProfile: (name: string, exact?: boolean) =>
+    ["venues", "profile", name, exact] as const,
+  venueTrends: (name: string, bucket?: string, exact?: boolean) =>
+    ["venues", "trends", name, bucket, exact] as const,
+  venueTeams: (name: string, p?: Record<string, unknown>) =>
+    ["venues", "teams", name, p] as const,
+  venueSimilar: (name: string, k?: number, exact?: boolean) =>
+    ["venues", "similar", name, k, exact] as const,
+  venueMatches: (name: string, page?: number, exact?: boolean) =>
+    ["venues", "matches", name, page, exact] as const,
+  venuePerformances: (name: string, p?: Record<string, unknown>) =>
+    ["venues", "performances", name, p] as const,
   playersAtVenue: (
     venueName: string,
     role?: string,
@@ -223,15 +233,14 @@ export const queryKeys = {
     order?: string,
     page?: number,
     perPage?: number,
+    exact?: boolean,
   ) =>
     [
       "venues",
       "players",
       venueName,
-      { role, minInnings, sort, order, page, perPage },
+      { role, minInnings, sort, order, page, perPage, exact },
     ] as const,
-  flatTrackIndex: (params?: Partial<FlatTrackParams>) =>
-    ["venues", "flatTrack", params] as const,
   venueSummary: ["venues", "summary"] as const,
 
   // Eras
@@ -524,6 +533,7 @@ export function useMatchImpactPerformances(
     team: params.team ?? undefined,
     event: params.event ?? undefined,
     player_id: params.player_id ?? undefined,
+    match_tier: params.match_tier ?? "all",
     discipline: params.discipline ?? "combined",
     order: params.order ?? "desc",
     page: params.page ?? 1,
@@ -938,6 +948,154 @@ export function useVenueDetail(
   });
 }
 
+/** Rich venue profile (vs world, phases, chase/defend). */
+export function useVenueProfile(
+  venueName: string | undefined,
+  options?: { enabled?: boolean; exact?: boolean },
+) {
+  const { format } = useFormat();
+  const exact = options?.exact ?? true;
+  return useQuery({
+    queryKey: [format, ...queryKeys.venueProfile(venueName ?? "", exact)],
+    queryFn: ({ signal }) =>
+      api.getVenueProfile(venueName!, { exact, signal }),
+    staleTime: STALE_TIMES.venues,
+    enabled: (options?.enabled ?? true) && !!venueName,
+  });
+}
+
+export function useVenueTrends(
+  venueName: string | undefined,
+  params?: { bucket?: string; exact?: boolean },
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  const bucket = params?.bucket ?? "rolling_3_match";
+  const exact = params?.exact ?? true;
+  return useQuery({
+    queryKey: [format, ...queryKeys.venueTrends(venueName ?? "", bucket, exact)],
+    queryFn: ({ signal }) =>
+      api.getVenueTrends(venueName!, { bucket, exact, signal }),
+    staleTime: STALE_TIMES.venues,
+    enabled: (options?.enabled ?? true) && !!venueName,
+  });
+}
+
+export function useVenueTeams(
+  venueName: string | undefined,
+  params?: {
+    page?: number;
+    perPage?: number;
+    sort?: string;
+    order?: string;
+    minMatches?: number;
+    exact?: boolean;
+  },
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  const exact = params?.exact ?? true;
+  const q = { ...params, exact };
+  return useQuery({
+    queryKey: [format, ...queryKeys.venueTeams(venueName ?? "", q)],
+    queryFn: ({ signal }) =>
+      api.getVenueTeams(venueName!, {
+        page: params?.page ?? 1,
+        per_page: params?.perPage ?? 25,
+        sort: params?.sort ?? "win_pct",
+        order: params?.order ?? "desc",
+        min_matches: params?.minMatches ?? 2,
+        exact,
+        signal,
+      }),
+    staleTime: STALE_TIMES.venues,
+    enabled: (options?.enabled ?? true) && !!venueName,
+  });
+}
+
+export function useVenueSimilar(
+  venueName: string | undefined,
+  params?: { k?: number; exact?: boolean },
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  const exact = params?.exact ?? true;
+  return useQuery({
+    queryKey: [
+      format,
+      ...queryKeys.venueSimilar(venueName ?? "", params?.k ?? 8, exact),
+    ],
+    queryFn: ({ signal }) =>
+      api.getVenueSimilar(venueName!, {
+        k: params?.k ?? 8,
+        exact,
+        signal,
+      }),
+    staleTime: STALE_TIMES.venues,
+    enabled: (options?.enabled ?? true) && !!venueName,
+  });
+}
+
+export function useVenueMatchesList(
+  venueName: string | undefined,
+  params?: { page?: number; perPage?: number; exact?: boolean },
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  const exact = params?.exact ?? true;
+  return useQuery({
+    queryKey: [
+      format,
+      ...queryKeys.venueMatches(venueName ?? "", params?.page, exact),
+    ],
+    queryFn: ({ signal }) =>
+      api.getVenueMatches(venueName!, {
+        page: params?.page ?? 1,
+        per_page: params?.perPage ?? 25,
+        exact,
+        signal,
+      }),
+    staleTime: STALE_TIMES.venues,
+    placeholderData: keepPreviousData,
+    enabled: (options?.enabled ?? true) && !!venueName,
+  });
+}
+
+export function useVenuePerformances(
+  venueName: string | undefined,
+  params?: {
+    role?: string;
+    sort?: string;
+    order?: string;
+    page?: number;
+    perPage?: number;
+    minBalls?: number;
+    exact?: boolean;
+  },
+  options?: { enabled?: boolean },
+) {
+  const { format } = useFormat();
+  const exact = params?.exact ?? true;
+  const q = { ...params, exact };
+  return useQuery({
+    queryKey: [format, ...queryKeys.venuePerformances(venueName ?? "", q)],
+    queryFn: ({ signal }) =>
+      api.getVenuePerformances(venueName!, {
+        role: params?.role ?? "bat",
+        sort: params?.sort ?? "bat_impact",
+        order: params?.order ?? "desc",
+        page: params?.page ?? 1,
+        per_page: params?.perPage ?? 25,
+        min_balls: params?.minBalls ?? 5,
+        exact,
+        signal,
+      }),
+    staleTime: STALE_TIMES.venues,
+    placeholderData: keepPreviousData,
+    enabled: (options?.enabled ?? true) && !!venueName,
+  });
+}
+
 /** Fetch player performances at a specific venue. */
 export function usePlayersAtVenue(
   venueName: string | undefined,
@@ -948,10 +1106,12 @@ export function usePlayersAtVenue(
     order?: string;
     page?: number;
     perPage?: number;
+    exact?: boolean;
   },
   options?: { enabled?: boolean },
 ) {
   const { format } = useFormat();
+  const exact = params?.exact ?? true;
   return useQuery({
     queryKey: [
       format,
@@ -963,41 +1123,23 @@ export function usePlayersAtVenue(
         params?.order,
         params?.page,
         params?.perPage,
+        exact,
       ),
     ],
     queryFn: ({ signal }) =>
       api.getPlayersAtVenue(venueName!, {
         role: params?.role ?? "bat",
-        min_innings: params?.minInnings ?? 3,
-        sort: params?.sort ?? "sr",
+        min_innings: params?.minInnings ?? 2,
+        sort: params?.sort ?? "runs",
         order: params?.order ?? "desc",
         page: params?.page ?? 1,
         per_page: params?.perPage ?? 25,
+        exact,
         signal,
       }),
     staleTime: STALE_TIMES.venues,
     placeholderData: keepPreviousData,
     enabled: (options?.enabled ?? true) && !!venueName,
-  });
-}
-
-/** Fetch flat track bully index leaderboard. */
-export function useFlatTrackIndex(params?: Partial<FlatTrackParams>) {
-  const { format } = useFormat();
-  return useQuery<FlatTrackResponse>({
-    queryKey: [format, ...queryKeys.flatTrackIndex(params)],
-    queryFn: () =>
-      api.getFlatTrackIndex({
-        role: params?.role ?? "bat",
-        min_innings: params?.min_innings ?? 20,
-        provisional: params?.provisional ?? false,
-        sort: params?.sort ?? "flat_track_index",
-        order: params?.order ?? "asc",
-        page: params?.page ?? 1,
-        per_page: params?.per_page ?? 25,
-      }),
-    staleTime: STALE_TIMES.venues,
-    placeholderData: keepPreviousData,
   });
 }
 

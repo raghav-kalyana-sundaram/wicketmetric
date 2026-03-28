@@ -7,6 +7,8 @@ import { useMeta } from "@/api/queries";
 import { api } from "@/api/client";
 import PlayerAutocomplete from "@/components/PlayerAutocomplete";
 import Pagination from "@/components/Pagination";
+import CrossLinkBar from "@/components/CrossLinkBar";
+import type { CrossLink } from "@/components/CrossLinkBar";
 import "@/styles/scorecards.css";
 
 /**
@@ -33,6 +35,12 @@ type SeriesGroup = {
 };
 
 const SERIES_PER_PAGE = 10;
+
+const SCORECARDS_CROSS_LINKS: CrossLink[] = [
+  { label: "Top performances", to: "/performances" },
+  { label: "Player rankings", to: "/rankings" },
+  { label: "Live matches", to: "/live" },
+];
 
 function parseScorecardSearchRow(r: Record<string, unknown>): MatchSummary {
   const en = r.event_name;
@@ -94,6 +102,13 @@ function formatIsoDate(s?: string | null): string {
   }
 }
 
+function parseMatchTier(
+  raw: string | null,
+): "all" | "main_only" | "associate_fixture" {
+  if (raw === "main_only" || raw === "associate_fixture") return raw;
+  return "all";
+}
+
 export default function ScorecardsPage(): JSX.Element {
   const { format } = useFormat();
   const { data: apiMeta } = useMeta();
@@ -106,6 +121,9 @@ export default function ScorecardsPage(): JSX.Element {
   const [team, setTeam] = useState<string>("");
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [seriesQuery, setSeriesQuery] = useState<string>("");
+  const [matchTier, setMatchTier] = useState<
+    "all" | "main_only" | "associate_fixture"
+  >("all");
 
   // Pagination (franchise: by match row; international: by series block)
   const [page, setPage] = useState<number>(1);
@@ -114,8 +132,16 @@ export default function ScorecardsPage(): JSX.Element {
 
   // Build search params; include page via limit/offset semantics (backend supports limit only)
   const queryKey = useMemo(
-    () => ["scorecards", format, dateFrom, dateTo, team, playerId],
-    [format, dateFrom, dateTo, team, playerId],
+    () => [
+      "scorecards",
+      format,
+      dateFrom,
+      dateTo,
+      team,
+      playerId,
+      isInternationalT20 ? matchTier : "all",
+    ],
+    [format, dateFrom, dateTo, team, playerId, isInternationalT20, matchTier],
   );
 
   const {
@@ -134,6 +160,8 @@ export default function ScorecardsPage(): JSX.Element {
           team: team || undefined,
           player_id: playerId || undefined,
           limit: 500,
+          match_tier:
+            isInternationalT20 && matchTier !== "all" ? matchTier : undefined,
         },
         signal,
       );
@@ -144,6 +172,10 @@ export default function ScorecardsPage(): JSX.Element {
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   });
+
+  useEffect(() => {
+    if (!isInternationalT20) setMatchTier("all");
+  }, [isInternationalT20]);
 
   const seriesGroupsAll = useMemo(
     () => groupMatchesBySeries(matches ?? []),
@@ -167,7 +199,7 @@ export default function ScorecardsPage(): JSX.Element {
 
   useEffect(() => {
     setSeriesPage(1);
-  }, [seriesQuery, dateFrom, dateTo, team, playerId, format]);
+  }, [seriesQuery, dateFrom, dateTo, team, playerId, format, matchTier]);
 
   const onSearchSubmit = useCallback(
     (e?: React.FormEvent) => {
@@ -198,6 +230,7 @@ export default function ScorecardsPage(): JSX.Element {
   return (
     <div className="scorecards-page app-page page-stack text-text-primary">
         <div className="page-header">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-1">What decided this match?</p>
           <h1 className="page-title">Match Scorecards</h1>
           <p className="page-subtitle">
             Browse full scorecards by date, team, and player.{" "}
@@ -297,6 +330,31 @@ export default function ScorecardsPage(): JSX.Element {
             />
           </div>
 
+          {isInternationalT20 && (
+            <div>
+              <label
+                htmlFor="scorecards-match-tier"
+                className="block text-sm font-medium text-text-secondary"
+              >
+                Fixture tier (ICC T20I table)
+              </label>
+              <select
+                id="scorecards-match-tier"
+                value={matchTier}
+                onChange={(e) =>
+                  setMatchTier(parseMatchTier(e.target.value))
+                }
+                className="mt-1 block w-full rounded-md border border-surface-elevated bg-surface px-3 py-2 text-sm text-text-primary"
+              >
+                <option value="all">All T20I fixtures</option>
+                <option value="main_only">Main only (top 15 rated sides, both teams)</option>
+                <option value="associate_fixture">
+                  At least one associate / unlisted side
+                </option>
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-text-secondary">Player</label>
             <PlayerAutocomplete
@@ -347,6 +405,7 @@ export default function ScorecardsPage(): JSX.Element {
                   setTeam("");
                   setPlayerId(null);
                   setSeriesQuery("");
+                  setMatchTier("all");
                   setPage(1);
                   setSeriesPage(1);
                   refetchList();
@@ -390,6 +449,7 @@ export default function ScorecardsPage(): JSX.Element {
                     setTeam("");
                     setPlayerId(null);
                     setSeriesQuery("");
+                    setMatchTier("all");
                     setPage(1);
                     setSeriesPage(1);
                     refetchList();
@@ -411,6 +471,7 @@ export default function ScorecardsPage(): JSX.Element {
                   setTeam("");
                   setPlayerId(null);
                   setSeriesQuery("");
+                  setMatchTier("all");
                   setPage(1);
                   setSeriesPage(1);
                   refetchList();
@@ -552,6 +613,8 @@ export default function ScorecardsPage(): JSX.Element {
             </div>
           )}
         </div>
+
+        <CrossLinkBar links={SCORECARDS_CROSS_LINKS} className="mt-8" />
       </div>
   );
 }

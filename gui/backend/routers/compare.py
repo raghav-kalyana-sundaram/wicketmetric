@@ -16,6 +16,8 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Any
 
+from data_loader import DEFAULT_FORMAT, MultiDataStore, VALID_FORMATS
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from schemas import (
     BatterProfile,
@@ -33,12 +35,14 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/api", tags=["compare"])
 
+_COMPARE_FMT_PATTERN = "^(" + "|".join(VALID_FORMATS) + ")$"
 
-# ── Dependency placeholder (overridden in app.py) ─────────────────
+
+# ── Dependency placeholders (overridden in app.py) ────────────────
 
 
-def _get_store():
-    raise RuntimeError("DataStore not initialised")
+def _get_multi_store():
+    raise RuntimeError("MultiDataStore not initialised")
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -140,6 +144,45 @@ def _parse_ids(ids_str: str) -> list[str]:
     return unique
 
 
+def _formats_search_order(multi: MultiDataStore, preferred: str) -> list[str]:
+    """Prefer *preferred* format, then other loaded formats."""
+    avail = multi.available_formats
+    if not avail:
+        return []
+    pref = preferred.lower()
+    if pref in avail:
+        return [pref] + [f for f in avail if f != pref]
+    return list(avail)
+
+
+def _find_batter_row_and_store(
+    multi: MultiDataStore, pid: str, preferred_fmt: str
+) -> tuple["DataStore", Any] | tuple[None, None]:
+    from data_loader import get_batter_by_id
+
+    order = _formats_search_order(multi, preferred_fmt or DEFAULT_FORMAT)
+    for fmt in order:
+        store = multi.get(fmt)
+        row = get_batter_by_id(store, pid)
+        if row is not None:
+            return store, row
+    return None, None
+
+
+def _find_bowler_row_and_store(
+    multi: MultiDataStore, pid: str, preferred_fmt: str
+) -> tuple["DataStore", Any] | tuple[None, None]:
+    from data_loader import get_bowler_by_id
+
+    order = _formats_search_order(multi, preferred_fmt or DEFAULT_FORMAT)
+    for fmt in order:
+        store = multi.get(fmt)
+        row = get_bowler_by_id(store, pid)
+        if row is not None:
+            return store, row
+    return None, None
+
+
 # ── Profile builders (reuse logic from player router) ─────────────
 
 
@@ -183,7 +226,12 @@ async def compare_players(
             "returned under the appropriate key in the response."
         ),
     ),
-    store: "DataStore" = Depends(_get_store),
+    multi: MultiDataStore = Depends(_get_multi_store),
+    format: str = Query(
+        DEFAULT_FORMAT,
+        pattern=_COMPARE_FMT_PATTERN,
+        description="Preferred dataset to search first; other loaded formats are tried per player.",
+    ),
 ) -> CompareResponse:
     """Compare 2–4 players side-by-side.
 
@@ -210,8 +258,6 @@ async def compare_players(
     Raises 400 if fewer than 2 or more than 4 IDs are provided.
     Raises 404 if any player ID is not found in either dataset.
     """
-    from data_loader import get_batter_by_id, get_bowler_by_id
-
     player_ids = _parse_ids(ids)
 
     batters: list[BatterProfile] = []
@@ -220,16 +266,16 @@ async def compare_players(
 
     for pid in player_ids:
         # Try batting first (takes precedence for all-rounders)
-        bat_row = get_batter_by_id(store, pid)
-        if bat_row is not None:
-            profile = _build_batter_profile_for_compare(bat_row, store)
+        store_b, bat_row = _find_batter_row_and_store(multi, pid, format)
+        if bat_row is not None and store_b is not None:
+            profile = _build_batter_profile_for_compare(bat_row, store_b)
             batters.append(profile)
             continue
 
         # Try bowling
-        bowl_row = get_bowler_by_id(store, pid)
-        if bowl_row is not None:
-            profile = _build_bowler_profile_for_compare(bowl_row, store)
+        store_w, bowl_row = _find_bowler_row_and_store(multi, pid, format)
+        if bowl_row is not None and store_w is not None:
+            profile = _build_bowler_profile_for_compare(bowl_row, store_w)
             bowlers.append(profile)
             continue
 
@@ -256,7 +302,12 @@ async def compare_form(
         ...,
         description="Comma-separated player IDs (2–4)",
     ),
-    store: "DataStore" = Depends(_get_store),
+    multi: MultiDataStore = Depends(_get_multi_store),
+    format: str = Query(
+        DEFAULT_FORMAT,
+        pattern=_COMPARE_FMT_PATTERN,
+        description="Preferred dataset to resolve each player's form series.",
+    ),
 ) -> list[FormResponse]:
     """Return form time-series for 2–4 players for overlaid comparison.
 
@@ -280,16 +331,25 @@ async def compare_form(
     results: list[FormResponse] = []
 
     for pid in player_ids:
+        bat_store: "DataStore | None" = None
+        bat_form = None
+        for fmt in _formats_search_order(multi, format):
+            st = multi.get(fmt)
+            bf_try = get_batter_form(st, pid)
+            if not bf_try.empty:
+                bat_store = st
+                bat_form = bf_try
+                break
+
         # Try batting form first
-        bat_form = get_batter_form(store, pid)
-        if not bat_form.empty:
-            bat_row = get_batter_by_id(store, pid)
+        if bat_store is not None and bat_form is not None and not bat_form.empty:
+            bat_row = get_batter_by_id(bat_store, pid)
             player_name = (
                 _safe_str(_get_val(bat_row, "batter")) if bat_row is not None else ""
             )
 
             series: list[FormPoint] = []
-            for _, row in bat_form.iterrows():
+            for _, row in bat_form.iterrows():  # type: ignore[union-attr]
                 series.append(
                     FormPoint(
                         date=_safe_str(_get_val(row, "date")),
@@ -338,16 +398,25 @@ async def compare_form(
             )
             continue
 
+        bowl_store: "DataStore | None" = None
+        bowl_form = None
+        for fmt in _formats_search_order(multi, format):
+            st = multi.get(fmt)
+            bf_try = get_bowler_form(st, pid)
+            if not bf_try.empty:
+                bowl_store = st
+                bowl_form = bf_try
+                break
+
         # Try bowling form
-        bowl_form = get_bowler_form(store, pid)
-        if not bowl_form.empty:
-            bowl_row = get_bowler_by_id(store, pid)
+        if bowl_store is not None and bowl_form is not None and not bowl_form.empty:
+            bowl_row = get_bowler_by_id(bowl_store, pid)
             player_name = (
                 _safe_str(_get_val(bowl_row, "bowler")) if bowl_row is not None else ""
             )
 
             series = []
-            for _, row in bowl_form.iterrows():
+            for _, row in bowl_form.iterrows():  # type: ignore[union-attr]
                 series.append(
                     FormPoint(
                         date=_safe_str(_get_val(row, "date")),
@@ -420,7 +489,12 @@ async def shared_matchups(
         6, ge=1, description="Minimum balls faced per batter-bowler pair"
     ),
     limit: int = Query(20, ge=1, le=100, description="Max shared matchups to return"),
-    store: "DataStore" = Depends(_get_store),
+    multi: MultiDataStore = Depends(_get_multi_store),
+    format: str = Query(
+        DEFAULT_FORMAT,
+        pattern=_COMPARE_FMT_PATTERN,
+        description="Preferred dataset when resolving each batter's matchup rows.",
+    ),
 ) -> dict:
     """Find bowlers that two or more compared batters have both faced.
 
@@ -455,19 +529,21 @@ async def shared_matchups(
 
     batter_ids = _parse_ids(ids)
 
-    if store.matchups.empty:
-        return {"batter_ids": batter_ids, "shared": []}
-
     # For each batter, get the set of bowlers they've faced
     # (with min_balls filter)
     bowler_sets: list[set[str]] = []
     batter_matchup_dfs: dict[str, pd.DataFrame] = {}
 
     for bid in batter_ids:
-        mask = (store.matchups["batter_id"] == bid) & (
-            store.matchups["balls_faced"] >= min_balls
+        st_b, _row = _find_batter_row_and_store(multi, bid, format)
+        if st_b is None or st_b.matchups.empty:
+            bowler_sets.append(set())
+            batter_matchup_dfs[bid] = pd.DataFrame()
+            continue
+        mask = (st_b.matchups["batter_id"] == bid) & (
+            st_b.matchups["balls_faced"] >= min_balls
         )
-        bdf = store.matchups.loc[mask]
+        bdf = st_b.matchups.loc[mask]
         if bdf.empty:
             bowler_sets.append(set())
         else:

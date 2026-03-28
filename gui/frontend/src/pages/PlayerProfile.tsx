@@ -21,7 +21,7 @@
  *
  * Data fetching:
  *   - usePlayerProfile() — main profile data
- *   - usePlayerForm() — form time-series (lazy, loaded when section visible)
+ *   - usePlayerForm() — form time-series (fetched with profile)
  *   - usePlayerInnings() / usePlayerSpells() — recent innings/spells
  */
 
@@ -91,7 +91,10 @@ import {
   fmtPressureScore,
   pressureScore,
   fmtMatchupEdge,
+  playerIdentitySummary,
 } from "@/lib/format";
+import InsightCard from "@/components/InsightCard";
+import CrossLinkBar from "@/components/CrossLinkBar";
 import type {
   BatterProfile,
   BowlerProfile,
@@ -102,7 +105,10 @@ import type {
   SpellDetail,
   PlayerMatchImpactRow,
 } from "@/api/types";
-import { formatCombinedSummary } from "@/lib/scorecardMatchImpact";
+import {
+  formatCombinedSummary,
+  formatScorecardMatchLabel,
+} from "@/lib/scorecardMatchImpact";
 import SocialShareTrigger from "@/components/SocialShareTrigger";
 import { SOCIAL_EXPORT_ROOT_CLASS } from "@/lib/socialCapture";
 import { subjectsFromPlayers } from "@/lib/socialGraphicComposite";
@@ -132,7 +138,6 @@ export default function PlayerProfile() {
     if (id !== prevIdRef.current) {
       prevIdRef.current = id;
       setActiveRole(null);
-      setShowForm(false);
       setLogPage(1);
     }
   }, [id]);
@@ -172,12 +177,11 @@ export default function PlayerProfile() {
   const profileRefetch = isBatView ? batRefetch : bowlRefetch;
 
   // ── 4. Form data ──────────────────────────────────────────
-  const [showForm, setShowForm] = useState(false);
   const formRole = isBatView ? "bat" : "bowl";
   const { data: formData, isLoading: formLoading } = usePlayerForm(
     id,
     formRole,
-    { enabled: showForm && !!id && activeRole !== null },
+    { enabled: !!id && activeRole !== null },
   );
 
   // ── 5. Innings/Spells log ─────────────────────────────────
@@ -280,7 +284,6 @@ export default function PlayerProfile() {
           activeRole={activeRole!}
           onRoleChange={(r) => {
             setActiveRole(r);
-            setShowForm(false);
           }}
           battingInnings={roles.batting_innings}
           bowlingInnings={roles.bowling_innings}
@@ -292,8 +295,6 @@ export default function PlayerProfile() {
           profile={profile as BatterProfile}
           formData={formData}
           formLoading={formLoading}
-          showForm={showForm}
-          onShowForm={() => setShowForm(true)}
           inningsData={inningsData}
           logPage={logPage}
           logPerPage={LOG_PER_PAGE}
@@ -308,8 +309,6 @@ export default function PlayerProfile() {
           profile={profile as BowlerProfile}
           formData={formData}
           formLoading={formLoading}
-          showForm={showForm}
-          onShowForm={() => setShowForm(true)}
           spellsData={spellsData}
           logPage={logPage}
           logPerPage={LOG_PER_PAGE}
@@ -435,12 +434,6 @@ function PlayerMatchImpactSection({
   isLoading: boolean;
   isError: boolean;
 }) {
-  const [showAllMatchImpact, setShowAllMatchImpact] = useState(false);
-
-  React.useEffect(() => {
-    setShowAllMatchImpact(false);
-  }, [playerId]);
-
   if (isLoading) {
     return (
       <section className="card p-6">
@@ -485,10 +478,17 @@ function PlayerMatchImpactSection({
   }
 
   const hasMoreThanPreview = list.length > MATCH_IMPACT_PREVIEW_COUNT;
-  const visibleRows =
-    showAllMatchImpact || !hasMoreThanPreview
-      ? list
-      : list.slice(0, MATCH_IMPACT_PREVIEW_COUNT);
+  const visibleRows = hasMoreThanPreview
+    ? list.slice(0, MATCH_IMPACT_PREVIEW_COUNT)
+    : list;
+
+  const performancesAllHref = `/performances?${new URLSearchParams({
+    player_id: playerId,
+    discipline: "combined",
+    order: "desc",
+    page: "1",
+    per_page: "100",
+  }).toString()}`;
 
   return (
     <section className="card p-6">
@@ -500,7 +500,7 @@ function PlayerMatchImpactSection({
         Top scorecard matches by combined impact (
         <span className="tabular-nums text-text-secondary">bat + bowl</span>,
         same rules as the Match impact tab).{" "}
-        {hasMoreThanPreview && !showAllMatchImpact ? (
+        {hasMoreThanPreview ? (
           <>
             Showing top{" "}
             <span className="tabular-nums text-text-secondary">
@@ -532,10 +532,7 @@ function PlayerMatchImpactSection({
           </thead>
           <tbody>
             {visibleRows.map((row, i) => {
-              const title =
-                (row.event_name && String(row.event_name).trim()) ||
-                (row.venue && String(row.venue).trim()) ||
-                row.match_id;
+              const matchLabel = formatScorecardMatchLabel(row);
               return (
                 <tr key={`${row.match_id}-${i}`}>
                   <td className="text-text-muted tabular-nums">{i + 1}</td>
@@ -545,9 +542,9 @@ function PlayerMatchImpactSection({
                   <td>
                     <Link
                       to={`/scorecards/${encodeURIComponent(row.match_id)}`}
-                      className="text-primary hover:underline inline-flex items-center gap-1"
+                      className="text-primary underline decoration-primary/35 underline-offset-2 hover:decoration-primary inline-flex items-center gap-1 max-w-[min(28rem,55vw)]"
                     >
-                      <span className="line-clamp-2">{title}</span>
+                      <span className="line-clamp-2 text-left">{matchLabel}</span>
                       <ChevronRight size={12} className="shrink-0 opacity-60" />
                     </Link>
                   </td>
@@ -571,23 +568,15 @@ function PlayerMatchImpactSection({
       </div>
       {hasMoreThanPreview && (
         <div className="mt-4 pt-3 border-t border-surface-elevated/50">
-          <button
-            type="button"
-            onClick={() => setShowAllMatchImpact((v) => !v)}
-            className="text-sm text-primary hover:text-primary-hover font-medium inline-flex items-center gap-1"
+          <Link
+            to={performancesAllHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-primary hover:text-primary-hover font-medium inline-flex items-center gap-1.5"
           >
-            {showAllMatchImpact ? (
-              <>
-                Show top {MATCH_IMPACT_PREVIEW_COUNT} only
-                <ChevronRight size={14} className="opacity-70" aria-hidden />
-              </>
-            ) : (
-              <>
-                Show all {list.length} matches
-                <ChevronRight size={14} className="opacity-70" aria-hidden />
-              </>
-            )}
-          </button>
+            Show all {list.length} matches
+            <ExternalLink size={14} className="opacity-70 shrink-0" aria-hidden />
+          </Link>
         </div>
       )}
     </section>
@@ -600,8 +589,6 @@ interface BatterProfileViewProps {
   profile: BatterProfile;
   formData: any;
   formLoading: boolean;
-  showForm: boolean;
-  onShowForm: () => void;
   inningsData: any;
   logPage: number;
   logPerPage: number;
@@ -616,8 +603,6 @@ function BatterProfileView({
   profile: p,
   formData,
   formLoading,
-  showForm,
-  onShowForm,
   inningsData,
   logPage,
   logPerPage,
@@ -726,6 +711,19 @@ function BatterProfileView({
           </div>
         </div>
       </section>
+
+      <InsightCard
+        headline={playerIdentitySummary({
+          role: "bat",
+          archetype: p.archetype,
+          score_1: p.score_acceleration,
+          score_2: p.score_power,
+          score_3: p.score_control,
+          overall_score: p.overall_score,
+          overall_grade: p.overall_grade,
+        })}
+        accent="green"
+      />
 
       {/* ── Metric Scores ─────────────────────────────────────── */}
       <section className="card p-6">
@@ -1036,7 +1034,6 @@ function BatterProfileView({
           icon={<TrendingUp size={18} />}
           title="Form Tracker"
           actions={
-            showForm &&
             !formLoading &&
             formData?.series &&
             formData.series.length > 0 ? (
@@ -1049,17 +1046,7 @@ function BatterProfileView({
             ) : undefined
           }
         />
-        {!showForm ? (
-          <div className="mt-4 text-center py-8">
-            <p className="text-sm text-text-secondary mb-3">
-              View how this player's metrics have evolved over time.
-            </p>
-            <button onClick={onShowForm} className="btn-secondary btn-sm">
-              <Activity size={14} />
-              Load Form Chart
-            </button>
-          </div>
-        ) : formLoading ? (
+        {formLoading ? (
           <div className="mt-4 flex items-center justify-center py-16">
             <div className="flex flex-col items-center gap-3">
               <div className="h-8 w-8 rounded-full border-4 border-surface-elevated border-t-primary animate-spin" />
@@ -1167,6 +1154,15 @@ function BatterProfileView({
         </section>
       )}
 
+      <CrossLinkBar
+        links={[
+          { label: "Compare careers", to: `/compare?ids=${p.id}` },
+          { label: "View matchups", to: `/matchups?bat=${p.id}` },
+          { label: "Similar players", to: `/similar/${p.id}` },
+          { label: "All rankings", to: `/rankings?role=bat` },
+        ]}
+      />
+
       {/* ── Action Buttons ────────────────────────────────────── */}
       <ActionBar playerId={p.id} playerName={p.name} navigate={navigate} />
     </>
@@ -1179,8 +1175,6 @@ interface BowlerProfileViewProps {
   profile: BowlerProfile;
   formData: any;
   formLoading: boolean;
-  showForm: boolean;
-  onShowForm: () => void;
   spellsData: any;
   logPage: number;
   logPerPage: number;
@@ -1195,8 +1189,6 @@ function BowlerProfileView({
   profile: p,
   formData,
   formLoading,
-  showForm,
-  onShowForm,
   spellsData,
   logPage,
   logPerPage,
@@ -1306,6 +1298,19 @@ function BowlerProfileView({
           </div>
         </div>
       </section>
+
+      <InsightCard
+        headline={playerIdentitySummary({
+          role: "bowl",
+          archetype: p.archetype,
+          score_1: p.score_accuracy,
+          score_2: p.score_control,
+          score_3: p.score_threat,
+          overall_score: p.overall_score,
+          overall_grade: p.overall_grade,
+        })}
+        accent="green"
+      />
 
       {/* ── Metric Scores ─────────────────────────────────────── */}
       <section className="card p-6">
@@ -1502,7 +1507,6 @@ function BowlerProfileView({
           icon={<TrendingUp size={18} />}
           title="Form Tracker"
           actions={
-            showForm &&
             !formLoading &&
             formData?.series &&
             formData.series.length > 0 ? (
@@ -1515,19 +1519,14 @@ function BowlerProfileView({
             ) : undefined
           }
         />
-        {!showForm ? (
-          <div className="mt-4 text-center py-8">
-            <p className="text-sm text-text-secondary mb-3">
-              View how this player's metrics have evolved over time.
-            </p>
-            <button onClick={onShowForm} className="btn-secondary btn-sm">
-              <Activity size={14} />
-              Load Form Chart
-            </button>
-          </div>
-        ) : formLoading ? (
+        {formLoading ? (
           <div className="mt-4 flex items-center justify-center py-16">
-            <div className="h-8 w-8 rounded-full border-4 border-surface-elevated border-t-primary animate-spin" />
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-8 w-8 rounded-full border-4 border-surface-elevated border-t-primary animate-spin" />
+              <span className="text-xs text-text-muted">
+                Loading form data…
+              </span>
+            </div>
           </div>
         ) : formData?.series && formData.series.length > 0 ? (
           <div
@@ -1622,6 +1621,15 @@ function BowlerProfileView({
           </div>
         </section>
       )}
+
+      <CrossLinkBar
+        links={[
+          { label: "Compare careers", to: `/compare?ids=${p.id}` },
+          { label: "View matchups", to: `/matchups?bowl=${p.id}` },
+          { label: "Similar players", to: `/similar/${p.id}` },
+          { label: "All rankings", to: `/rankings?role=bowl` },
+        ]}
+      />
 
       {/* ── Action Buttons ────────────────────────────────────── */}
       <ActionBar playerId={p.id} playerName={p.name} navigate={navigate} />

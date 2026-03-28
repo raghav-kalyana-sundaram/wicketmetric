@@ -17,6 +17,12 @@ pipeline:
   min_phase_balls_batting: 4 # Min balls faced in a phase for stats to count
   min_phase_balls_bowling: 6 # Min balls bowled in a phase for stats to count
 
+# Per-match JSON under output_dir/scorecards/ (GUI scorecard pages)
+scorecards:
+  # When true, run empirical WP scoring so each delivery includes win_prob_* / wpa (3 dp).
+  # Independent of wpa.enabled (career WPA parquet outputs).
+  win_probability: true
+
 # ───────────────────────────────────────────────────────────────────────────
 # Rating system (Bayesian shrinkage + confidence bonus + percentile)
 # ───────────────────────────────────────────────────────────────────────────
@@ -282,42 +288,34 @@ team_quality:
 #   normalised = rating / max_rating           (0 to 1)
 #   icc_weight = floor + (ceiling - floor) * normalised ^ curve
 #
-# Examples with defaults (floor=0.55, ceiling=1.30, max_rating=272, curve=1.5):
-#   India (272)      → 1.30   (30% bonus — elite opposition)
-#   England (260)    → 1.28
-#   Australia (258)  → 1.27
-#   New Zealand (250)→ 1.25
-#   South Africa (245)→ 1.23
-#   Pakistan (238)   → 1.21
-#   West Indies (235)→ 1.20
-#   Sri Lanka (227)  → 1.17
-#   Afghanistan (221)→ 1.15
-#   Zimbabwe (202)   → 1.08
-#   Ireland (200)    → 1.07
-#   Netherlands (181)→ 1.00   (neutral)
-#   Nepal (175)      → 0.98
-#   Oman (151)       → 0.89
-#   Uganda (142)     → 0.86
-#   PNG (136)        → 0.83
-#   Very weak (50)   → 0.63
-#   Unranked (0)     → 0.55   (45% penalty — unknown opposition)
+# Examples with floor=0.40, ceiling=1.40, max_rating=272, curve=2.0:
+#   India (272)      → 1.40   (ceiling — elite opposition)
+#   England (260)    → 1.35
+#   Netherlands (181)→ 0.99
+#   Romania (45)     → 0.41
+#   default_rating 20→ 0.40   (floor — unknown / tiny nations)
 #
-# The super-linear curve (1.5) concentrates weight toward top-ranked teams,
-# creating a much larger gap between test nations and associates than a
-# linear mapping.  This ensures an associate batter scoring runs against
-# weak bowling attacks cannot outscore a test-nation batter who faces
-# consistently stronger opposition.
+# Together with match_quality (below), the combined innings multiplier for a
+# full member facing England vs the same team facing Romania is ~4× (was ~3×
+# under looser curves). Tune floor/ceiling/curve if you want an even steeper gap.
+#
+# The super-linear curve concentrates weight toward top-ranked teams so associate
+# fixtures cannot dominate career aggregates.
 #
 # This weight is multiplied into the per-innings weight alongside
 # opposition bowling quality, team quality, and recency.
 # ───────────────────────────────────────────────────────────────────────────
 icc_ranking:
   enabled: true
-  floor: 0.50 # Minimum weight (unranked teams)
-  ceiling: 1.35 # Maximum weight (top-ranked team)
-  curve: 1.8 # Exponent on normalised rating (>1 = super-linear, punishes low-ranked more)
+  floor: 0.40 # Minimum weight (weak / unranked opposition)
+  ceiling: 1.40 # Maximum weight (top-ranked opposition)
+  curve: 2.0 # Exponent on normalised rating (>1 = super-linear, widens ENG vs ROU gap)
   max_rating: 272 # Rating of the top team (used for normalisation)
   default_rating: 20 # Rating assigned to teams not in the table
+
+  # For T20I-only UI filters (scorecards, performances): top N sides by rating
+  # below count as "main"; the rest of the table are "associates". IPL ignores this.
+  t20i_main_team_count: 15
 
   # ICC Men's T20I Team Rankings as of March 2026.
   # Keys must match Cricsheet team names exactly.
@@ -333,6 +331,7 @@ icc_ranking:
     Pakistan: 238
     West Indies: 235
     Sri Lanka: 227
+    Afghanistan: 224
     Bangladesh: 223
 
     Zimbabwe: 202
@@ -438,27 +437,19 @@ icc_ranking:
 # This is multiplied into the per-innings weight alongside opposition
 # quality, team quality, ICC ranking, and recency.
 #
-# Examples with defaults (floor=0.75, ceiling=1.20, max_rating=272, curve=1.3):
-#   India (272) vs Australia (258)  → avg 265 → 1.19  (elite match)
-#   India (272) vs Sri Lanka (227)  → avg 250 → 1.16
-#   England (260) vs South Africa (245) → avg 253 → 1.17
-#   India (272) vs Zimbabwe (202)   → avg 237 → 1.13
-#   Netherlands (181) vs Scotland (179) → avg 180 → 1.03  (roughly neutral)
-#   Uganda (142) vs PNG (136)       → avg 139 → 0.92  (penalty)
-#   Kenya (106) vs Tanzania (100)   → avg 103 → 0.85
-#   Unranked vs Unranked            → avg 20  → 0.76  (significant penalty)
+# Examples with floor=0.60, ceiling=1.21, max_rating=272, curve=1.4:
+#   India (272) vs Australia (258)  → avg 265 → ~1.20  (elite match)
+#   India (272) vs Romania (45)     → avg 158 → ~0.94
+#   Austria (71) vs Cyprus (33)     → avg 52  → ~0.66  (associate slugfest)
 #
-# Combined with the per-opposition ICC ranking weight, this creates a
-# powerful two-layer system:
-#   India batter vs Australia: icc_opp ~1.34 × match_quality ~1.19 = ~1.59
-#   Associate vs Associate:   icc_opp ~0.64 × match_quality ~0.85 = ~0.54
-#   Ratio: 2.9× — significantly valuing elite cricket over associate games.
+# Combined with icc_ranking_weight (opposition team), full-member vs England
+# is worth several times more than the same batter vs Romania or two associates.
 # ───────────────────────────────────────────────────────────────────────────
 match_quality:
   enabled: true
-  floor: 0.75 # Minimum weight (two very low-ranked teams)
-  ceiling: 1.20 # Maximum weight (two top-ranked teams)
-  curve: 1.3 # Exponent on normalised average rating (>1 = super-linear)
+  floor: 0.60 # Minimum weight (two very low-ranked teams)
+  ceiling: 1.21 # Maximum weight (two top-ranked teams)
+  curve: 1.4 # Exponent on normalised average rating (>1 = super-linear)
   # NOTE: match_quality uses the ratings table from icc_ranking.ratings above.
   # No separate ratings table needed here.
 

@@ -203,6 +203,64 @@ export function formatBallNarrative(
   return `${tr} runs`;
 }
 
+/** Visual tier for ball-by-ball feed (scorecard “Real”-style cards). */
+export type BallFeedKind =
+  | "wicket"
+  | "six"
+  | "four"
+  | "dot"
+  | "single"
+  | "multi_runs"
+  | "wide"
+  | "noball";
+
+export function getBallFeedPresentation(
+  b: TimelineBall,
+  nameById: Map<string, string>,
+): { kind: BallFeedKind; headline: string; wicketDetail: string | null } {
+  const br = Number(b.batter_runs ?? 0);
+  const tr = Number(b.total_runs ?? 0);
+
+  if (b.is_wide) {
+    return {
+      kind: "wide",
+      headline: tr > 1 ? `Wide · ${tr}` : "Wide",
+      wicketDetail: null,
+    };
+  }
+  if (b.is_noball) {
+    const bit = br > 0 ? `+${br} bat` : "";
+    return {
+      kind: "noball",
+      headline: bit ? `No ball · ${bit}` : "No ball",
+      wicketDetail: tr > 0 ? `${tr} total` : null,
+    };
+  }
+  if (b.is_wicket) {
+    const outId = b.player_out_id != null ? String(b.player_out_id) : "";
+    const outName = outId ? nameById.get(outId) ?? outId : "Batter";
+    const wk = formatWicketKind(b.wicket_kind);
+    return {
+      kind: "wicket",
+      headline: "Wicket",
+      wicketDetail: `${outName} · ${wk}`,
+    };
+  }
+  if (br === 6) {
+    return { kind: "six", headline: "Six", wicketDetail: null };
+  }
+  if (br === 4) {
+    return { kind: "four", headline: "Four", wicketDetail: null };
+  }
+  if (tr === 0 && br === 0) {
+    return { kind: "dot", headline: "Dot", wicketDetail: null };
+  }
+  if (tr === 1) {
+    return { kind: "single", headline: "1 run", wicketDetail: null };
+  }
+  return { kind: "multi_runs", headline: `${tr} runs`, wicketDetail: null };
+}
+
 export function collectPlayerNames(inningsList: [string, Innings][]): Map<string, string> {
   const m = new Map<string, string>();
   for (const [, inn] of inningsList) {

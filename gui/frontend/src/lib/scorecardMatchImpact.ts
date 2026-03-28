@@ -28,11 +28,12 @@ function computeBowlingImpactRelative(
   const expectedRuns = matchRpb * balls;
   const runsSaved = expectedRuns - runsConceded;
 
-  const BOWL_SPELL_K = 6.05;
+  /** Linear in wickets (was w² — too steep vs +1–2 wickets). ~3w scale matches old formula. */
+  const BOWL_SPELL_K = 18.0;
   const RUNS_SAVED_K = 2.35;
 
   if (wickets > 0) {
-    const spellCore = (BOWL_SPELL_K * wickets * wickets * balls) / safeRuns;
+    const spellCore = (BOWL_SPELL_K * wickets * balls) / safeRuns;
     return spellCore + RUNS_SAVED_K * runsSaved;
   }
 
@@ -219,4 +220,31 @@ export function computeMatchImpact(inningsList: [string, Innings][]): {
   const combined = mergeBattingBowlingImpact(batting, bowling);
 
   return { batting, bowling, combined };
+}
+
+/** Row subset: match column label for tables (teams vs event / venue / id). */
+export type ScorecardMatchLabelFields = {
+  teams?: string[] | null;
+  event_name?: string | null;
+  venue?: string | null;
+  match_id: string;
+};
+
+export function formatScorecardMatchLabel(r: ScorecardMatchLabelFields): string {
+  const teams = r.teams;
+  if (Array.isArray(teams)) {
+    const names = teams.map((t) => String(t).trim()).filter(Boolean);
+    if (names.length >= 2) {
+      return `${names[0]} vs ${names[1]}`;
+    }
+    if (names.length === 1) {
+      return names[0];
+    }
+  }
+  const event = (r.event_name && String(r.event_name).trim()) || "";
+  const venue = (r.venue && String(r.venue).trim()) || "";
+  if (event && venue) {
+    return `${event} · ${venue}`;
+  }
+  return event || venue || r.match_id;
 }
