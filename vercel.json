@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "services",
+  "experimentalServices": {
+    "frontend": {
+      "entrypoint": "gui/frontend",
+      "routePrefix": "/",
+      "framework": "vite"
+    },
+    "backend": {
+      "entrypoint": "gui/backend/vercel_entry.py",
+      "routePrefix": "/api",
+      "framework": "fastapi",
+      "maxDuration": 300,
+      "memory": 3008
+    }
+  }
+}
