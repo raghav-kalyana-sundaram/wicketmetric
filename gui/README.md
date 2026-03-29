@@ -13,6 +13,7 @@ Built with **FastAPI** (Python backend) and **React + TypeScript** (Vite fronten
   - [Backend](#backend)
   - [Frontend](#frontend)
 - [Quick Start (Docker)](#quick-start-docker)
+- [Vercel (frontend + API)](#vercel-frontend--api)
 - [Project Structure](#project-structure)
 - [Environment Variables](#environment-variables)
 - [API Endpoints](#api-endpoints)
@@ -119,19 +120,27 @@ docker compose down
 
 ---
 
+## Vercel (frontend + API)
+
+To run the **Vite app and FastAPI on one Vercel project**, use the **Services** preset with **Root Directory** `gui` (see **`gui/vercel.json`**). Full steps, env vars (including Blob-backed data), and **`vercel dev -L`** are in the repo root **[DEPLOYMENT.md](../DEPLOYMENT.md)** (§ 2A). The Python entrypoint **`backend/vercel_entry.py`** adapts Vercel’s path stripping so existing `/api/...` routes keep working.
+
+---
+
 ## Project Structure
 
 ```
 gui/
 ├── README.md                    # This file
+├── vercel.json                  # Vercel Services: frontend + FastAPI
 ├── docker-compose.yml           # Full-stack Docker setup
 │
 ├── backend/                     # FastAPI Python backend
 │   ├── app.py                   # Application entry point & lifespan
+│   ├── vercel_entry.py          # Vercel Python service ASGI wrapper
 │   ├── data_loader.py           # Parquet/CSV → DataStore loader
 │   ├── search_index.py          # Trigram search index
 │   ├── schemas.py               # Pydantic response models
-│   ├── requirements.txt         # Python dependencies
+│   ├── requirements.txt         # Python dependencies (local, Docker, Vercel)
 │   ├── Dockerfile               # Backend container
 │   └── routers/                 # API route modules
 │       ├── search.py            # /api/search, /api/autocomplete
