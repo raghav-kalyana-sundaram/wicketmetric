@@ -120,9 +120,11 @@ docker compose down
 
 ---
 
-## Vercel (frontend + API)
+## Vercel (frontend + API + Blob)
 
-To run the **Vite app and FastAPI on one Vercel project**, use the **Services** preset with **Root Directory** `gui` (see **`gui/vercel.json`**). Full steps, env vars (including Blob-backed data), and **`vercel dev -L`** are in the repo root **[DEPLOYMENT.md](../DEPLOYMENT.md)** (§ 2A). The Python entrypoint **`backend/vercel_entry.py`** adapts Vercel’s path stripping so existing `/api/...` routes keep working.
+Deploy **frontend + FastAPI** on one Vercel project using [Services](https://vercel.com/docs/services): **`framework": "services"`** and **`experimentalServices`** in the repo-root **`vercel.json`** (paths under `gui/…`) **or** in **`gui/vercel.json`** if the Vercel **Root Directory** is **`gui`**. Put pipeline Parquet on **Vercel Blob** and set **`BLOB_PARQUET_BASE_URL`** (+ token if private); leave **`VITE_API_URL`** unset so the browser uses same-origin **`/api`**.
+
+Full steps, **`vercel dev -L`**, and troubleshooting: **[DEPLOYMENT.md](../DEPLOYMENT.md)** and **[vercel.env.example](../vercel.env.example)**. The Python entrypoint **`backend/vercel_entry.py`** restores the **`/api`** path prefix that Vercel strips before invoking FastAPI.
 
 ---
 
