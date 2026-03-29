@@ -17,8 +17,11 @@
  *   --private        Use access: private (default: public, easier for plain HTTP GET)
  *
  * Env:
- *   BLOB_READ_WRITE_TOKEN  Required
+ *   BLOB_READ_WRITE_TOKEN  Required for uploads (SDK default).
+ *                          Vercel may only set <project>_READ_WRITE_TOKEN after `vercel env pull`;
+ *                          this script also picks a single *READ_WRITE_TOKEN* var if unambiguous.
  *   BLOB_ACCESS            public | private (overridden by --private)
+ *   BLOB_UPLOAD_NO_MULTIPART  Set to 1/true to force non-multipart puts (workaround if multipart errors)
  */
 
 import { put } from "@vercel/blob";
@@ -58,6 +61,7 @@ function parseEnvFile(fp) {
 /** Merge repo-root .env then .env.local; only fills keys missing from process.env (shell wins). */
 function loadRepoEnvFiles() {
   const merged = {
+    ...parseEnvFile(path.join(REPO_ROOT, ".env.vercel.check")),
     ...parseEnvFile(path.join(REPO_ROOT, ".env")),
     ...parseEnvFile(path.join(REPO_ROOT, ".env.local")),
   };
@@ -67,6 +71,33 @@ function loadRepoEnvFiles() {
 }
 
 loadRepoEnvFiles();
+
+/** Vercel Blob SDK reads BLOB_READ_WRITE_TOKEN; Marketplace pull may use other names. */
+function resolveBlobReadWriteToken() {
+  const direct = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (direct) return direct;
+
+  const candidates = Object.keys(process.env).filter(
+    (k) =>
+      /_READ_WRITE_TOKEN$/i.test(k) &&
+      String(process.env[k] ?? "").startsWith("vercel_blob_rw_"),
+  );
+  if (candidates.length === 1) {
+    const k = candidates[0];
+    console.warn(
+      `Using ${k} (set BLOB_READ_WRITE_TOKEN to the same value to match @vercel/blob defaults).`,
+    );
+    return process.env[k].trim();
+  }
+  if (candidates.length > 1) {
+    console.error(
+      "Multiple *READ_WRITE_TOKEN variables found; set BLOB_READ_WRITE_TOKEN explicitly.\n" +
+        `  Found: ${candidates.join(", ")}`,
+    );
+    process.exit(1);
+  }
+  return "";
+}
 
 function parseArgs(argv) {
   let root = path.join(REPO_ROOT, "data", "output");
@@ -120,10 +151,13 @@ async function* walkParquetFiles(dir) {
 
 async function main() {
   const { root, prefix, dryRun, access } = parseArgs(process.argv);
+  const blobToken = resolveBlobReadWriteToken();
 
-  if (!dryRun && !process.env.BLOB_READ_WRITE_TOKEN) {
+  if (!dryRun && !blobToken) {
     console.error(
-      "Missing BLOB_READ_WRITE_TOKEN. Create a Blob store in Vercel → Storage, then set the token."
+      "Missing read/write token. Set BLOB_READ_WRITE_TOKEN, or run `vercel env pull` and export it:\n" +
+        "  export BLOB_READ_WRITE_TOKEN=\"…\"   # copy from Vercel → Storage → store → token\n" +
+        "Or duplicate your Vercel variable into BLOB_READ_WRITE_TOKEN in Project → Environment Variables."
     );
     process.exit(1);
   }
@@ -145,12 +179,17 @@ async function main() {
 
     const st = await stat(absPath);
     const stream = createReadStream(absPath);
+    const noMp = ["1", "true", "yes"].includes(
+      String(process.env.BLOB_UPLOAD_NO_MULTIPART ?? "").toLowerCase(),
+    );
     const result = await put(blobPath, stream, {
+      token: blobToken,
       access,
       allowOverwrite: true,
       addRandomSuffix: false,
       contentType: "application/vnd.apache.parquet",
-      multipart: st.size >= MULTIPART_MIN_BYTES,
+      multipart:
+        !noMp && st.size >= MULTIPART_MIN_BYTES,
     });
     uploaded.push({ pathname: blobPath, url: result.url });
     console.log(`  OK ${blobPath} (${(st.size / 1e6).toFixed(2)} MB)`);

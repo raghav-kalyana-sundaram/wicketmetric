@@ -41,3 +41,4 @@ output_ipl/
 .env.test
 .vercel
 .env*.local
+.env.vercel.check
