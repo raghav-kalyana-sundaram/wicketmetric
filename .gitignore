@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+# setuptools/pip output — do not commit (duplicates routers/, inflates Vercel bundle)
+gui/backend/build/
 
 # Node
 node_modules/

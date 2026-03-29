@@ -388,9 +388,9 @@ Site-wide visual standards (dark-first monochrome, win probability as reference)
 
 ```bash
 cd gui/backend
-pip install pytest httpx
+pip install -r requirements.txt pytest
+# or with uv: uv sync --extra dev
 
-# Run tests (when available)
 pytest
 ```
 
