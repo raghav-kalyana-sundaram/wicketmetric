@@ -122,7 +122,7 @@ docker compose down
 
 ## Vercel (frontend + API + Blob)
 
-Deploy **frontend + FastAPI** on one Vercel project using [Services](https://vercel.com/docs/services): **`framework": "services"`** and **`experimentalServices`** in the repo-root **`vercel.json`** (paths under `gui/…`) **or** in **`gui/vercel.json`** if the Vercel **Root Directory** is **`gui`**. Put pipeline Parquet on **Vercel Blob** and set **`BLOB_PARQUET_BASE_URL`** (+ token if private); leave **`VITE_API_URL`** unset so the browser uses same-origin **`/api`**.
+Deploy **frontend + FastAPI** on one Vercel project using [Services](https://vercel.com/docs/services): in the Vercel dashboard set **Framework Preset** to **Services** (not Vite), **Root Directory** to the **repo root** or **`gui`** (never **`gui/frontend`** — that yields **`/api` 404**). Use **`framework": "services"`** and **`experimentalServices`** in the repo-root **`vercel.json`** or **`gui/vercel.json`** accordingly. Put pipeline Parquet on **Vercel Blob** and set **`BLOB_PARQUET_BASE_URL`** (+ token if private); leave **`VITE_API_URL`** unset so the browser uses same-origin **`/api`**.
 
 Full steps, **`vercel dev -L`**, and troubleshooting: **[DEPLOYMENT.md](../DEPLOYMENT.md)** and **[vercel.env.example](../vercel.env.example)**. The Python entrypoint **`backend/vercel_entry.py`** restores the **`/api`** path prefix that Vercel strips before invoking FastAPI.
 

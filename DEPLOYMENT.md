@@ -16,10 +16,14 @@
 ### 1.1 Project configuration
 
 1. **Import** this repository into Vercel.
-2. Ensure **one** of these is true (so `experimentalServices` is picked up):
-   - **Repo root** is the Vercel root and the committed **[`vercel.json`](vercel.json)** at the repo root defines Services (`gui/frontend` + `gui/backend/vercel_entry.py`), **`framework": "services"`**, **or**
-   - **Root Directory** = **`gui`** and **Framework Preset** = **Services**, using **`gui/vercel.json`**.
-3. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) locally if you use **`vercel build`** on your machine (Python service builds expect it).
+2. In **Project → Settings → General**, set **Framework Preset** to **Services** (not **Vite** and not “Leave as auto-detected”). Vercel’s docs require both **`experimentalServices` in `vercel.json`** and this preset; if the preset stays **Vite**, only the frontend is built and **`/api/*` returns 404** on the same deployment URL.
+3. Ensure **one** of these is true (paths must match the `vercel.json` Vercel actually reads):
+   - **Root Directory** is **empty** (repository root) and **[`vercel.json`](vercel.json)** at the repo root lists **`gui/frontend`** + **`gui/backend/vercel_entry.py`**, **`framework": "services"`**, **or**
+   - **Root Directory** = **`gui`** and **`gui/vercel.json`** (entrypoints **`frontend`** / **`backend/vercel_entry.py`**).
+4. **Never** set **Root Directory** to **`gui/frontend`**. That folder only contains the Vite app; there is no FastAPI service there, so **`/api`** will not exist.
+5. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) locally if you use **`vercel build`** on your machine (Python service builds expect it).
+
+**Services availability:** [Services](https://vercel.com/docs/services) may require the right plan or team access. If the preset is missing, check Vercel account/team settings.
 
 ### 1.2 Upload Parquet to Blob
 
@@ -64,7 +68,8 @@ Optional: **`CORS_ORIGINS`** only if the SPA is served from a **different** orig
 
 ## 2. Post-deploy checklist (Vercel-only)
 
-- [ ] **Services** preset + **`vercel.json`** with **`experimentalServices`** (repo root or `gui/`).
+- [ ] **Framework Preset = Services** (not Vite-only) + **`vercel.json`** with **`experimentalServices`** (repo root or `gui/`).
+- [ ] **Root Directory** = repo root **or** `gui` — **not** `gui/frontend`.
 - [ ] **`VITE_API_URL`** empty for same-origin API.
 - [ ] **`BLOB_PARQUET_BASE_URL`** (+ token if private) set for Production (and Preview if needed).
 - [ ] Parquet on Blob under **`output/<format>/…`** matching `gui/backend/blob_hydrate.py`.
@@ -85,7 +90,8 @@ See **`gui/frontend/.env.example`** and **`gui/backend/.env.example`**.
 
 | Issue | Fix |
 |-------|-----|
-| **`vercel` / deploy: `Unexpected error`**, inspect shows empty build `output` | Use repo-root **`vercel.json`** **or** set dashboard **Root Directory** to **`gui`** and **Framework Preset** to **Services**. See table in the older note: PATCH project API with `rootDirectory` + `framework: "services"` if needed. |
+| **`GET /api/meta` (or any `/api/…`) returns 404** on `*.vercel.app` | Almost always **Vite-only** deploy: set **Framework Preset** to **Services**, set **Root Directory** to **repo root** or **`gui`** (never **`gui/frontend`**). Redeploy. In the deployment **Build** logs you should see **both** the frontend (Vite) and backend (Python/FastAPI) services building. |
+| **`vercel` / deploy: `Unexpected error`**, inspect shows empty build `output` | Use repo-root **`vercel.json`** **or** set dashboard **Root Directory** to **`gui`** and **Framework Preset** to **Services**. PATCH project API with `rootDirectory` + `framework: "services"` if the dashboard won’t stick. |
 | **`uv is required but was not found in PATH`** (local `vercel build`) | Install **uv** (`brew install uv` or Astral install script). |
 | **Frontend "Failed to load" / CORS to Railway** | You are still pointing **`VITE_API_URL`** at Railway. **Clear it** and redeploy so the app uses same-origin **`/api`** on Vercel, **or** finish migrating to full-stack Services. |
 | **API degraded / empty data** | Check Blob paths (`output/mens_t20i/batting_careers_full.parquet`, …), **`BLOB_PARQUET_BASE_URL`**, and private-store **token**. See [PUBLISHING.md](PUBLISHING.md). |
