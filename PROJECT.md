@@ -189,7 +189,7 @@ cricket_metrics/
 ├── PROJECT.md                  # ← This file (single source of truth)
 ├── config.yaml                 # All tuning constants
 ├── requirements.txt            # Python dependencies
-├── Dockerfile                  # Root-level backend Dockerfile for Railway
+├── Dockerfile                  # Root-level backend image (Docker Compose / optional VPS)
 ├── .dockerignore
 │
 ├── src/                        # Analytics pipeline (Python)
@@ -621,12 +621,14 @@ Tests use synthetic fixtures in `tests/conftest.py`. Run with `python -m pytest 
 
 ## 16. Hosting & Deployment
 
-Options: Railway (recommended), Docker Compose, Vercel (frontend) + Railway (backend), VPS with Nginx.
+**Recommended:** one **Vercel** project (**Services**: Vite + FastAPI), Parquet in **Vercel Blob**, hydrated at API startup (`gui/backend/blob_hydrate.py`). See [DEPLOYMENT.md](DEPLOYMENT.md) and [vercel.env.example](vercel.env.example).
 
-- Backend auto-discovers `output_t20i/` and `output_ipl/`
-- Frontend needs `VITE_API_URL` set at build time
-- Backend CORS: add frontend domain to `allow_origins` in `app.py`
-- RAM: ~360 MB with both formats loaded
+**Also supported:** Docker Compose (`gui/docker-compose.yml`), root **Dockerfile** / VPS with disk + `DATA_ROOT`, or split deploy (frontend on Vercel + API elsewhere with `VITE_API_URL` + `CORS_ORIGINS`).
+
+- Backend auto-discovers `data/output/<format>/` and legacy `output_t20i/` / `output_ipl/`
+- **Same-origin Vercel deploy:** leave `VITE_API_URL` empty; **split deploy:** set `VITE_API_URL` at build time
+- **Split deploy only:** add frontend origin to `CORS_ORIGINS` (or defaults in `gui/backend/app.py`)
+- RAM: large when all slices load (plan Vercel function memory accordingly; see `vercel.json`)
 
 ---
 

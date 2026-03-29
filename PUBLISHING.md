@@ -10,13 +10,13 @@ For platform-specific env vars and troubleshooting tables, see [DEPLOYMENT.md](D
 
 | Piece | What it is | Where it runs |
 |--------|------------|----------------|
-| **Frontend** | Vite/React static assets | e.g. Vercel (CDN) |
-| **Backend** | FastAPI reads Parquet/CSV **from disk at process startup**, keeps data in memory | e.g. Railway, Fly.io, a VPS |
-| **Parquet files** | Pipeline output (`batting_careers_full.parquet`, `bowling_careers_full.parquet`, etc.) | **Same machine/filesystem as the API**, not on Vercel |
+| **Frontend** | Vite/React static assets | Vercel (Services, `routePrefix` `/`) |
+| **Backend** | FastAPI; loads Parquet **from disk after optional Blob hydrate** at startup | Same Vercel project (Python service, `routePrefix` `/api`) **or** Docker/VPS/Railway |
+| **Parquet files** | Pipeline output (`batting_careers_full.parquet`, …) | **Recommended:** [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) under `output/<format>/…`, downloaded into a temp cache by `gui/backend/blob_hydrate.py` when **`BLOB_PARQUET_BASE_URL`** is set. **Alternative:** same filesystem as the API (`DATA_ROOT` / `OUTPUT_DIR`). |
 
-**“Visible” to the backend** means: inside the API container/process, the directories below exist and contain the expected files. The API does **not** download Parquet from the frontend and does **not** serve raw `.parquet` URLs to browsers by default—it **opens files from paths** resolved via `DATA_ROOT` / `OUTPUT_DIR` (see `gui/backend/data_loader.py`).
+**“Visible” to the backend** means: after startup, either Parquet exists under resolved `DATA_ROOT/output/…` (local disk, volume, or post–Blob hydrate cache) or the API stays **degraded** until data is available.
 
-If you deploy only the Docker image without attaching data, `/api/health` may still return `200`, but **`/api/health` reports `degraded`** and `/api/formats` is empty until valid output folders are present.
+If you deploy the API image **without** Blob env vars **and** without a mounted `output/` tree, **`/api/health`** reports **`degraded`** and **`/api/formats`** is empty.
 
 ---
 
@@ -49,53 +49,57 @@ Legacy layouts (repo-root `output/`, `output_t20i`, `output_ipl`, or `output/wom
 - Ensure `data/output/mens_t20i`, `data/output/womens_t20i`, `data/output/mens_ipl`, `data/output/womens_ipl` each contain the career Parquet files (at minimum files the pipeline writes, e.g. `batting_careers_full.parquet`, `bowling_careers_full.parquet`).
 - Sizes can be large; **do not rely on Git** to carry `data/output/` unless you explicitly use Git LFS or a separate artifact store.
 
-### 2. Deploy the API with disk access to pipeline `output/`
+### 2. Recommended — Vercel (full stack) + Blob
 
-**Railway (typical):**
+1. **Upload** Parquet to Blob from the repo root (paths must mirror `output/<format>/…` — see below):
+   ```bash
+   export BLOB_READ_WRITE_TOKEN="vercel_blob_rw_…"
+   npm run upload:blob:dry && npm run upload:blob
+   ```
+   (Use **`npm run upload:blob:private`** for a private store.)
+2. **Vercel project:** Services + repo-root **`vercel.json`** (or **`gui/`** root + **`gui/vercel.json`**). See [DEPLOYMENT.md](DEPLOYMENT.md).
+3. **Environment variables** in Vercel (see **[vercel.env.example](vercel.env.example)**):
+   - **`BLOB_PARQUET_BASE_URL`** — store origin only.
+   - **`BLOB_READ_WRITE_TOKEN`** — if the store is private.
+   - **`VITE_API_URL`** — **leave unset** so the SPA calls same-origin **`/api/...`** (no CORS).
+4. **Deploy** / redeploy. On each cold start the API runs **`blob_hydrate`** then **`data_loader`** (see `gui/backend/app.py`).
 
-1. Connect the repo and deploy using the root [Dockerfile](Dockerfile) (or `gui/backend/Dockerfile` with root directory set—see [DEPLOYMENT.md](DEPLOYMENT.md)).
-2. Add a **persistent volume** (e.g. mount at `/data`).
-3. **Copy your local `data/output/` tree onto that volume** so you have paths like:
-   - `/data/output/mens_t20i/…`
-   - `/data/output/womens_t20i/…`
-   - `/data/output/mens_ipl/…`
-   - `/data/output/womens_ipl/…`
-4. Set **`DATA_ROOT=/data`** in Railway variables.  
-   The default image sets `DATA_ROOT=/app`; if your data lives on `/data`, **you must override** `DATA_ROOT` or the API will not see your Parquets.
-5. Redeploy or **restart** the service after changing data (the app loads Parquet **once at startup**).
+### 3. Alternative — API on a host with a disk volume (e.g. Docker, VPS, Railway)
 
-**Getting files onto the volume:** use Railway’s shell/file workflows, `rsync`/`scp` to a bastion, or a one-off job that downloads an archive you uploaded to object storage. The important part is the **final path** matches what `DATA_ROOT` implies (`$DATA_ROOT/output/mens_t20i`, etc.).
+1. Deploy using the root [Dockerfile](Dockerfile) or **`gui/backend/Dockerfile`** ([DEPLOYMENT.md](DEPLOYMENT.md) appendix).
+2. Mount or copy **`data/output/`** so **`$DATA_ROOT/output/mens_t20i`**, etc. exist; set **`DATA_ROOT`** accordingly.
+3. **Split frontend:** deploy **`gui/frontend`** on Vercel with **`VITE_API_URL`** = your API base URL (**no trailing slash**), and set **`CORS_ORIGINS`** on the API to your Vercel origin.
 
-**Single-slice only (legacy):** set **`OUTPUT_DIR`** to one absolute path containing that slice’s Parquet files; only that format loads.
+**Single-slice only (legacy):** set **`OUTPUT_DIR`** to one directory; do not use Blob multi-layout with **`OUTPUT_DIR`** set (hydrate is skipped).
 
-### 3. Point the frontend at the API
+### 4. Blob upload details (store + paths)
 
-On Vercel (root directory `gui/frontend`):
+1. **Vercel** → **Storage** → **Create** → **Blob**. Choose **Public** or **Private** (access mode is fixed for the life of that store).
+2. Link the store to your app project. Set **`BLOB_READ_WRITE_TOKEN`** in the dashboard. If `vercel env pull` creates **`yourproject_READ_WRITE_TOKEN`**, duplicate the value as **`BLOB_READ_WRITE_TOKEN`** for the SDK and **`gui/backend/blob_hydrate.py`**.
+3. From **repo root** (local **`data/output/<format>/…`** present):
 
-- Set **`VITE_API_URL`** to your public API origin, e.g. `https://your-service.up.railway.app` (**no trailing slash**).
-- Redeploy the frontend after changing this variable (Vite bakes it at build time).
+```bash
+export BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
+npm run upload:blob:dry
+npm run upload:blob
+```
 
-### 4. Allow browser → API (CORS)
+Use **`npm run upload:blob:private`** for a private store. Blob pathnames must match **`output/mens_t20i/batting_careers_full.parquet`**, etc. (`scripts/upload-parquet-to-vercel-blob.mjs`; **`--prefix`** / **`--root`** optional).
 
-On the backend host, set **`CORS_ORIGINS`** to your frontend origin(s), e.g. `https://your-project.vercel.app`. Without this, the UI may fail even when the API and Parquet are correct.
+**Troubleshooting uploads:** private store + public access error → **`upload:blob:private`**. **`BlobStoreNotFoundError`** → token/store mismatch, regenerate token. Large files → **`BLOB_UPLOAD_NO_MULTIPART=1 npm run upload:blob`**. CLI: **`vercel blob create-store`** ([project linking](https://vercel.com/docs/cli/project-linking)).
+
+**Runtime:** `gui/backend/app.py` calls **`maybe_hydrate_data_root_from_blob()`** before loading data when **`BLOB_PARQUET_BASE_URL`** is set (`gui/backend/blob_hydrate.py`).
 
 ---
 
 ## Verify Parquet-backed deployment
 
-Run these against your **production API base URL** (replace the example):
+Use your live site origin (Vercel full stack: same host for UI and **`/api`**).
 
-1. **`GET /api/health`**  
-   - Expect `"status": "ok"` and a non-empty **`formats`** list when at least one slice loaded.  
-   - `"status": "degraded"` means **no dataset directory with usable career tables** was found—check volume mount and `DATA_ROOT`.
-
-2. **`GET /api/formats`**  
-   - Lists which slices loaded (e.g. `mens_t20i`, `womens_ipl`). Missing folders are simply omitted.
-
-3. **`GET /api/meta?format=mens_t20i`** (and other formats you care about)  
-   - Expect `"status": "ok"` and non-zero **`total_batters`** / **`total_bowlers`** when Parquet loaded for that slice.
-
-4. Open the live site: rankings and player views should load without “Failed to load” if **`VITE_API_URL`** and **CORS** match.
+1. **`GET /api/health`** — **`ok`** + non-empty **`formats`** when a slice loaded; **`degraded`** if no data after Blob hydrate / disk layout is wrong.
+2. **`GET /api/formats`** — lists loaded slices.
+3. **`GET /api/meta?format=mens_t20i`** — non-zero **`total_batters`** / **`total_bowlers`** when that slice loaded.
+4. UI loads without “Failed to load”. **Same-origin Vercel:** **`VITE_API_URL`** unset. **Split deploy:** set **`VITE_API_URL`** and **`CORS_ORIGINS`** on the API.
 
 ---
 
@@ -103,66 +107,28 @@ Run these against your **production API base URL** (replace the example):
 
 | Mistake | Symptom | Fix |
 |--------|---------|-----|
-| Data never copied to the host | `/api/health` → `degraded` | Mount volume + copy your `data/output/` tree so `$DATA_ROOT/output/…` exists; set `DATA_ROOT` to the parent of `output/` |
-| Wrong `DATA_ROOT` | Same as above | `DATA_ROOT` must be the root under which `output/mens_t20i` (or legacy dirs) exists on the host (locally that tree lives at `data/output/…` in the repo) |
-| Forgot API restart after refresh | Old or empty data | Restart/redeploy backend after replacing Parquet |
-| Missing `VITE_API_URL` | UI errors, requests to wrong host | Set in Vercel and redeploy frontend |
-| Missing `CORS_ORIGINS` | Browser blocks API | Add exact frontend origin on backend |
+| Wrong Blob layout (e.g. only `output/*.parquet` at root) | `degraded`, empty formats | Upload **`output/<format>/…`** per `blob_hydrate.py` |
+| No **`BLOB_PARQUET_BASE_URL`** on Vercel | No hydrate; empty API | Set store origin; redeploy |
+| **`VITE_API_URL`** still points at old external API | CORS / failed fetch | Remove for Vercel Services; redeploy |
+| Split deploy: missing **`VITE_API_URL`** | Wrong API host | Set at Vite build time |
+| Split deploy: missing **`CORS_ORIGINS`** | Browser blocks API | Add SPA origin on API |
+| No data (no Blob, no volume) | `degraded` | Follow §2 or §3 |
+| Wrong **`DATA_ROOT`** (volume) | `degraded` | Parent directory of **`output/mens_t20i`**, etc. |
+| Stale Parquet | Old stats | Re-upload Blob and/or new deployment / restart |
 
 ---
 
 ## After publishing: refreshing data
 
-1. Re-run the pipeline locally (or in CI) to regenerate `data/output/…`.
-2. Replace the files on the API server’s volume (or rebuild your data artifact and redeploy).
-3. **Restart** the API process so it reloads Parquet from disk.
-
----
-
-## Optional: Vercel Blob for Parquet artifacts
-
-Vercel Blob is **object storage** (not a query engine). It is useful for **hosting copies** of your Parquet tree so a deploy job or server can **download** them without checking large files into Git.
-
-### 1. Create the store in Vercel
-
-1. Open your project on [vercel.com](https://vercel.com) → **Storage** → **Create** → **Blob**.
-2. When prompted for access, choose **Public** if you want anonymous HTTPS URLs (e.g. for simple downloads). Choose **Private** if only authenticated clients should read blobs. **You cannot change this later** for an existing store—create a new store if you picked the wrong type.
-3. Link the store to the same project as your frontend (or a dedicated project).
-4. Copy **`BLOB_READ_WRITE_TOKEN`** from the store settings (or run `vercel link` then `vercel env pull` in the repo root to populate `.env.local`).
-
-**Note:** `vercel env pull` sometimes creates a variable named like **`wicketmetric_READ_WRITE_TOKEN`** instead of **`BLOB_READ_WRITE_TOKEN`**. The upload script resolves a single `*_READ_WRITE_TOKEN` value, but the **`@vercel/blob`** SDK (and production) expect **`BLOB_READ_WRITE_TOKEN`**. In Vercel → **Settings → Environment Variables**, add **`BLOB_READ_WRITE_TOKEN`** with the same token string, or duplicate it locally: `export BLOB_READ_WRITE_TOKEN="vercel_blob_rw_…"`.
-
-CLI alternative for a **public** store: `vercel blob create-store my-parquet --access public` (from a [linked](https://vercel.com/docs/cli/project-linking) project directory).
-
-### 2. Upload from this repo
-
-From the **repository root** (after `data/output/…` exists locally), either put `BLOB_READ_WRITE_TOKEN` in `.env.local` (or `.env`) at the repo root—the upload script loads those files (and optional `.env.vercel.check` from `vercel env pull`)—or export it in the shell:
-
-```bash
-export BLOB_READ_WRITE_TOKEN="vercel_blob_..."
-npm run upload:blob
-```
-
-Stable blob paths mirror the local tree, e.g. `output/mens_t20i/batting_careers_full.parquet` (override with `--prefix` / `--root`; see `scripts/upload-parquet-to-vercel-blob.mjs`).
-
-Dry run:
-
-```bash
-npm run upload:blob:dry
-```
-
-If uploads fail with *“Cannot use public access on a private store”*, your store is **private**. Either run **`npm run upload:blob:private`** (or `BLOB_ACCESS=private` in `.env.local`), or create a **new** Blob store with **Public** access and use its token instead.
-
-If you see **`BlobStoreNotFoundError: This store does not exist`**, the token is missing, wrong, or tied to a deleted store—regenerate the read/write token in **Storage → your blob → Settings**, update **`BLOB_READ_WRITE_TOKEN`**, and retry. If it only fails on large files, try **`BLOB_UPLOAD_NO_MULTIPART=1 npm run upload:blob`** once as a workaround.
-
-### 3. Using blobs with the API today
-
-The FastAPI app still expects Parquet **on disk** (or under `DATA_ROOT`) at startup. Blob does **not** replace that by itself: you would add a step that **downloads** blobs to a volume before starting Uvicorn, or refactor the loader to read from URLs. Until then, treat Blob as a **durable artifact mirror** for CI/sync workflows.
+1. Regenerate **`data/output/…`** locally (or in CI).
+2. **Vercel + Blob:** **`npm run upload:blob`** again; redeploy or rely on new invocations (use **`BLOB_CACHE_CLEAR`** in `blob_hydrate.py` if you need a clean cache).
+3. **Volume / long-lived API:** replace files on disk and **restart** the process.
 
 ---
 
 ## Further reading
 
-- [DEPLOYMENT.md](DEPLOYMENT.md) — Vercel/Railway variables, Dockerfile notes, troubleshooting table.
-- [scripts/sync_cricsheet.sh](scripts/sync_cricsheet.sh) — downloads Cricsheet zips and fills all four `data/output/` slices.
-- `gui/backend/.env.example` — local `DATA_ROOT` / `OUTPUT_DIR` / `CORS_ORIGINS` reference.
+- [DEPLOYMENT.md](DEPLOYMENT.md) — Vercel Services, Blob env, troubleshooting.
+- [vercel.env.example](vercel.env.example) — dashboard variable names.
+- [scripts/sync_cricsheet.sh](scripts/sync_cricsheet.sh) — Cricsheet → `data/output/` slices.
+- `gui/backend/.env.example` — local `DATA_ROOT` / `OUTPUT_DIR` / `CORS_ORIGINS`.
