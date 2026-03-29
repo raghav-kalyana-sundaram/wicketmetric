@@ -130,11 +130,13 @@ Vercel Blob is **object storage** (not a query engine). It is useful for **hosti
 3. Link the store to the same project as your frontend (or a dedicated project).
 4. Copy **`BLOB_READ_WRITE_TOKEN`** from the store settings (or run `vercel link` then `vercel env pull` in the repo root to populate `.env.local`).
 
+**Note:** `vercel env pull` sometimes creates a variable named like **`wicketmetric_READ_WRITE_TOKEN`** instead of **`BLOB_READ_WRITE_TOKEN`**. The upload script resolves a single `*_READ_WRITE_TOKEN` value, but the **`@vercel/blob`** SDK (and production) expect **`BLOB_READ_WRITE_TOKEN`**. In Vercel → **Settings → Environment Variables**, add **`BLOB_READ_WRITE_TOKEN`** with the same token string, or duplicate it locally: `export BLOB_READ_WRITE_TOKEN="vercel_blob_rw_…"`.
+
 CLI alternative for a **public** store: `vercel blob create-store my-parquet --access public` (from a [linked](https://vercel.com/docs/cli/project-linking) project directory).
 
 ### 2. Upload from this repo
 
-From the **repository root** (after `data/output/…` exists locally), either put `BLOB_READ_WRITE_TOKEN` in `.env.local` (or `.env`) at the repo root—the upload script loads those files—or export it in the shell:
+From the **repository root** (after `data/output/…` exists locally), either put `BLOB_READ_WRITE_TOKEN` in `.env.local` (or `.env`) at the repo root—the upload script loads those files (and optional `.env.vercel.check` from `vercel env pull`)—or export it in the shell:
 
 ```bash
 export BLOB_READ_WRITE_TOKEN="vercel_blob_..."
@@ -150,6 +152,8 @@ npm run upload:blob:dry
 ```
 
 If uploads fail with *“Cannot use public access on a private store”*, your store is **private**. Either run **`npm run upload:blob:private`** (or `BLOB_ACCESS=private` in `.env.local`), or create a **new** Blob store with **Public** access and use its token instead.
+
+If you see **`BlobStoreNotFoundError: This store does not exist`**, the token is missing, wrong, or tied to a deleted store—regenerate the read/write token in **Storage → your blob → Settings**, update **`BLOB_READ_WRITE_TOKEN`**, and retry. If it only fails on large files, try **`BLOB_UPLOAD_NO_MULTIPART=1 npm run upload:blob`** once as a workaround.
 
 ### 3. Using blobs with the API today
 
