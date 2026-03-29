@@ -64,6 +64,8 @@ Optional: **`CORS_ORIGINS`** only if the SPA is served from a **different** orig
 - Open **`https://<your-project>.vercel.app/api/meta`** — expect JSON, not a network error.
 - **`/api/health`** should be **`ok`** once Blob hydrate downloaded at least one slice (check function logs for **Blob hydrate** lines).
 
+**Build log:** lines like **`Using Python 3.x from gui/backend/pyproject.toml`**, **`Installing required dependencies from uv.lock`**, and **`Build Completed in /vercel/output`** mean the **FastAPI service** built. If you see **`Bundle size (… MB) exceeds limit. Enabling runtime dependency installation`**, that is **normal** for a **pandas/pyarrow** API: Vercel installs some dependencies at **cold start** instead of only in the upload bundle. The first request after idle can be slower; the deployment is still valid.
+
 ---
 
 ## 2. Post-deploy checklist (Vercel-only)
@@ -90,7 +92,7 @@ See **`gui/frontend/.env.example`** and **`gui/backend/.env.example`**.
 
 | Issue | Fix |
 |-------|-----|
-| **`GET /api/meta` (or any `/api/…`) returns 404** on `*.vercel.app` | Almost always **Vite-only** deploy: set **Framework Preset** to **Services**, set **Root Directory** to **repo root** or **`gui`** (never **`gui/frontend`**). Redeploy. In the deployment **Build** logs you should see **both** the frontend (Vite) and backend (Python/FastAPI) services building. |
+| **`GET /api/meta` (or any `/api/…`) returns 404** on `*.vercel.app` | Almost always the **Python service is missing** from the deployment (Vite-only, or backend build failed). Fix: **Framework Preset** = **Services**, **Root Directory** = **repo root** or **`gui`** (never **`gui/frontend`**). In the deployment **Build** log, confirm a **backend** / **Python** / **FastAPI** step succeeds (not only “Installing dependencies…” for the frontend). Locally, from the repo root: **`npx vercel build`** then verify the folder **`.vercel/output/functions/_svc/backend/`** exists; if it does locally but not in production, the linked Vercel project settings differ from this repo. |
 | **`vercel` / deploy: `Unexpected error`**, inspect shows empty build `output` | Use repo-root **`vercel.json`** **or** set dashboard **Root Directory** to **`gui`** and **Framework Preset** to **Services**. PATCH project API with `rootDirectory` + `framework: "services"` if the dashboard won’t stick. |
 | **`uv is required but was not found in PATH`** (local `vercel build`) | Install **uv** (`brew install uv` or Astral install script). |
 | **Frontend "Failed to load" / CORS to Railway** | You are still pointing **`VITE_API_URL`** at Railway. **Clear it** and redeploy so the app uses same-origin **`/api`** on Vercel, **or** finish migrating to full-stack Services. |
