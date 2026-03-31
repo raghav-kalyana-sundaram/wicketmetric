@@ -855,3 +855,306 @@ def pulse(limit: int = 8) -> dict[str, Any]:
         return {"hundreds": hundreds_rows, "five_fors": five_rows, "matches": match_rows}
     finally:
         con.close()
+
+
+DISMISS_LABEL = {
+    "caught": "Caught",
+    "bowled": "Bowled",
+    "lbw": "LBW",
+    "run out": "Run out",
+    "stumped": "Stumped",
+    "caught and bowled": "C&B",
+    "hit wicket": "Hit wicket",
+    "retired hurt": "Retired hurt",
+    "obstructing the field": "Obstructing",
+}
+
+
+def player_almanac(con, person_id: str) -> dict[str, Any]:
+    """Counting cuts a fan expects on a player page — from lines already in the warehouse."""
+
+    def rows(sql: str, params: list[Any] | tuple[Any, ...] = ()) -> list[dict]:
+        try:
+            recs = con.execute(sql, list(params)).fetchdf()
+        except Exception:
+            return []
+        return _jsonable(recs.to_dict("records") if recs is not None and not recs.empty else [])
+
+    def one(sql: str, params: list[Any] | tuple[Any, ...] = ()) -> dict | None:
+        got = rows(sql, params)
+        return got[0] if got else None
+
+    dismissals = rows(
+        """
+        SELECT COALESCE(NULLIF(dismissal_kind, ''), 'not out') AS kind, COUNT(*) AS n
+        FROM batting_lines
+        WHERE person_id = ? AND innings_kind = 'regular'
+        GROUP BY 1
+        ORDER BY n DESC
+        """,
+        [person_id],
+    )
+    for r in dismissals:
+        raw = (r.get("kind") or "").lower()
+        r["label"] = "Not out" if raw in {"", "not out"} or r.get("kind") is None else DISMISS_LABEL.get(raw, (r.get("kind") or "").title())
+
+    positions = rows(
+        """
+        SELECT position, COUNT(*) AS n, SUM(runs) AS runs,
+               ROUND(AVG(runs), 1) AS avg
+        FROM batting_lines
+        WHERE person_id = ? AND innings_kind = 'regular' AND position IS NOT NULL
+        GROUP BY 1
+        ORDER BY position
+        """,
+        [person_id],
+    )
+
+    vs = rows(
+        """
+        SELECT CASE WHEN b.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+               COUNT(*) AS inns, SUM(b.runs) AS runs, MAX(b.runs) AS hs,
+               SUM(CASE WHEN NOT b.not_out THEN 1 ELSE 0 END) AS outs,
+               SUM(CASE WHEN b.runs >= 100 THEN 1 ELSE 0 END) AS hundreds
+        FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+        WHERE b.person_id = ? AND b.innings_kind = 'regular'
+        GROUP BY 1
+        ORDER BY SUM(b.runs) DESC
+        LIMIT 8
+        """,
+        [person_id],
+    )
+    for r in vs:
+        outs = r.get("outs") or 0
+        r["avg"] = round(r["runs"] / outs, 1) if outs and r.get("runs") is not None else None
+
+    years = rows(
+        """
+        SELECT CAST(substr(m.start_date, 1, 4) AS INTEGER) AS year,
+               SUM(b.runs) AS runs, COUNT(*) AS inns, MAX(b.runs) AS hs,
+               SUM(CASE WHEN NOT b.not_out THEN 1 ELSE 0 END) AS outs,
+               SUM(CASE WHEN b.runs >= 100 THEN 1 ELSE 0 END) AS hundreds
+        FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+        WHERE b.person_id = ? AND b.innings_kind = 'regular'
+        GROUP BY 1
+        ORDER BY 1
+        """,
+        [person_id],
+    )
+    for r in years:
+        outs = r.get("outs") or 0
+        r["avg"] = round(r["runs"] / outs, 1) if outs and r.get("runs") is not None else None
+
+    bowl_years = rows(
+        """
+        SELECT CAST(substr(m.start_date, 1, 4) AS INTEGER) AS year,
+               SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
+               SUM(bl.legal_balls) AS legal_balls
+        FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
+        WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
+        GROUP BY 1
+        ORDER BY 1
+        """,
+        [person_id],
+    )
+    for r in bowl_years:
+        balls = r.get("legal_balls") or 0
+        r["econ"] = round(r["runs"] * 6 / balls, 2) if balls and r.get("runs") is not None else None
+
+    ha = rows(
+        """
+        SELECT CASE WHEN b.team = m.team_home THEN 'Home' ELSE 'Away' END AS split,
+               COUNT(*) AS inns, SUM(b.runs) AS runs,
+               SUM(CASE WHEN NOT b.not_out THEN 1 ELSE 0 END) AS outs
+        FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+        WHERE b.person_id = ? AND b.innings_kind = 'regular'
+        GROUP BY 1
+        """,
+        [person_id],
+    )
+    for r in ha:
+        outs = r.get("outs") or 0
+        r["avg"] = round(r["runs"] / outs, 1) if outs and r.get("runs") is not None else None
+
+    chase = rows(
+        """
+        SELECT CASE WHEN b.innings = 1 THEN 'Set' ELSE 'Chase' END AS split,
+               COUNT(*) AS inns, SUM(b.runs) AS runs,
+               SUM(CASE WHEN NOT b.not_out THEN 1 ELSE 0 END) AS outs
+        FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+        WHERE b.person_id = ? AND b.innings_kind = 'regular'
+          AND m.competition IN ('odi','t20i','ipl','wpl','bbl','wbbl')
+        GROUP BY 1
+        """,
+        [person_id],
+    )
+    for r in chase:
+        outs = r.get("outs") or 0
+        r["avg"] = round(r["runs"] / outs, 1) if outs and r.get("runs") is not None else None
+
+    conversion = one(
+        """
+        SELECT COUNT(*) AS inns,
+               SUM(CASE WHEN NOT not_out THEN 1 ELSE 0 END) AS outs,
+               SUM(runs) AS runs,
+               SUM(balls) AS balls,
+               SUM(fours) AS fours,
+               SUM(sixes) AS sixes,
+               SUM(CASE WHEN runs >= 100 THEN 1 ELSE 0 END) AS hundreds,
+               SUM(CASE WHEN runs >= 50 AND runs < 100 THEN 1 ELSE 0 END) AS fifties,
+               SUM(CASE WHEN runs = 0 AND NOT not_out THEN 1 ELSE 0 END) AS ducks,
+               MAX(runs) AS hs
+        FROM batting_lines
+        WHERE person_id = ? AND innings_kind = 'regular'
+        """,
+        [person_id],
+    ) or {}
+    fifties = int(conversion.get("fifties") or 0)
+    hundreds = int(conversion.get("hundreds") or 0)
+    starts_50 = fifties + hundreds
+    conversion["conversion"] = round(100.0 * hundreds / starts_50, 1) if starts_50 else None
+    balls = conversion.get("balls") or 0
+    bounds = (conversion.get("fours") or 0) + (conversion.get("sixes") or 0)
+    conversion["boundary_pct"] = round(100.0 * bounds / balls, 1) if balls else None
+
+    venues = rows(
+        """
+        SELECT m.venue, COUNT(*) AS inns, SUM(b.runs) AS runs, MAX(b.runs) AS hs,
+               SUM(CASE WHEN NOT b.not_out THEN 1 ELSE 0 END) AS outs
+        FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+        WHERE b.person_id = ? AND b.innings_kind = 'regular' AND m.venue IS NOT NULL
+        GROUP BY 1
+        ORDER BY SUM(b.runs) DESC
+        LIMIT 6
+        """,
+        [person_id],
+    )
+    for r in venues:
+        outs = r.get("outs") or 0
+        r["avg"] = round(r["runs"] / outs, 1) if outs and r.get("runs") is not None else None
+
+    win_loss = rows(
+        """
+        SELECT CASE
+                 WHEN m.winner = b.team THEN 'Won'
+                 WHEN m.winner IS NOT NULL THEN 'Lost'
+                 ELSE 'Draw / NR'
+               END AS split,
+               COUNT(*) AS inns, SUM(b.runs) AS runs,
+               SUM(CASE WHEN NOT b.not_out THEN 1 ELSE 0 END) AS outs
+        FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+        WHERE b.person_id = ? AND b.innings_kind = 'regular'
+        GROUP BY 1
+        """,
+        [person_id],
+    )
+    for r in win_loss:
+        outs = r.get("outs") or 0
+        r["avg"] = round(r["runs"] / outs, 1) if outs and r.get("runs") is not None else None
+
+    phases = rows(
+        """
+        WITH ord AS (
+          SELECT b.runs, b.not_out,
+                 ROW_NUMBER() OVER (ORDER BY m.start_date, b.innings) AS rn,
+                 COUNT(*) OVER () AS n
+          FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+          WHERE b.person_id = ? AND b.innings_kind = 'regular'
+        )
+        SELECT CASE
+                 WHEN n < 80 THEN 'Career'
+                 WHEN rn <= 50 THEN 'First 50'
+                 WHEN rn > n - 50 THEN 'Last 50'
+                 ELSE 'Middle'
+               END AS split,
+               COUNT(*) AS inns, SUM(runs) AS runs,
+               SUM(CASE WHEN NOT not_out THEN 1 ELSE 0 END) AS outs
+        FROM ord
+        GROUP BY 1
+        """,
+        [person_id],
+    )
+    for r in phases:
+        outs = r.get("outs") or 0
+        r["avg"] = round(r["runs"] / outs, 1) if outs and r.get("runs") is not None else None
+
+    formats = rows(
+        """
+        SELECT m.competition, COUNT(DISTINCT x.match_id) AS matches
+        FROM xi x JOIN matches m ON m.match_id = x.match_id
+        WHERE x.person_id = ?
+        GROUP BY 1
+        ORDER BY 2 DESC
+        """,
+        [person_id],
+    )
+    for r in formats:
+        r["label"] = LABELS.get(r.get("competition"), r.get("competition"))
+
+    roles = one(
+        """
+        SELECT SUM(CASE WHEN is_captain THEN 1 ELSE 0 END) AS captain,
+               SUM(CASE WHEN is_keeper THEN 1 ELSE 0 END) AS keeper,
+               COUNT(*) AS xi
+        FROM xi WHERE person_id = ?
+        """,
+        [person_id],
+    ) or {"captain": 0, "keeper": 0, "xi": 0}
+
+    debut = one(
+        """
+        SELECT m.match_id, m.start_date, m.competition,
+               CASE WHEN x.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+               x.team
+        FROM xi x JOIN matches m ON m.match_id = x.match_id
+        WHERE x.person_id = ?
+        ORDER BY m.start_date
+        LIMIT 1
+        """,
+        [person_id],
+    )
+    latest = one(
+        """
+        SELECT m.match_id, m.start_date, m.competition,
+               CASE WHEN x.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+               x.team
+        FROM xi x JOIN matches m ON m.match_id = x.match_id
+        WHERE x.person_id = ?
+        ORDER BY m.start_date DESC
+        LIMIT 1
+        """,
+        [person_id],
+    )
+
+    last5 = rows(
+        """
+        SELECT b.runs, b.not_out, b.balls, m.start_date, m.match_id,
+               CASE WHEN b.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+               m.competition
+        FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
+        WHERE b.person_id = ? AND b.innings_kind = 'regular'
+        ORDER BY m.start_date DESC
+        LIMIT 10
+        """,
+        [person_id],
+    )
+
+    return {
+        "dismissals": dismissals,
+        "positions": positions,
+        "vs": vs,
+        "years": years,
+        "bowl_years": bowl_years,
+        "home_away": ha,
+        "chase": chase,
+        "conversion": conversion,
+        "venues": venues,
+        "formats": formats,
+        "roles": roles,
+        "debut": debut,
+        "latest": latest,
+        "last5": last5,
+        "win_loss": win_loss,
+        "phases": phases,
+    }
+

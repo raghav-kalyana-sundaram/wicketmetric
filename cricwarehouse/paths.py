@@ -7,6 +7,7 @@ DATA = ROOT / "data"
 CRICSHEET = DATA / "cricsheet"
 WAREHOUSE = DATA / "warehouse"
 PERSONAL = DATA / "personal"
+PORTRAITS = DATA / "portraits"
 USER_DATA = ROOT / "user_data"
 UI = ROOT / "ui"
 LOCAL_DUMPS = (
@@ -31,5 +32,5 @@ LOCAL_DUMPS = (
 
 
 def ensure_dirs() -> None:
-    for path in (DATA, CRICSHEET, WAREHOUSE, PERSONAL, USER_DATA):
+    for path in (DATA, CRICSHEET, WAREHOUSE, PERSONAL, PORTRAITS, USER_DATA):
         path.mkdir(parents=True, exist_ok=True)

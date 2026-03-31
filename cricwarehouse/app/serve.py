@@ -20,6 +20,7 @@ from cricwarehouse.app.db import DOCUMENTED_VIEWS, connect, disk_size_bytes, war
 from cricwarehouse.app.pull import discover_local_dumps, load_sources
 from cricwarehouse.app.query import execute, parse_query, suggest
 from cricwarehouse.app import catalog
+from cricwarehouse.app.portraits import resolve_portrait
 
 FORBIDDEN_SQL = re.compile(
     r"\b(insert|update|delete|drop|alter|copy|attach|detach|create|pragma|export|install|load|call)\b",
@@ -117,6 +118,30 @@ def create_app() -> FastAPI:
     @app.get("/api/suggest")
     def api_suggest(q: str = ""):
         return catalog.search(q)
+
+    @app.get("/api/portrait/{key}")
+    def api_portrait(key: str, warm: bool = False):
+        if not warehouse_ready():
+            raise HTTPException(404, "No warehouse")
+        con = connect()
+        try:
+            rec = con.execute(
+                "SELECT person_id, slug, display_name, key_cricinfo FROM people WHERE person_id = ? OR slug = ? LIMIT 1",
+                [key, key],
+            ).fetchdf()
+        finally:
+            con.close()
+        if rec.empty:
+            raise HTTPException(404, "Player not found")
+        person = _clean(rec.iloc[0].to_dict())
+        path = resolve_portrait(person, warm=warm)
+        if not path:
+            raise HTTPException(404, "No portrait")
+        return FileResponse(
+            path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
 
     @app.get("/api/stats")
     def api_stats(
@@ -248,6 +273,21 @@ def create_app() -> FastAPI:
                 """,
                 [match_id],
             ).fetchdf().to_dict("records")
+            xi = con.execute(
+                """
+                SELECT x.team, x.person_id, x.is_captain, x.is_keeper, p.display_name, p.slug,
+                       MIN(b.position) AS bat_pos
+                FROM xi x
+                JOIN people p ON p.person_id = x.person_id
+                LEFT JOIN batting_lines b
+                  ON b.match_id = x.match_id AND b.person_id = x.person_id
+                 AND b.innings_kind = 'regular'
+                WHERE x.match_id = ?
+                GROUP BY x.team, x.person_id, x.is_captain, x.is_keeper, p.display_name, p.slug
+                ORDER BY x.team, bat_pos NULLS LAST, p.display_name
+                """,
+                [match_id],
+            ).fetchdf().to_dict("records")
             return {
                 "match": _clean(match),
                 "innings": _clean_list(inns),
@@ -255,6 +295,7 @@ def create_app() -> FastAPI:
                 "bowling": _clean_list(bowl),
                 "partnerships": _clean_list(parts),
                 "deliveries": _clean_list(dels),
+                "xi": _clean_list(xi),
             }
         finally:
             con.close()
@@ -298,7 +339,9 @@ def create_app() -> FastAPI:
                        SUM(b.balls) AS balls,
                        SUM(CASE WHEN b.not_out THEN 0 ELSE 1 END) AS outs,
                        SUM(CASE WHEN b.runs >= 100 THEN 1 ELSE 0 END) AS hundreds,
-                       SUM(CASE WHEN b.runs >= 50 AND b.runs < 100 THEN 1 ELSE 0 END) AS fifties
+                       SUM(CASE WHEN b.runs >= 50 AND b.runs < 100 THEN 1 ELSE 0 END) AS fifties,
+                       SUM(b.fours) AS fours,
+                       SUM(b.sixes) AS sixes
                 FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
                 WHERE b.person_id = ? AND b.innings_kind = 'regular'
                 GROUP BY 1
@@ -310,7 +353,8 @@ def create_app() -> FastAPI:
                 SELECT m.competition,
                        COUNT(DISTINCT bl.match_id) AS matches,
                        SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
-                       SUM(bl.legal_balls) AS legal_balls, SUM(bl.maidens) AS maidens
+                       SUM(bl.legal_balls) AS legal_balls, SUM(bl.maidens) AS maidens,
+                       SUM(bl.dots) AS dots, SUM(bl.extras) AS extras
                 FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
                 WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
                 GROUP BY 1
@@ -389,6 +433,7 @@ def create_app() -> FastAPI:
             if not perfs.get("rows"):
                 perfs = catalog.list_performances(person_id=pid, discipline=primary_role, limit=25)
             h2h = catalog.matchups(pid)
+            almanac = catalog.player_almanac(con, pid)
             return {
                 "person": p,
                 "primary_role": primary_role,
@@ -418,6 +463,7 @@ def create_app() -> FastAPI:
                 "pairs": _clean_list(pairs),
                 "super_over": _clean_list(so),
                 "teams": _clean_list(teams),
+                "almanac": _clean(almanac),
             }
         finally:
             con.close()
