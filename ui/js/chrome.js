@@ -54,6 +54,206 @@ export async function copyText(s) {
   }
 }
 
+function initialsOf(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  const s = (parts[0] || "?").replace(/[^A-Za-z]/g, "");
+  return (s.slice(0, 2) || "?").toUpperCase();
+}
+
+export function portrait(slug, name, size = "sm") {
+  if (!slug) return "";
+  const ini = initialsOf(name);
+  const dark = document.documentElement.getAttribute("data-theme") !== "paper";
+  const bg = dark ? "#2c2926" : "#edf1f5";
+  const fg = dark ? "#969390" : "#57647a";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 64"><rect fill="${bg}" width="48" height="64"/><text x="24" y="38" text-anchor="middle" fill="${fg}" font-family="Georgia,serif" font-size="15">${ini}</text></svg>`;
+  const alt = size === "lg" ? esc(name || "") : "";
+  return `<img class="port port-${size}" alt="${alt}" width="48" height="64" data-port="${esc(slug)}" src="data:image/svg+xml,${encodeURIComponent(svg)}">`;
+}
+
+function applyPortrait(root, slug, blob) {
+  if (!blob || !(blob.type || "").includes("image/") || (blob.type || "").includes("svg")) return false;
+  const url = URL.createObjectURL(blob);
+  root.querySelectorAll(`img.port[data-port="${CSS.escape(slug)}"]`).forEach((el) => {
+    el.src = url;
+    el.dataset.ready = "1";
+  });
+  return true;
+}
+
+export function warmPortraits(root = document) {
+  const seen = new Set();
+  const queue = [];
+  root.querySelectorAll("img.port[data-port]").forEach((img) => {
+    const slug = img.dataset.port;
+    if (!slug || img.dataset.ready || seen.has(slug)) return;
+    seen.add(slug);
+    queue.push(slug);
+  });
+  const fill = (slug) => {
+    fetch(`/api/portrait/${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.blob() : Promise.reject()))
+      .then((b) => { if (!applyPortrait(root, slug, b)) throw 0; })
+      .catch(() => {
+        fetch(`/api/portrait/${encodeURIComponent(slug)}?warm=1`)
+          .then((r) => (r.ok ? r.blob() : null))
+          .then((b) => applyPortrait(root, slug, b))
+          .catch(() => {});
+      });
+  };
+  queue.slice(0, 10).forEach(fill);
+  if (queue.length > 10) setTimeout(() => queue.slice(10).forEach(fill), 280);
+}
+
+export function ribbon(items) {
+  return `<dl class="ribbon">${items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${v == null || v === "" ? "–" : v}</dd></div>`).join("")}</dl>`;
+}
+
+export function mixBars(rows, { lab = "label", n = "n" } = {}) {
+  const list = (rows || []).filter((r) => r[lab] != null);
+  if (!list.length) return "";
+  const max = Math.max(...list.map((r) => Number(r[n]) || 0), 1);
+  return `<div class="mix">${list.map((r) => `
+    <div class="mix-row">
+      <span class="mix-lab">${esc(r[lab])}</span>
+      <span class="mix-track"><span style="width:${((Number(r[n]) || 0) / max * 100).toFixed(1)}%"></span></span>
+      <span class="mix-n">${r[n] ?? "–"}</span>
+    </div>`).join("")}</div>`;
+}
+
+export function ledger(headers, rows) {
+  const body = (rows || []).filter(Boolean);
+  if (!body.length) return "";
+  return `<table class="ledger"><thead><tr>${headers.map((h, i) => `<th class="${i ? "n" : "l"}">${h}</th>`).join("")}</tr></thead>
+    <tbody>${body.map((row) => `<tr>${row.map((c, i) => `<td class="${i ? "n" : "l"}">${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+export function scoreBeads(rows, n = 10) {
+  const last = (rows || []).slice(0, n);
+  if (!last.length) return "";
+  return `<div class="score-beads">${last.map((i) => {
+    const r = Number(i.runs || 0);
+    const star = i.not_out ? "*" : "";
+    const cls = r >= 100 ? "ton" : r >= 50 ? "fifty" : r === 0 && !i.not_out ? "duck" : "";
+    const inner = `<span class="sbead ${cls}" title="${r}${star} v ${i.opposition || ""}">${r}${star}</span>`;
+    return i.match_id ? `<a class="sbead-link" href="#/match/${esc(i.match_id)}">${inner}</a>` : inner;
+  }).join("")}</div>`;
+}
+
+function yrLabel(y) {
+  const s = String(y ?? "");
+  return s.length === 4 ? `’${s.slice(2)}` : s;
+}
+
+function splitLine(r) {
+  if (!r) return "–";
+  const avg = r.avg != null ? r.avg : "–";
+  return `${r.inns} inns · ${Number(r.runs || 0).toLocaleString()} · ${avg} avg`;
+}
+
+function spanLink(r, prefix) {
+  if (!r) return "";
+  const body = `${prefix} ${fmtDateAlmanac(r.start_date)} · ${esc(r.team)} v ${esc(r.opposition)} · ${(r.competition || "").toUpperCase()}`;
+  return r.match_id ? `<a href="#/match/${esc(r.match_id)}">${body}</a>` : body;
+}
+
+export function almanacBlock(a) {
+  if (!a) return "";
+  const conv = a.conversion || {};
+  const roles = a.roles || {};
+  const debut = a.debut;
+  const latest = a.latest;
+  const yearMax = Math.max(0, ...(a.years || []).map((y) => Number(y.runs) || 0));
+  const yearSlice = (a.years || []).slice(-12);
+  const years = yearSlice.map((y) => {
+    const h = yearMax ? (Number(y.runs) / yearMax * 100) : 0;
+    return `<span class="yr" title="${y.year}: ${Number(y.runs || 0).toLocaleString()} runs, ${y.avg ?? "–"} avg"><i style="height:${Math.max(h, 3)}%"></i><em>${yrLabel(y.year)}</em></span>`;
+  }).join("");
+  const pos = (a.positions || []).map((p) => ({ label: `#${p.position}`, n: p.n }));
+  const dis = (a.dismissals || []).map((d) => ({ label: d.label, n: d.n }));
+  const ha = a.home_away || [];
+  const ch = a.chase || [];
+  const fmts = (a.formats || []).map((r) => ({ label: r.label, n: r.matches }));
+  const yearRows = yearSlice.map((y) => [
+    yrLabel(y.year),
+    y.inns ?? "–",
+    Number(y.runs || 0).toLocaleString(),
+    y.avg ?? "–",
+    y.hundreds ?? 0,
+  ]);
+  const vsRows = (a.vs || []).map((r) => [
+    esc(r.opposition),
+    r.inns ?? "–",
+    Number(r.runs || 0).toLocaleString(),
+    r.avg ?? "–",
+    r.hundreds ?? 0,
+  ]);
+  const venueRows = (a.venues || []).map((r) => [
+    esc(r.venue),
+    r.inns ?? "–",
+    Number(r.runs || 0).toLocaleString(),
+    r.avg ?? "–",
+  ]);
+  const phaseOrder = { "First 50": 0, Middle: 1, "Last 50": 2, Career: 3 };
+  const phaseRows = [...(a.phases || [])]
+    .filter((r) => r.split !== "Career")
+    .sort((x, y) => (phaseOrder[x.split] ?? 9) - (phaseOrder[y.split] ?? 9))
+    .map((r) => [esc(r.split), r.inns ?? "–", Number(r.runs || 0).toLocaleString(), r.avg ?? "–"]);
+  const wlOrder = { Won: 0, Lost: 1, "Draw / NR": 2 };
+  const wlRows = [...(a.win_loss || [])]
+    .sort((x, y) => (wlOrder[x.split] ?? 9) - (wlOrder[y.split] ?? 9))
+    .map((r) => [esc(r.split), r.inns ?? "–", Number(r.runs || 0).toLocaleString(), r.avg ?? "–"]);
+  const bowlMax = Math.max(0, ...(a.bowl_years || []).map((y) => Number(y.wickets) || 0));
+  const bowlSlice = (a.bowl_years || []).slice(-12);
+  const bowlChart = bowlMax >= 8 ? bowlSlice.map((y) => {
+    const h = bowlMax ? (Number(y.wickets) / bowlMax * 100) : 0;
+    return `<span class="yr" title="${y.year}: ${y.wickets} wickets, ${y.econ ?? "–"} econ"><i style="height:${Math.max(h, 3)}%"></i><em>${yrLabel(y.year)}</em></span>`;
+  }).join("") : "";
+  const roleBits = [
+    roles.captain ? `${roles.captain} as captain` : "",
+    roles.keeper ? `${roles.keeper} with the gloves` : "",
+  ].filter(Boolean);
+  const convPct = conv.conversion != null ? Math.min(100, Number(conv.conversion)) : 0;
+  return `
+    <section class="almanac" id="almanac">
+      ${a.last5?.length ? `<div class="almanac-row"><h3>Last knocks</h3>${scoreBeads(a.last5, 10)}</div>` : ""}
+      ${debut || latest ? `<p class="almanac-span">${spanLink(debut, "Debut")}${debut && latest ? "<br>" : ""}${spanLink(latest, "Latest")}</p>` : ""}
+      ${conv.hundreds != null ? `<div class="conv">
+        <div><div class="conv-k">Hundreds</div><div class="conv-n">${conv.hundreds}</div></div>
+        <div><div class="conv-k">Fifties</div><div class="conv-n">${conv.fifties ?? "–"}</div></div>
+        <div class="conv-bar-wrap">
+          <div class="conv-k">Fifty-plus that became hundreds</div>
+          <div class="conv-track"><span style="width:${convPct}%"></span></div>
+          <div class="conv-n">${conv.conversion != null ? `${conv.conversion}%` : "–"}</div>
+        </div>
+        <div><div class="conv-k">Ducks</div><div class="conv-n">${conv.ducks ?? "–"}</div></div>
+        <div><div class="conv-k">Boundary %</div><div class="conv-n">${conv.boundary_pct ?? "–"}</div></div>
+      </div>` : ""}
+      ${years ? `<div class="almanac-row"><h3>Runs by year</h3><div class="yr-chart">${years}</div>${ledger(["Year", "Inns", "Runs", "Avg", "100"], yearRows)}</div>` : ""}
+      ${bowlChart ? `<div class="almanac-row"><h3>Wickets by year</h3><div class="yr-chart">${bowlChart}</div></div>` : ""}
+      <div class="almanac-grid">
+        ${dis.length ? `<div><h3>How out</h3>${mixBars(dis)}</div>` : ""}
+        ${pos.length ? `<div><h3>Batting order</h3>${mixBars(pos)}</div>` : ""}
+        ${fmts.length ? `<div><h3>Formats</h3>${mixBars(fmts)}</div>` : ""}
+        ${ha.length ? `<div><h3>Home / away</h3>${ha.map((r) => `<p class="xi-line"><strong>${esc(r.split)}</strong> · ${splitLine(r)}</p>`).join("")}</div>` : ""}
+        ${ch.length ? `<div><h3>Set / chase</h3>${ch.map((r) => `<p class="xi-line"><strong>${esc(r.split)}</strong> · ${splitLine(r)}</p>`).join("")}</div>` : ""}
+        ${wlRows.length ? `<div><h3>In wins and losses</h3>${ledger(["", "Inns", "Runs", "Avg"], wlRows)}</div>` : ""}
+        ${phaseRows.length ? `<div><h3>Career phases</h3>${ledger(["", "Inns", "Runs", "Avg"], phaseRows)}</div>` : ""}
+        ${vsRows.length ? `<div class="span-2"><h3>Vs opposition</h3>${ledger(["Opp", "Inns", "Runs", "Avg", "100"], vsRows)}</div>` : ""}
+        ${venueRows.length ? `<div class="span-2"><h3>Grounds</h3>${ledger(["Ground", "Inns", "Runs", "Avg"], venueRows)}</div>` : ""}
+      </div>
+      ${roleBits.length ? `<p class="caption">${roleBits.join(" · ")}</p>` : ""}
+    </section>`;
+}
+
+function fmtDateAlmanac(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export function setDocTitle(bit) {
   document.title = bit ? `${bit} · Wicket Metric` : "Wicket Metric";
 }
@@ -330,6 +530,7 @@ export async function openPalette() {
     <button type="button" data-hash="#/best">Best T20</button>
     <button type="button" data-hash="#/compare">Compare</button>`;
   bindPaletteButtons(list);
+  warmPortraits(list);
   requestAnimationFrame(() => input.focus());
   input.oninput = async () => {
     const q = input.value.trim();
@@ -338,7 +539,7 @@ export async function openPalette() {
     let html = "";
     (s.people || []).slice(0, 8).forEach((p) => {
       const hint = p.unique_name && p.unique_name !== p.display_name ? ` <span class="hint">${esc(p.unique_name)}</span>` : "";
-      html += `<button type="button" data-hash="#/player/${esc(p.slug)}">${esc(p.display_name)}${hint}</button>`;
+      html += `<button type="button" data-hash="#/player/${esc(p.slug)}">${portrait(p.slug, p.display_name, "xs")}<span>${esc(p.display_name)}${hint}</span></button>`;
     });
     (s.teams || []).slice(0, 4).forEach((t) => {
       const name = t.team || t;
@@ -349,6 +550,7 @@ export async function openPalette() {
     });
     list.innerHTML = html || `<p class="caption">Nothing matched.</p>`;
     bindPaletteButtons(list);
+    warmPortraits(list);
   };
 }
 

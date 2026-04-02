@@ -2,6 +2,7 @@ import { highlightHTML, heuristic, upsertToken } from "./querybox.js";
 import {
   initChrome, setDocTitle, favList, renderFavStar, trayAdd,
   formBlock, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
+  portrait, warmPortraits, ribbon, almanacBlock,
 } from "./chrome.js";
 
 const $ = (id) => document.getElementById(id);
@@ -157,7 +158,8 @@ function renderAC(s) {
     html += `<h4>People</h4>`;
     s.people.forEach((p) => {
       acItems.push({ kind: "person", slug: p.slug, name: p.display_name, unique: p.unique_name });
-      html += `<button type="button" data-i="${acItems.length - 1}">${esc(p.display_name)} <span class="hint">${esc(p.unique_name)}</span></button>`;
+      const hint = p.unique_name && p.unique_name !== p.display_name ? ` <span class="hint">${esc(p.unique_name)}</span>` : "";
+      html += `<button type="button" data-i="${acItems.length - 1}">${portrait(p.slug, p.display_name, "xs")}<span>${esc(p.display_name)}${hint}</span></button>`;
     });
   }
   if (s.teams?.length) {
@@ -179,6 +181,7 @@ function renderAC(s) {
   ac.classList.toggle("open", acItems.length > 0);
   acIndex = acItems.length ? 0 : -1;
   paintAC();
+  warmPortraits(ac);
   ac.querySelectorAll("button").forEach((b) => {
     b.addEventListener("mousedown", (e) => {
       e.preventDefault();
@@ -292,7 +295,7 @@ let tableSeq = 0;
 const HEAT_LOW = new Set(["econ", "bowl_avg"]);
 
 function table(columns, rows, opts = {}) {
-  const { pageIndex = 0, total = rows.length, query = "", compact = false, heat = false, copyLine = false, sortKey = "", sortDir = "desc", filter = "" } = opts;
+  const { pageIndex = 0, total = rows.length, query = "", compact = false, heat = false, copyLine = false, sortKey = "", sortDir = "desc", filter = "", faces = false } = opts;
   const id = opts.id || `tbl-${++tableSeq}`;
   TABLE_STORE.set(id, { columns, rows, opts: { ...opts, id } });
   const needle = (filter || "").trim().toLowerCase();
@@ -350,7 +353,8 @@ function table(columns, rows, opts = {}) {
       if (c.key === "start_date") val = fmtDate(r.start_date);
       if (c.key === "primary_role") val = val === "bowl" ? "Bowl" : val === "bat" ? "Bat" : val;
       if (c.link === "player") {
-        val = `<a class="player-link" href="#/player/${esc(r.slug || r.person_id)}">${esc(r.player || r.display_name || val)}</a>`;
+        const face = faces ? portrait(r.slug || r.person_id, r.player || r.display_name || val, "xs") : "";
+        val = `<span class="who">${face}<a class="player-link" href="#/player/${esc(r.slug || r.person_id)}">${esc(r.player || r.display_name || val)}</a></span>`;
       } else if (c.key === "match" || (c.link === "match")) {
         val = `<a href="#/match/${esc(r.match_id)}">${esc(val || r.opposition || r.match_id)}</a>`;
       } else if (c.numeric) {
@@ -543,12 +547,15 @@ async function showHomeSnapshot() {
   ];
   const pulseItem = (r, line) =>
     `<div class="pulse-row">
-      <a class="pulse-player" href="#/player/${esc(r.slug)}">${esc(r.display_name)}</a>
-      <a href="#/match/${esc(r.match_id)}"><span class="kicker">${fmtDate(r.start_date)} · ${esc(r.comp || r.competition || "")}</span> ${esc(line)} v ${esc(r.opposition || "")}</a>
+      ${portrait(r.slug, r.display_name, "sm")}
+      <div>
+        <a class="pulse-player" href="#/player/${esc(r.slug)}">${esc(r.display_name)}</a>
+        <a href="#/match/${esc(r.match_id)}"><span class="kicker">${fmtDate(r.start_date)} · ${esc(r.comp || r.competition || "")}</span> ${esc(line)} v ${esc(r.opposition || "")}</a>
+      </div>
     </div>`;
   const favs = favList();
   const favRail = favs.length
-    ? `<div class="fav-rail"><h3>Pinned</h3>${favs.map((f) => `<a class="chip" href="#/player/${esc(f.slug)}">${esc(f.name)}</a>`).join(" ")}</div>`
+    ? `<div class="fav-rail"><h3>Pinned</h3>${favs.map((f) => `<a class="chip fav-chip" href="#/player/${esc(f.slug)}">${portrait(f.slug, f.name, "xs")}${esc(f.name)}</a>`).join(" ")}</div>`
     : "";
   main.innerHTML = `
     ${favRail}
@@ -564,13 +571,14 @@ async function showHomeSnapshot() {
       <div>
         <h3>Latest matches</h3>
         ${(pulse.matches || []).map((r) =>
-          `<a href="#/match/${esc(r.match_id)}"><span class="kicker">${fmtDate(r.start_date)} · ${esc(r.comp || "")}</span><br>${esc(r.team_home)} v ${esc(r.team_away)} · ${esc(r.result || "")}</a>`
+          `<a class="pulse-match" href="#/match/${esc(r.match_id)}"><span class="kicker">${fmtDate(r.start_date)} · ${esc(r.comp || "")}</span><br><strong>${esc(r.team_home)}</strong> v <strong>${esc(r.team_away)}</strong><br><span class="caption">${esc(r.result || "")}</span></a>`
         ).join("")}
       </div>
     </div>
     <p class="scope">${snap.deliveries?.toLocaleString()} deliveries in warehouse</p>` +
     table(cols, snap.rows, { query: "", compact: true });
   bindTable("");
+  warmPortraits(main);
 }
 
 async function showResults(q) {
@@ -682,11 +690,27 @@ async function showMatch(id) {
   const result = m.winner
     ? `${m.winner} won` + (m.win_by_runs ? ` by ${m.win_by_runs} runs` : m.win_by_wickets ? ` by ${m.win_by_wickets} wickets` : "")
     : (m.result || "No result");
+  const scoreLine = (d.innings || [])
+    .filter((inn) => inn.innings_kind !== "super_over")
+    .map((inn) => `${esc(inn.batting_team)} ${inn.runs}/${inn.wickets}`)
+    .join(" · ");
+  const xiTeams = [...new Set((d.xi || []).map((x) => x.team))];
+  const xiHtml = xiTeams.length
+    ? `<div class="xi-sheets">${xiTeams.map((team) => {
+      const side = (d.xi || []).filter((x) => x.team === team);
+      return `<div class="xi-sheet"><h3>${esc(team)}</h3><ol>${side.map((x) => {
+        const mark = [x.is_captain ? "c" : "", x.is_keeper ? "†" : ""].filter(Boolean).join("");
+        return `<li>${portrait(x.slug, x.display_name, "xs")}<a href="#/player/${esc(x.slug)}">${esc(x.display_name)}</a>${mark ? ` <span class="caption">${mark}</span>` : ""}</li>`;
+      }).join("")}</ol></div>`;
+    }).join("")}</div>`
+    : "";
   let html = `
     <h1 class="page-title">${esc(m.team_home)} v ${esc(m.team_away)}</h1>
+    ${scoreLine ? `<p class="match-scores">${scoreLine}</p>` : ""}
     <p>${esc(result)}</p>
     <p class="meta-line">${fmtDate(m.start_date)} · ${esc(m.venue || "")} · ${esc(m.competition?.toUpperCase())} · Toss: ${esc(m.toss_winner)} ${esc(m.toss_decision || "")}
       ${badges.map((b) => `<span class="badge">${b}</span>`).join(" ")}</p>
+    ${xiHtml}
   `;
   for (const inn of d.innings) {
     const label = inn.innings_kind === "super_over" ? "Super Over" : `Innings ${inn.innings}`;
@@ -714,8 +738,13 @@ async function showMatch(id) {
         runs_display: b.not_out ? `${b.runs}*` : String(b.runs),
         sr: b.balls ? (b.runs * 100 / b.balls).toFixed(1) : "–",
       })),
-      { copyLine: true },
+      { copyLine: true, faces: true },
     );
+    const batted = new Set(bats.map((b) => b.person_id));
+    const dnb = (d.xi || []).filter((x) => x.team === inn.batting_team && !batted.has(x.person_id));
+    if (dnb.length) {
+      html += `<p class="dnb">Did not bat: ${dnb.map((x) => `<span class="who">${portrait(x.slug, x.display_name, "xs")}<a href="#/player/${esc(x.slug)}">${esc(x.display_name)}</a></span>`).join(", ")}</p>`;
+    }
     html += table(
       [
         { key: "display_name", label: "Bowler", align: "left", link: "player" },
@@ -738,6 +767,7 @@ async function showMatch(id) {
           econ: balls ? (b.runs * 6 / balls).toFixed(2) : "–",
         };
       }),
+      { faces: true },
     );
     const fow = parts.filter((p) => p.end_reason && p.end_reason !== "end_of_innings")
       .map((p) => `${p.wicket_number}-${p.runs}`).join(", ");
@@ -759,6 +789,7 @@ async function showMatch(id) {
     <div id="del-table" hidden></div>`;
   main.innerHTML = html;
   bindTable("");
+  warmPortraits(main);
   $("del-toggle")?.addEventListener("click", () => {
     const box = $("del-table");
     if (!box.hidden) { box.hidden = true; return; }
@@ -880,6 +911,8 @@ async function showPlayer(key) {
       { key: "wickets", label: "W", align: "right", numeric: true },
       { key: "avg", label: "Avg", align: "right", numeric: true },
       { key: "econ", label: "Econ", align: "right", numeric: true },
+      { key: "dots", label: "Dots", align: "right", numeric: true },
+      { key: "extras", label: "Ex", align: "right", numeric: true },
     ],
     bowlRows,
   );
@@ -894,25 +927,57 @@ async function showPlayer(key) {
       { key: "sr", label: "SR", align: "right", numeric: true },
       { key: "hundreds", label: "100s", align: "right", numeric: true },
       { key: "fifties", label: "50s", align: "right", numeric: true },
+      { key: "fours", label: "4s", align: "right", numeric: true },
+      { key: "sixes", label: "6s", align: "right", numeric: true },
     ],
     batRows,
   );
   const batOuts = d.innings.filter((i) => !i.not_out).length;
   const batRuns = d.innings.reduce((s, i) => s + Number(i.runs || 0), 0);
   const careerAvg = batOuts ? batRuns / batOuts : null;
+  const totM = batRows.reduce((s, r) => s + Number(r.matches || 0), 0) || Number(d.span?.matches || 0);
+  const totInns = batRows.reduce((s, r) => s + Number(r.inns || 0), 0);
+  const totBalls = batRows.reduce((s, r) => s + Number(r.balls || 0), 0);
+  const totHs = batRows.reduce((s, r) => Math.max(s, Number(r.hs || 0)), 0);
+  const totSr = totBalls ? (batRuns * 100 / totBalls).toFixed(1) : "–";
+  const totW = bowlRows.reduce((s, r) => s + Number(r.wickets || 0), 0);
+  const totBowlRuns = bowlRows.reduce((s, r) => s + Number(r.runs || 0), 0);
+  const totLegal = bowlRows.reduce((s, r) => s + Number(r.legal_balls || 0), 0);
+  const totEcon = totLegal ? (totBowlRuns * 6 / totLegal).toFixed(2) : "–";
+  const almanac = d.almanac || {};
+  const cricinfo = p.key_cricinfo
+    ? `<a class="ext" href="https://www.espncricinfo.com/ci/content/player/${encodeURIComponent(p.key_cricinfo)}.html" rel="noreferrer">Cricinfo</a>`
+    : "";
   const teamChips = (d.teams || []).length
     ? `<div class="team-chips">${d.teams.map((t) =>
       `<a href="#/wowy?team=${encodeURIComponent(t.team)}&player=${encodeURIComponent(p.slug)}">${esc(t.team)}<span class="n">${t.matches}</span></a>`
     ).join("")}</div>`
     : "";
   main.innerHTML = `
-    <div class="page-head">
-      <h1 class="page-title">${esc(p.display_name)}</h1>
-      <button type="button" class="fav-star" id="fav-star" aria-pressed="false">Pin</button>
+    <div class="player-hero">
+      ${portrait(p.slug, p.display_name, "lg")}
+      <div>
+        <div class="page-head">
+          <h1 class="page-title">${esc(p.display_name)}</h1>
+          <button type="button" class="fav-star" id="fav-star" aria-pressed="false">Pin</button>
+          <button type="button" class="btn-text" id="print-player">Print card</button>
+        </div>
+        <p class="meta-line">${esc(p.unique_name)} · ${bowlerFirst ? "Bowler" : "Batter"} first · ${esc(d.span.line)}${cricinfo ? ` · ${cricinfo}` : ""}</p>
+        ${teamChips}
+        ${ribbon([
+          ["M", d.span?.matches || totM || "–"],
+          ["Inns", totInns || "–"],
+          ["Runs", batRuns ? batRuns.toLocaleString() : "–"],
+          ["HS", totHs || "–"],
+          ["Avg", careerAvg != null ? careerAvg.toFixed(1) : "–"],
+          ["SR", totSr],
+          ["W", totW || "–"],
+          ["Econ", totEcon],
+        ])}
+      </div>
     </div>
-    <p class="meta-line">${esc(p.unique_name)} · ${bowlerFirst ? "Bowler" : "Batter"} first · ${esc(d.span.line)}</p>
-    ${teamChips}
     <nav class="jump">
+      <button type="button" class="btn-text" data-jump="almanac">Almanac</button>
       <button type="button" class="btn-text" data-jump="val-cards">Value</button>
       <button type="button" class="btn-text" data-jump="pf-box">Best</button>
       <button type="button" class="btn-text" data-jump="h2h-box">Matchups</button>
@@ -925,6 +990,7 @@ async function showPlayer(key) {
       · <button type="button" class="btn-text" id="add-tray">C — compare tray</button>
     </p>
     ${formBlock(d.innings, { n: 10, careerAvg })}
+    ${almanacBlock(almanac)}
     ${cards}
     <h2 class="section">Best T20 ${bowlerFirst ? "bowling" : "batting"}</h2>
     <p class="caption">${esc(d.performances?.caption || "Focused on the heavier workload. Same-match work in the other discipline is in the line.")}</p>
@@ -1093,10 +1159,12 @@ async function showPlayer(key) {
   document.body.dataset.playerName = p.display_name;
   renderFavStar(p.slug, p.display_name);
   $("add-tray")?.addEventListener("click", () => trayAdd(p.slug, p.display_name));
+  $("print-player")?.addEventListener("click", () => window.print());
   main.querySelectorAll("[data-jump]").forEach((b) => {
     b.addEventListener("click", () => $(b.dataset.jump)?.scrollIntoView({ behavior: "smooth", block: "start" }));
   });
   bindTable("");
+  warmPortraits(main);
 }
 
 async function showStats() {
@@ -1244,13 +1312,14 @@ async function showWowy() {
     const d = await (await fetch(`/api/wowy?${qs}`)).json();
     if (d.people?.length > 1 && !d.rows?.length) {
       $("wy-out").innerHTML = `<p>${esc(d.message || "Several matches")}</p>` +
-        d.people.map((p) => `<button class="chip" data-p="${esc(p.slug)}">${esc(p.display_name)}</button>`).join(" ");
+        d.people.map((p) => `<button class="chip" data-p="${esc(p.slug)}">${portrait(p.slug, p.display_name, "xs")}${esc(p.display_name)}</button>`).join(" ");
       $("wy-out").querySelectorAll("[data-p]").forEach((b) => {
         b.addEventListener("click", () => { $("wy-player").value = b.dataset.p; run(); });
       });
+      warmPortraits($("wy-out"));
       return;
     }
-    $("wy-out").innerHTML = `<p class="scope">${esc(d.scope || "")}</p>` +
+    $("wy-out").innerHTML = `<div class="wowy-head">${portrait(d.person?.slug || player, d.person?.display_name || player, "sm")}<p class="scope">${esc(d.scope || "")}</p></div>` +
       wowyVisual(d.rows || []) +
       table(
         [
@@ -1265,6 +1334,7 @@ async function showWowy() {
         d.rows || [],
       ) + `<p class="disclaimer">${esc(d.caption || "")}</p>`;
     bindTable("");
+    warmPortraits($("wy-out"));
   };
   $("wy-go").addEventListener("click", run);
   if (qplayer) run();
@@ -1328,9 +1398,10 @@ async function showBest() {
         { key: "result", label: "Result", align: "left" },
       ],
       d.rows || [],
-      { heat: true },
+      { heat: true, faces: true },
     );
     bindTable("");
+    warmPortraits(main);
     $("bt-m").addEventListener("change", (e) => { state.mode = e.target.value; paint(); });
     $("bt-d")?.addEventListener("change", (e) => { state.disc = e.target.value; paint(); });
     $("bt-c").addEventListener("change", (e) => { state.comp = e.target.value; paint(); });
@@ -1417,12 +1488,12 @@ function matchupBoard(batter, bowler, st, poolLabel, pool) {
       <header class="matchup-head">
         <div>
           <div class="matchup-role">Batting</div>
-          <h2 class="matchup-name"><a href="#/player/${esc(batter.slug)}">${esc(batter.display_name)}</a></h2>
+          <h2 class="matchup-name">${portrait(batter.slug, batter.display_name, "sm")}<a href="#/player/${esc(batter.slug)}">${esc(batter.display_name)}</a></h2>
         </div>
         <div class="matchup-vs" aria-hidden="true">vs</div>
         <div class="matchup-head-right">
           <div class="matchup-role">Bowling</div>
-          <h2 class="matchup-name"><a href="#/player/${esc(bowler.slug)}">${esc(bowler.display_name)}</a></h2>
+          <h2 class="matchup-name">${portrait(bowler.slug, bowler.display_name, "sm")}<a href="#/player/${esc(bowler.slug)}">${esc(bowler.display_name)}</a></h2>
         </div>
       </header>
       <p class="matchup-kicker">${esc(poolLabel || "")}${st.matches ? ` · ${st.matches} match${st.matches === 1 ? "" : "es"}` : ""} · ${esc(overs)} overs</p>
@@ -1463,7 +1534,7 @@ function xiImpactCards(pa, pb, pool) {
     const xi = person.xi;
     if (!xi?.ok) {
       return `<div class="duel-card">
-        <h2><a href="#/player/${esc(person.slug)}">${esc(person.display_name)}</a></h2>
+        <h2>${portrait(person.slug, person.display_name, "sm")}<a href="#/player/${esc(person.slug)}">${esc(person.display_name)}</a></h2>
         <p class="caption">No teammate split in this format.</p>
       </div>`;
     }
@@ -1486,7 +1557,7 @@ function xiImpactCards(pa, pb, pool) {
     const ahead = xi.lift > 0;
     return `
       <div class="duel-card${ahead ? " ahead" : ""}">
-        <h2><a href="#/player/${esc(person.slug)}">${esc(person.display_name)}</a></h2>
+        <h2>${portrait(person.slug, person.display_name, "sm")}<a href="#/player/${esc(person.slug)}">${esc(person.display_name)}</a></h2>
         <p class="caption">${esc(xi.team || "")} · ${xi.matches_with || 0} XI · ${xi.matches_wo || 0} without</p>
         <p class="team-avg-line"><span class="fig ${hcls}">${hero == null ? (xi.schedule_mix ? "mix" : "–") : signed(hero, digits)}</span> <span class="caption">${heroLabel}</span></p>
         ${xi.home || xi.away ? `${splitLine("Home", xi.home)}${splitLine("Away", xi.away)}` : `<p class="xi-line">Batters ${bat.avg_with ?? "–"} avg · ${bat.sr_with ?? "–"} SR → ${bat.avg_wo ?? "–"} · ${bat.sr_wo ?? "–"}</p>`}
@@ -1637,6 +1708,7 @@ async function showCompare() {
     ${sharedVsTable(d.shared_batters, pa.display_name, pb.display_name, "bowl")}`;
   $("c-go").addEventListener("click", goCompare);
   $("c-comp")?.addEventListener("change", goCompare);
+  warmPortraits(main);
 }
 
 async function showTeamCompare() {
@@ -1826,12 +1898,12 @@ async function showTwin() {
     $("tw-out").innerHTML = `
       <div class="duel">
         <div class="duel-card">
-          <h2><a href="#/player/${esc(d.person.slug)}">${esc(d.person.display_name)}</a></h2>
+          <h2>${portrait(d.person.slug, d.person.display_name, "sm")}<a href="#/player/${esc(d.person.slug)}">${esc(d.person.display_name)}</a></h2>
           <p class="caption">${esc(d.anchor?.competition || "").toUpperCase()} ${esc(d.anchor?.season || "")} · ${d.anchor?.primary_role === "bowl" ? "Bowler" : "Batter"} first</p>
         </div>
         <div class="duel-mid"><p class="page-title">${twin ? twin.match : "–"}</p><p class="caption">match</p></div>
         <div class="duel-card">
-          <h2>${twin ? `<a href="#/player/${esc(twin.slug)}">${esc(twin.display_name)}</a>` : "—"}</h2>
+          <h2>${twin ? `${portrait(twin.slug, twin.display_name, "sm")}<a href="#/player/${esc(twin.slug)}">${esc(twin.display_name)}</a>` : "—"}</h2>
           <p class="caption">${twin ? `WAR ${twin.war}` : "No neighbour yet"}</p>
         </div>
       </div>
@@ -1842,6 +1914,8 @@ async function showTwin() {
         [{ key: "player", label: "Player", align: "left", link: "player" }, { key: "match", label: "Match", align: "right", numeric: true }, { key: "war", label: "WAR", align: "right", numeric: true }],
         (d.twins || []).map((t) => ({ ...t, player: t.display_name })),
       )}`;
+    bindTable("");
+    warmPortraits($("tw-out"));
   };
   $("tw-go").addEventListener("click", run);
   if (player) run();
