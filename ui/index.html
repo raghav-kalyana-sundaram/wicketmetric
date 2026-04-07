@@ -2,17 +2,15 @@
 <html lang="en" data-theme="charcoal">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=1024">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wicket Metric</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="wordmark" href="#/">
-      <span class="mark" aria-hidden="true"></span>
-      Wicket Metric
-    </a>
+    <a class="wordmark" href="#/">Wicket Metric</a>
     <nav class="util">
       <a href="#/stats" data-nav="stats">Stats</a>
       <a href="#/wowy" data-nav="wowy">WOWY</a>
@@ -22,44 +20,25 @@
       <a href="#/resources" data-nav="resources">Resources</a>
       <button type="button" class="search-toggle" id="search-toggle" hidden aria-expanded="false">Search</button>
       <span class="data-date" id="data-date">Data: —</span>
-      <button type="button" class="icon-btn" id="keys-toggle" aria-label="Keyboard shortcuts" title="Keys">?</button>
-      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">Dark</button>
+      <button type="button" class="icon-btn" id="keys-toggle" aria-label="Keyboard shortcuts" aria-expanded="false" title="Keys">?</button>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch theme">Paper</button>
     </nav>
   </header>
 
   <div class="shell" id="query-shell">
     <div id="home-hero" hidden>
-      <p class="lede">Context-aware cricket stats. Lineups and roles, not just the box score. Local, offline,&nbsp;yours.</p>
+      <p class="lede">Search a knock, or open Stats.</p>
     </div>
     <div class="query-wrap hero" id="query-wrap">
       <div class="query-box">
-        <svg class="query-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/>
-        </svg>
         <div class="query-highlight" id="query-highlight" aria-hidden="true"></div>
         <input class="query-input" id="query-input" type="text" autocomplete="off" spellcheck="false"
-               placeholder="Search a player, or try: kohli 89" aria-label="Search">
+               placeholder="Player, or a score: kohli 89" aria-label="Search">
       </div>
       <div class="ghost" id="query-ghost" hidden></div>
       <div class="ac" id="ac" role="listbox"></div>
     </div>
     <div id="home-extras">
-      <div class="launch" id="launch">
-        <a class="launch-card" href="#/stats">
-          <h3>Stats</h3>
-          <p>Master table — batting and bowling together, with percentile ranks in this warehouse.</p>
-        </a>
-        <a class="launch-card" href="#/wowy">
-          <h3>WOWY</h3>
-          <p>With or without you. How a side changes when a player is in the XI.</p>
-        </a>
-        <a class="launch-card" href="#/compare">
-          <h3>Compare</h3>
-          <p>Two players, two teams, profile twins, and how teammates shift with you.</p>
-        </a>
-      </div>
-      <div class="try-label">Or query:</div>
-      <div class="chips" id="chips"></div>
       <div class="fmt-row" id="fmt-row">
         <span class="fmt-label">Format</span>
         <button type="button" class="tab active" data-fmt="">All</button>
@@ -68,6 +47,8 @@
         <button type="button" class="tab" data-fmt="t20i">T20I</button>
         <button type="button" class="tab" data-fmt="ipl">IPL</button>
       </div>
+      <div class="try-label">Try</div>
+      <div class="chips" id="chips"></div>
     </div>
   </div>
 
@@ -76,7 +57,7 @@
   <main class="shell" id="main"></main>
 
   <footer class="provenance">
-    Data © Cricsheet (CC BY-SA / ODbL), built locally · Metrics per <a href="#/resources">MODEL.md</a> · In this warehouse, not an official rating.
+    Cricsheet data (CC BY-SA / ODbL), built locally · Metrics in <a href="#/resources">MODEL.md</a> · In this warehouse, not an official rating.
     <a href="#/resources/attribution">ATTRIBUTION.md</a>
   </footer>
 

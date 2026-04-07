@@ -1,4 +1,4 @@
-import { highlightHTML, heuristic, upsertToken } from "./querybox.js";
+import { highlightHTML, heuristic, upsertToken, trailingScore } from "./querybox.js";
 import {
   initChrome, setDocTitle, favList, renderFavStar, trayAdd,
   formBlock, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
@@ -42,23 +42,32 @@ function syncHighlight() {
 }
 
 async function loadStatus() {
-  const s = await (await fetch("/api/status")).json();
-  $("data-date").textContent = s.last_pull_display && s.last_pull_display !== "—"
-    ? `Data: ${s.last_pull_display}`
-    : "Data: —";
-  return s;
+  try {
+    const s = await (await fetch("/api/status")).json();
+    $("data-date").textContent = s.last_pull_display && s.last_pull_display !== "—"
+      ? `Data: ${s.last_pull_display}`
+      : "Data: —";
+    return s;
+  } catch {
+    $("data-date").textContent = "Data: —";
+    return {};
+  }
 }
 
 async function loadSettings() {
-  settings = await (await fetch("/api/settings")).json();
-  applyTheme(settings.theme || "charcoal");
+  try {
+    settings = await (await fetch("/api/settings")).json();
+  } catch {
+    settings = { theme: "charcoal", weights: { rae: 0.45, wpa: 0.35, consistency: 0.20 } };
+  }
+  applyTheme(settings?.theme || "charcoal");
 }
 
 function applyTheme(theme) {
   settings.theme = theme === "paper" ? "paper" : "charcoal";
   document.documentElement.dataset.theme = settings.theme;
   const btn = $("theme-toggle");
-  if (btn) btn.textContent = settings.theme === "charcoal" ? "Light" : "Dark";
+  if (btn) btn.textContent = settings.theme === "charcoal" ? "Paper" : "Night";
 }
 
 async function saveTheme(theme) {
@@ -115,7 +124,16 @@ searchScrim?.addEventListener("click", closeSearch);
 input.addEventListener("input", async () => {
   syncHighlight();
   const v = input.value;
+  const score = trailingScore(v);
+  if (score) {
+    renderInningsAC(score);
+    return;
+  }
   const word = v.split(/\s+/).pop() || "";
+  if (/^\d{1,3}$/.test(word)) {
+    ac.classList.remove("open");
+    return;
+  }
   if (word.endsWith(":") || word.length >= 2) {
     const s = await (await fetch(`/api/suggest?q=${encodeURIComponent(word)}`)).json();
     renderAC(s);
@@ -127,10 +145,12 @@ input.addEventListener("input", async () => {
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    if (ac.classList.contains("open") && acIndex >= 0 && acItems[acIndex]) {
+    const picked = ac.classList.contains("open") && acIndex >= 0 && acItems[acIndex];
+    if (picked && acItems[acIndex].kind !== "innings") {
       acceptAC(acItems[acIndex]);
     } else {
       ac.classList.remove("open");
+      closeSearch();
       runQuery();
     }
   } else if (e.key === "Escape") {
@@ -143,7 +163,7 @@ input.addEventListener("keydown", (e) => {
     paintAC();
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
-    acIndex = Math.max(0, acIndex - 1);
+    acIndex = Math.max(-1, acIndex - 1);
     paintAC();
   } else if (e.key === "Tab" && ac.classList.contains("open") && acItems[acIndex]) {
     e.preventDefault();
@@ -179,7 +199,7 @@ function renderAC(s) {
   }
   ac.innerHTML = html;
   ac.classList.toggle("open", acItems.length > 0);
-  acIndex = acItems.length ? 0 : -1;
+  acIndex = -1;
   paintAC();
   warmPortraits(ac);
   ac.querySelectorAll("button").forEach((b) => {
@@ -190,14 +210,37 @@ function renderAC(s) {
   });
 }
 
+function renderInningsAC(score) {
+  acItems = [{ kind: "innings", name: score.name, runs: score.runs }];
+  ac.innerHTML = `<h4>Innings</h4>
+    <button type="button" data-i="0">Find ${esc(score.runs)} by ${esc(score.name)} <span class="hint">Enter</span></button>`;
+  ac.classList.add("open");
+  acIndex = 0;
+  paintAC();
+  ac.querySelector("button")?.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    acceptAC(acItems[0]);
+  });
+}
+
 function paintAC() {
   ac.querySelectorAll("button").forEach((b, i) => b.classList.toggle("active", i === acIndex));
 }
 
 function acceptAC(item) {
   ac.classList.remove("open");
+  if (item.kind === "innings") {
+    closeSearch();
+    runQuery();
+    return;
+  }
   if (item.kind === "person") {
     closeSearch();
+    const score = trailingScore(input.value);
+    if (score) {
+      location.hash = `#/q=${encodeURIComponent(`${item.slug} ${score.runs}`)}`;
+      return;
+    }
     location.hash = `#/player/${item.slug}`;
     return;
   }
@@ -241,7 +284,13 @@ function fmtDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }).replace(/ /g, " ");
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function cricketOvers(balls, bp = 6) {
+  const n = Number(balls) || 0;
+  const base = Number(bp) || 6;
+  return `${Math.floor(n / base)}.${n % base}`;
 }
 
 function num(v, d = 0) {
@@ -295,6 +344,8 @@ let tableSeq = 0;
 const HEAT_LOW = new Set(["econ", "bowl_avg"]);
 
 function table(columns, rows, opts = {}) {
+  rows = Array.isArray(rows) ? rows : [];
+  columns = columns || [];
   const { pageIndex = 0, total = rows.length, query = "", compact = false, heat = false, copyLine = false, sortKey = "", sortDir = "desc", filter = "", faces = false } = opts;
   const id = opts.id || `tbl-${++tableSeq}`;
   TABLE_STORE.set(id, { columns, rows, opts: { ...opts, id } });
@@ -318,7 +369,10 @@ function table(columns, rows, opts = {}) {
       return hi ? String(bv).localeCompare(String(av)) : String(av).localeCompare(String(bv));
     });
   }
-  const start = pageIndex * PAGE_SIZE;
+  const maxPage = Math.max(0, Math.ceil(view.length / PAGE_SIZE) - 1);
+  const safePage = Math.min(Math.max(0, pageIndex), maxPage);
+  opts.pageIndex = safePage;
+  const start = safePage * PAGE_SIZE;
   const slice = view.slice(start, start + PAGE_SIZE);
   const cols = flattenCols(columns);
   const head = tableHead(columns, { sortKey, sortDir });
@@ -480,7 +534,7 @@ function bindTable(query) {
     st.opts.pageIndex = 0;
     page = 0;
     paintStoredTable(id);
-    const nf = document.querySelector(`#${id} .table-filter`);
+    const nf = document.querySelector(`#${CSS.escape(id)} .table-filter`);
     if (nf) {
       nf.hidden = false;
       nf.focus();
@@ -532,8 +586,8 @@ function closeSearch() {
 async function showHomeSnapshot() {
   setDocTitle("");
   const [snap, pulse] = await Promise.all([
-    (await fetch("/api/snapshot")).json(),
-    (await fetch("/api/pulse")).json().catch(() => ({ hundreds: [], five_fors: [], matches: [] })),
+    fetch("/api/snapshot").then((r) => r.json()).catch(() => ({ rows: [] })),
+    fetch("/api/pulse").then((r) => r.json()).catch(() => ({ hundreds: [], five_fors: [], matches: [] })),
   ]);
   if (!snap.rows?.length) {
     main.innerHTML = `<div class="error">Warehouse not built yet. Run: <code class="cmd">python -m cricwarehouse pull && python -m cricwarehouse build</code> — or open the <a href="#/build">Build</a> page.</div>`;
@@ -584,9 +638,21 @@ async function showHomeSnapshot() {
 async function showResults(q) {
   setHero(false);
   main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
-  const res = await (await fetch(`/api/query?q=${encodeURIComponent(q)}`)).json();
+  let res;
+  try {
+    const r = await fetch(`/api/query?q=${encodeURIComponent(q)}`);
+    res = await r.json();
+    if (!r.ok && res.ok !== false) {
+      const detail = res.detail;
+      const msg = typeof detail === "string" ? detail : (res.error || `Query failed (${r.status})`);
+      res = { ok: false, error: msg };
+    }
+  } catch (err) {
+    main.innerHTML = `<div class="error">${esc(err.message || "Query failed")}</div>`;
+    return;
+  }
   if (!res.ok) {
-    main.innerHTML = `<div class="error">${esc(res.error)} <button class="btn-text" data-copy>Copy</button></div>`;
+    main.innerHTML = `<div class="error">${esc(res.error || "Query failed")}</div>`;
     return;
   }
   if (res.kind === "goto_player" && res.person?.slug) {
@@ -623,8 +689,9 @@ async function showResults(q) {
     ${disamb}
     <p class="scope">${esc(res.scope || "")}${ignored ? ` · <span class="ignored">${esc(ignored)}</span>` : ""}</p>
     ${res.kind === "standings" && res.playoffs?.length ? `<h2 class="section">Points table</h2>` : ""}
-    ${table(res.columns || [], res.rows || [], { pageIndex: page, total: (res.rows || []).length, query: q })}
+    ${table(res.columns || [], res.rows || [], { pageIndex: page, total: (res.rows || []).length, query: q, faces: res.kind === "innings", copyLine: res.kind === "innings" })}
     ${res.kind === "standings" && res.playoffs?.length ? playoffBlock(res.playoffs) : ""}
+    ${res.kind === "innings" ? `<p class="caption">Date opens the scorecard.</p>` : ""}
     ${res.wpa != null ? `<p class="caption">WPA when present in T20s: ${signed(res.wpa, 2)} in this warehouse.</p>` : ""}
   `;
   bindTable(q);
@@ -679,8 +746,20 @@ async function showMatch(id) {
   setHero(false);
   setQuery("");
   main.classList.add("wide");
-  const d = await (await fetch(`/api/match/${id}`)).json();
+  if (!id) {
+    main.innerHTML = `<div class="empty"><p>No match selected.</p><button type="button" class="chip" data-home>Back to search</button></div>`;
+    main.querySelector("[data-home]")?.addEventListener("click", () => { location.hash = "#/"; });
+    return;
+  }
+  const r = await fetch(`/api/match/${encodeURIComponent(id)}`);
+  const d = await r.json().catch(() => ({}));
   const m = d.match;
+  if (!r.ok || !m) {
+    const msg = typeof d.detail === "string" ? d.detail : "Match not found";
+    main.innerHTML = `<div class="empty"><p>${esc(msg)}.</p><button type="button" class="chip" data-home>Back to search</button></div>`;
+    main.querySelector("[data-home]")?.addEventListener("click", () => { location.hash = "#/"; });
+    return;
+  }
   setDocTitle(`${m.team_home} v ${m.team_away}`);
   const badges = [];
   if (m.result_method === "dls") badges.push("DLS");
@@ -712,15 +791,15 @@ async function showMatch(id) {
       ${badges.map((b) => `<span class="badge">${b}</span>`).join(" ")}</p>
     ${xiHtml}
   `;
-  for (const inn of d.innings) {
+  for (const inn of d.innings || []) {
     const label = inn.innings_kind === "super_over" ? "Super Over" : `Innings ${inn.innings}`;
-    const ov = (inn.legal_balls / (m.balls_per_over || 6)).toFixed(1);
+    const ov = cricketOvers(inn.legal_balls, m.balls_per_over || 6);
     const rr = inn.legal_balls ? (inn.runs * 6 / inn.legal_balls).toFixed(2) : "–";
     html += `<h2 class="section">${label} — ${esc(inn.batting_team)} ${inn.runs}/${inn.wickets} (${ov})</h2>
       <p class="inn-meta"><span>RR ${rr}</span><span>Extras ${inn.extras ?? "–"}</span>${inn.declared ? "<span>Declared</span>" : ""}${inn.all_out ? "<span>All out</span>" : ""}</p>`;
-    const bats = d.batting.filter((b) => b.innings === inn.innings);
-    const bowls = d.bowling.filter((b) => b.innings === inn.innings);
-    const parts = d.partnerships.filter((p) => p.innings === inn.innings);
+    const bats = (d.batting || []).filter((b) => b.innings === inn.innings);
+    const bowls = (d.bowling || []).filter((b) => b.innings === inn.innings);
+    const parts = (d.partnerships || []).filter((p) => p.innings === inn.innings);
     html += table(
       [
         { key: "display_name", label: "Batter", align: "left", link: "player" },
@@ -784,7 +863,7 @@ async function showMatch(id) {
       parts.map((p) => ({ ...p, pair: `${p.name_1} / ${p.name_2}` })),
     );
   }
-  const n = d.deliveries.length;
+  const n = (d.deliveries || []).length;
   html += `<button class="drawer" id="del-toggle">Show ${n} deliveries ▸</button>
     <div id="del-table" hidden></div>`;
   main.innerHTML = html;
@@ -803,13 +882,18 @@ async function showMatch(id) {
         { key: "extra_type", label: "Extras", align: "left" },
         { key: "wicket_kind", label: "Wicket", align: "left" },
       ],
-      d.deliveries.map((x) => ({ ...x, ball: `${x.over}.${x.ball_in_over}` })),
+      (d.deliveries || []).map((x) => ({ ...x, ball: `${x.over}.${x.ball_in_over}` })),
     );
   });
 }
 
 async function showPlayer(key) {
   setHero(false);
+  if (!key) {
+    main.innerHTML = `<div class="empty"><p>No player selected.</p><button type="button" class="chip" data-home>Back to search</button></div>`;
+    main.querySelector("[data-home]")?.addEventListener("click", () => { location.hash = "#/"; });
+    return;
+  }
   const res = await fetch(`/api/player/${encodeURIComponent(key)}`);
   const d = await res.json();
   if (!res.ok || d.detail) {
@@ -1001,7 +1085,7 @@ async function showPlayer(key) {
     <div id="h2h-box"></div>
     <div class="fmt-row" id="p-tabs">${tabs}</div>
     ${bowlerFirst ? bowlTable + batTable : batTable + bowlTable}
-    <p class="caption">Fielding in this warehouse: ${d.fielding.catches} catches · ${d.fielding.run_outs} run-outs · ${d.fielding.stumpings} stumpings</p>
+    <p class="caption">Fielding in this warehouse: ${d.fielding?.catches ?? 0} catches · ${d.fielding?.run_outs ?? 0} run-outs · ${d.fielding?.stumpings ?? 0} stumpings</p>
     <h2 class="section">${bowlerFirst ? "Bowling innings" : "Batting innings"}</h2>
     <div id="inn-box"></div>
     ${bowlerFirst ? `<h2 class="section">Batting innings</h2><div id="bat-box"></div>` : (d.bowling_innings?.length ? `<h2 class="section">Bowling innings</h2><div id="bowl-box"></div>` : "")}
@@ -1014,7 +1098,7 @@ async function showPlayer(key) {
         { key: "avg", label: "Avg", align: "right", numeric: true },
         { key: "hundreds", label: "100-stands", align: "right", numeric: true },
       ],
-      d.pairs,
+      d.pairs || [],
     )}
   `;
   const paintBat = (comp, el) => {
@@ -1273,10 +1357,9 @@ async function showStats() {
 async function showWowy() {
   setHero(false);
   setDocTitle("WOWY");
-  const hash = decodeURIComponent(location.hash);
-  const qteam = /[?&]team=([^&]+)/.exec(hash)?.[1] || "India";
-  const qplayer = /[?&]player=([^&]+)/.exec(hash)?.[1] || "";
-  const qcomp = /[?&]comp=([^&]+)/.exec(hash)?.[1] || "";
+  const qteam = hashParam("team") || "India";
+  const qplayer = hashParam("player");
+  const qcomp = hashParam("comp");
   const teams = await (await fetch("/api/teams")).json();
   main.innerHTML = `
     <h1 class="page-title">WOWY</h1>
@@ -1417,8 +1500,13 @@ async function showBest() {
 }
 
 function hashParam(name) {
-  const q = decodeURIComponent(location.hash).split("?")[1] || "";
-  return new URLSearchParams(q).get(name) || "";
+  try {
+    const i = location.hash.indexOf("?");
+    if (i < 0) return "";
+    return new URLSearchParams(location.hash.slice(i + 1)).get(name) || "";
+  } catch {
+    return "";
+  }
 }
 
 function pickList(people, side) {
@@ -1615,13 +1703,13 @@ async function showCompare() {
   if (!a || !b) {
     main.innerHTML = `
       <h1 class="page-title">Compare</h1>
-      <p class="lede">Two players, two teams, a profile twin, or how a bowler shifts the attack around them.</p>
-      <div class="launch">
-        <a class="launch-card" href="#/compare"><h3>Players</h3><p>Same format, same bowlers — not two unrelated lists.</p></a>
-        <a class="launch-card" href="#/teams"><h3>Teams</h3><p>Rank a side’s T20 value against another, same season.</p></a>
-        <a class="launch-card" href="#/twin"><h3>Profile twin</h3><p>Closest T20 shape in this warehouse — WAR, RAE, WPA, pressure.</p></a>
-        <a class="launch-card" href="#/shift"><h3>Stat line shift</h3><p>How teammates bowl and bat with you vs without you.</p></a>
-      </div>
+      <p class="lede">Same format, same opponents. Pick two names, or jump to teams, a profile twin, or a stat-line shift.</p>
+      <nav class="browse">
+        <a href="#/compare">Players</a>
+        <a href="#/teams">Teams</a>
+        <a href="#/twin">Profile twin</a>
+        <a href="#/shift">Stat line shift</a>
+      </nav>
       <div class="filters">
         <label>Player A <input type="text" id="c-a" placeholder="Kohli" value="${esc(a)}"></label>
         <label>Player B <input type="text" id="c-b" placeholder="Root" value="${esc(b)}"></label>
@@ -2184,12 +2272,13 @@ async function showBuild() {
 
 async function showSQL() {
   setHero(false);
-  const views = await (await fetch("/api/views")).json();
+  const views = await fetch("/api/views").then((r) => r.json()).catch(() => ({ views: [] }));
+  const list = views.views || [];
   main.innerHTML = `
     <h1 class="page-title">SQL</h1>
     <p class="caption">Read-only · documented views only</p>
     <div class="sql-layout">
-      <div class="sql-views">${views.views.map((v) => `<button data-v="${v}">${v}</button>`).join("")}</div>
+      <div class="sql-views">${list.map((v) => `<button type="button" data-v="${esc(v)}">${esc(v)}</button>`).join("")}</div>
       <div style="flex:1">
         <textarea class="sql-editor" id="sql">SELECT * FROM v_matches LIMIT 100</textarea>
         <p><button class="btn primary" id="run-sql">Run</button></p>
@@ -2216,19 +2305,35 @@ async function showSQL() {
 async function showDocs(name = "model") {
   setHero(false);
   setDocTitle("Resources");
-  const d = await (await fetch(`/api/docs/${name}`)).json();
+  const r = await fetch(`/api/docs/${encodeURIComponent(name || "model")}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.html) {
+    main.innerHTML = `<div class="empty"><p>Doc not found.</p></div>`;
+    return;
+  }
   main.innerHTML = `<article class="docs-body">${d.html}</article>`;
 }
 
 async function route() {
+  try {
+    await routeInner();
+  } catch (err) {
+    main.innerHTML = `<div class="empty"><p>Couldn’t open this page.</p><p class="caption">${esc(err.message || err)}</p></div>`;
+  }
+}
+
+async function routeInner() {
   main.classList.remove("wide");
   document.body.classList.remove("table-focus");
   delete document.body.dataset.playerSlug;
   delete document.body.dataset.playerName;
   const star = $("fav-star");
   if (star) star.hidden = true;
-  const raw = decodeURIComponent(location.hash.replace(/^#/, "") || "/");
-  const hash = raw.split("?")[0];
+  const hashRaw = location.hash.replace(/^#/, "") || "/";
+  const qIndex = hashRaw.indexOf("?");
+  const pathEnc = qIndex < 0 ? hashRaw : hashRaw.slice(0, qIndex);
+  let hash = pathEnc;
+  try { hash = decodeURIComponent(pathEnc); } catch { /* keep encoded path */ }
   if (hash.startsWith("/q=")) {
     const q = hash.slice(3);
     input.value = q;

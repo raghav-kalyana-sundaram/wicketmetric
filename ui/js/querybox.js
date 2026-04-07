@@ -4,7 +4,9 @@ const TOKEN_KEYS = [
   "dismissed_by","standings","gender","notout","min_balls","min_partnerships",
 ];
 
-const FORMAT_OK = new Set(["test","tests","t20i","t20","it20","ipl","wpl","bbl","wbbl","wbb"]);
+const FORMAT_OK = new Set([
+  "test", "tests", "odi", "odis", "odm", "t20i", "t20", "it20", "ipl", "wpl", "bbl", "wbbl", "wbb",
+]);
 
 export function tokenize(raw) {
   const tokens = [];
@@ -28,7 +30,7 @@ export function highlightHTML(raw) {
   return tokenize(raw).map((t) => {
     if (t.type === "text") return escape(t.text);
     const cls = t.bad ? "token-pill token-bad" : "token-pill";
-    const title = t.bad ? `Unknown ${t.key}. Try: test, t20i, ipl, wpl, bbl, wbbl` : "";
+    const title = t.bad ? `Unknown ${t.key}. Try: test, odi, t20i, ipl, wpl, bbl, wbbl` : "";
     return `<span class="${cls}" title="${escape(title)}"><span class="k">${escape(t.key)}:</span><span class="v">${escape(t.val)}</span></span>`;
   }).join("");
 }
@@ -38,6 +40,16 @@ export function heuristic(raw) {
   const m = raw.match(/\s(\d{1,3})\s*$/);
   if (hasPlayer && m && !/runs:/.test(raw)) return `→ runs:${m[1]} (exact)`;
   return "";
+}
+
+/** Bare “kohli 89” / “v kohli 183” — name plus a score, not a token query. */
+export function trailingScore(raw) {
+  const q = String(raw || "").trim();
+  if (!q || /runs:/i.test(q) || /:\S/.test(q)) return null;
+  const m = q.match(/^(.*\S)\s+(\d{1,3})$/);
+  if (!m || /^\d+$/.test(m[1].trim())) return null;
+  if (!/[a-z]/i.test(m[1])) return null;
+  return { name: m[1].trim(), runs: m[2] };
 }
 
 export function upsertToken(raw, key, value) {

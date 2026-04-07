@@ -49,6 +49,13 @@ def create_app() -> FastAPI:
     def index():
         return FileResponse(UI / "index.html")
 
+    @app.get("/favicon.ico")
+    def favicon():
+        path = UI / "favicon.svg"
+        if path.exists():
+            return FileResponse(path, media_type="image/svg+xml")
+        raise HTTPException(404)
+
     @app.get("/api/status")
     def status():
         sources = load_sources()
@@ -108,7 +115,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/query")
     def api_query(q: str = ""):
-        return execute(q)
+        try:
+            return execute(q)
+        except Exception as e:
+            return {"ok": False, "error": str(e), "kind": "empty", "rows": [], "columns": []}
 
     @app.get("/api/parse")
     def api_parse(q: str = ""):
@@ -626,10 +636,17 @@ def create_app() -> FastAPI:
 
     @app.get("/api/settings")
     def get_settings():
+        defaults = {"theme": "charcoal", "weights": {"rae": 0.45, "wpa": 0.35, "consistency": 0.20}}
         p = USER_DATA / "settings.json"
-        if p.exists():
-            return json.loads(p.read_text())
-            return {"theme": "charcoal", "weights": {"rae": 0.45, "wpa": 0.35, "consistency": 0.20}}
+        if not p.exists():
+            return dict(defaults)
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return dict(defaults)
+        if not isinstance(data, dict):
+            return dict(defaults)
+        return {**defaults, **data}
 
     @app.put("/api/settings")
     async def put_settings(request: Request):

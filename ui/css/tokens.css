@@ -1,102 +1,145 @@
+/* Cool scorecard pad by day; charcoal follows lichess — warm near-black, one blue.
+   Type: Fraunces (names), Atkinson Hyperlegible (UI), JetBrains Mono (query + figures).
+   Gold is an innings milestone only. */
+
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  --t-caption: 0.8125rem;
+  --t-caption-lh: 1.25rem;
+  --t-body: 1rem;
+  --t-body-lh: 1.5rem;
+  --t-h3: 1.125rem;
+  --t-h3-lh: 1.5rem;
+  --t-h2: 1.5rem;
+  --t-h2-lh: 1.75rem;
+  --t-display: clamp(1.75rem, 1.35rem + 1.4vw, 2.35rem);
+  --t-display-lh: 1.12;
+  --t-table: 0.875rem;
+  --t-table-lh: 1.375rem;
+  --t-query: 1.0625rem;
+  --t-query-lh: 1.5rem;
+
+  --font-display: "Fraunces", "Fraunces Fallback", Georgia, serif;
+  --font-ui: "Atkinson Hyperlegible", "Atkinson Fallback", "Trebuchet MS", sans-serif;
+  --font-mono: "JetBrains Mono", "JetBrains Fallback", ui-monospace, monospace;
+
+  --radius-sm: 0.25rem;
+  --radius-panel: 0.75rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --focus: 0 0 0 2px var(--bg-app), 0 0 0 4px var(--accent);
+}
+
 :root,
 [data-theme="paper"] {
-  --bg-app: #F6F8FA;
-  --bg-surface: #FFFFFF;
-  --bg-inset: #EDF1F5;
-  --ink: #1A2432;
-  --ink-2: #57647A;
-  --ink-3: #8A96A6;
-  --line: #DEE5EC;
-  --line-strong: #C4CFDB;
-  --accent: #1E4E8C;
-  --accent-strong: #163B6B;
-  --accent-tint: #E5EDF8;
-  --gold: #8A6D1F;
-  --red: #A33A2E;
-  --green-pos: #2E6B3F;
-  --t-display: 28px;
-  --t-display-lh: 34px;
-  --t-h2: 20px;
-  --t-h2-lh: 26px;
-  --t-h3: 15px;
-  --t-h3-lh: 20px;
-  --t-body: 14px;
-  --t-body-lh: 20px;
-  --t-table: 13px;
-  --t-table-lh: 18px;
-  --t-caption: 12px;
-  --t-caption-lh: 16px;
-  --t-query: 15px;
-  --t-query-lh: 22px;
-  --font-display: "Spectral", "Iowan Old Style", "Palatino Linotype", serif;
-  --font-ui: "Public Sans", "Helvetica Neue", sans-serif;
-  --font-mono: "IBM Plex Mono", "Menlo", monospace;
-  --radius-sm: 6px;
-  --radius-panel: 8px;
-  --shadow-pop: 0 4px 16px rgba(24, 37, 36, 0.10);
+  --bg-app: oklch(0.94 0.012 250);
+  --bg-surface: oklch(0.985 0.006 250);
+  --bg-inset: oklch(0.91 0.014 250);
+  --ink: oklch(0.28 0.042 262);
+  --ink-2: oklch(0.42 0.03 258);
+  --ink-3: oklch(0.44 0.024 255);
+  --line: oklch(0.86 0.016 250);
+  --line-strong: oklch(0.78 0.02 250);
+  --accent: oklch(0.40 0.12 265);
+  --accent-strong: oklch(0.34 0.12 265);
+  --accent-tint: oklch(0.94 0.03 265);
+  --gold: oklch(0.52 0.10 85);
+  --series-b: oklch(0.48 0.07 200);
+  --red: oklch(0.48 0.13 28);
+  --green-pos: oklch(0.45 0.10 150);
+  --on-accent: oklch(0.98 0.008 250);
+  --shadow-pop: 0 0.5rem 1.25rem oklch(0.28 0.04 262 / 0.10);
 }
 
 [data-theme="charcoal"] {
   --bg-app: #161514;
-  --bg-surface: #24221F;
-  --bg-inset: #2C2926;
-  --ink: #CFCCC7;
+  --bg-surface: #24221f;
+  --bg-inset: #2c2926;
+  --ink: #cfccc7;
   --ink-2: #969390;
-  --ink-3: #6E6B67;
-  --line: #35322E;
-  --line-strong: #46423D;
-  --accent: #3893E5;
-  --accent-strong: #5FAAEC;
-  --accent-tint: #21313F;
-  --gold: #C9A24C;
-  --red: #D96A5C;
-  --green-pos: #6FB98A;
-  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --ink-3: #6e6b67;
+  --line: #35322e;
+  --line-strong: #46423d;
+  --accent: #3893e5;
+  --accent-strong: #5faaec;
+  --accent-tint: #21313f;
+  --gold: #c9a24c;
+  --series-b: #8a9b7a;
+  --red: #d96a5c;
+  --green-pos: #6fb98a;
+  --on-accent: #f6f8fa;
+  --shadow-pop: 0 0.5rem 1.25rem #00000073;
 }
 
 @font-face {
-  font-family: "Spectral";
-  src: url("/static/fonts/spectral-600.woff2") format("woff2");
+  font-family: "Fraunces Fallback";
+  src: local("Georgia");
+  size-adjust: 108%;
+  ascent-override: 92%;
+  descent-override: 22%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Atkinson Fallback";
+  src: local("Trebuchet MS"), local("Arial");
+  size-adjust: 104%;
+  ascent-override: 94%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "JetBrains Fallback";
+  src: local("Menlo"), local("Consolas");
+  size-adjust: 99%;
+  ascent-override: 90%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Fraunces";
+  src: url("/static/fonts/fraunces-600.woff2") format("woff2");
   font-weight: 600;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: "Public Sans";
-  src: url("/static/fonts/public-sans-400.woff2") format("woff2");
+  font-family: "Atkinson Hyperlegible";
+  src: url("/static/fonts/atkinson-400.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: "Public Sans";
-  src: url("/static/fonts/public-sans-500.woff2") format("woff2");
-  font-weight: 500;
+  font-family: "Atkinson Hyperlegible";
+  src: url("/static/fonts/atkinson-700.woff2") format("woff2");
+  font-weight: 500 700;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: "Public Sans";
-  src: url("/static/fonts/public-sans-600.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  src: url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/jetbrains-mono-400.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: "IBM Plex Mono";
-  src: url("/static/fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/jetbrains-mono-500.woff2") format("woff2");
   font-weight: 500;
   font-style: normal;
   font-display: swap;

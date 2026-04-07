@@ -41,7 +41,7 @@ KNOWN_KEYS = {
 TOKEN_HELP = [
     ("player", "Name or id — player:kohli"),
     ("runs", "Exact or range — runs:89  runs:100-150"),
-    ("format", "test, t20i, ipl, wpl, bbl, wbbl"),
+    ("format", "test, odi, t20i, ipl, wpl, bbl, wbbl"),
     ("comp", "Alias of format"),
     ("years", "Calendar range — years:2021-2026"),
     ("from", "Start date — from:2023-04-01"),
@@ -386,7 +386,7 @@ def _exec_innings(con, parsed: ParsedQuery) -> dict:
         "kind": "innings",
         "title": parsed.raw,
         "columns": [
-            {"key": "start_date", "label": "Date", "align": "left"},
+            {"key": "start_date", "label": "Date", "align": "left", "link": "match"},
             {"key": "player", "label": "Player", "align": "left", "link": "player"},
             {"key": "opposition", "label": "Opp", "align": "left"},
             {"key": "competition", "label": "Comp", "align": "left"},

@@ -65,16 +65,21 @@ export function portrait(slug, name, size = "sm") {
   if (!slug) return "";
   const ini = initialsOf(name);
   const dark = document.documentElement.getAttribute("data-theme") !== "paper";
-  const bg = dark ? "#2c2926" : "#edf1f5";
-  const fg = dark ? "#969390" : "#57647a";
+  const bg = dark ? "#2c2926" : "#e8ecf2";
+  const fg = dark ? "#969390" : "#5c6578";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 64"><rect fill="${bg}" width="48" height="64"/><text x="24" y="38" text-anchor="middle" fill="${fg}" font-family="Georgia,serif" font-size="15">${ini}</text></svg>`;
   const alt = size === "lg" ? esc(name || "") : "";
   return `<img class="port port-${size}" alt="${alt}" width="48" height="64" data-port="${esc(slug)}" src="data:image/svg+xml,${encodeURIComponent(svg)}">`;
 }
 
+const portUrls = new Map();
+
 function applyPortrait(root, slug, blob) {
   if (!blob || !(blob.type || "").includes("image/") || (blob.type || "").includes("svg")) return false;
+  const prev = portUrls.get(slug);
+  if (prev) URL.revokeObjectURL(prev);
   const url = URL.createObjectURL(blob);
+  portUrls.set(slug, url);
   root.querySelectorAll(`img.port[data-port="${CSS.escape(slug)}"]`).forEach((el) => {
     el.src = url;
     el.dataset.ready = "1";
@@ -217,7 +222,7 @@ export function almanacBlock(a) {
   const convPct = conv.conversion != null ? Math.min(100, Number(conv.conversion)) : 0;
   return `
     <section class="almanac" id="almanac">
-      ${a.last5?.length ? `<div class="almanac-row"><h3>Last knocks</h3>${scoreBeads(a.last5, 10)}</div>` : ""}
+      ${a.last5?.length ? `<div class="almanac-row"><h3>Last knocks</h3>${scoreBeads(a.last5, 10)}<p class="caption">Each score opens that match</p></div>` : ""}
       ${debut || latest ? `<p class="almanac-span">${spanLink(debut, "Debut")}${debut && latest ? "<br>" : ""}${spanLink(latest, "Latest")}</p>` : ""}
       ${conv.hundreds != null ? `<div class="conv">
         <div><div class="conv-k">Hundreds</div><div class="conv-n">${conv.hundreds}</div></div>
@@ -503,6 +508,8 @@ export function closeOverlays() {
     if (el) el.hidden = true;
   });
   document.body.classList.remove("overlay-open");
+  const keysBtn = $("keys-toggle");
+  if (keysBtn) keysBtn.setAttribute("aria-expanded", "false");
 }
 
 function openSheet(id) {
@@ -513,7 +520,10 @@ function openSheet(id) {
   document.body.classList.add("overlay-open");
 }
 
-export function openKeys() { openSheet("keys-sheet"); }
+export function openKeys() {
+  openSheet("keys-sheet");
+  $("keys-toggle")?.setAttribute("aria-expanded", "true");
+}
 export function openGlossary() { openSheet("glossary-sheet"); }
 
 export async function openPalette() {
@@ -534,9 +544,20 @@ export async function openPalette() {
   requestAnimationFrame(() => input.focus());
   input.oninput = async () => {
     const q = input.value.trim();
-    if (q.length < 2) return;
-    const s = await (await fetch(`/api/suggest?q=${encodeURIComponent(q)}`)).json();
+    if (q.length < 2) {
+      list.innerHTML = `<button type="button" data-hash="#/stats">Stats</button>
+        <button type="button" data-hash="#/wowy">WOWY</button>
+        <button type="button" data-hash="#/best">Best T20</button>
+        <button type="button" data-hash="#/compare">Compare</button>`;
+      bindPaletteButtons(list);
+      return;
+    }
+    const innings = !/:\S/.test(q) && /[a-z]/i.test(q) ? q.match(/^(.*\S)\s+(\d{1,3})$/) : null;
+    const s = await (await fetch(`/api/suggest?q=${encodeURIComponent(innings ? innings[1] : q)}`)).json();
     let html = "";
+    if (innings) {
+      html += `<button type="button" data-hash="#/q=${encodeURIComponent(q)}">Find ${esc(innings[2])} by ${esc(innings[1])} <span class="hint">innings</span></button>`;
+    }
     (s.people || []).slice(0, 8).forEach((p) => {
       const hint = p.unique_name && p.unique_name !== p.display_name ? ` <span class="hint">${esc(p.unique_name)}</span>` : "";
       html += `<button type="button" data-hash="#/player/${esc(p.slug)}">${portrait(p.slug, p.display_name, "xs")}<span>${esc(p.display_name)}${hint}</span></button>`;
