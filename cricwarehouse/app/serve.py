@@ -193,10 +193,14 @@ def create_app() -> FastAPI:
         b: str,
         comp: str = "t20i",
         season: str | None = None,
+        season_a: str | None = None,
+        season_b: str | None = None,
         gender: str = "male",
     ):
         from cricwarehouse.app import studio
-        return studio.team_compare(a, b, comp=comp, season=season, gender=gender)
+        return studio.team_compare(
+            a, b, comp=comp, season=season, season_a=season_a, season_b=season_b, gender=gender
+        )
 
     @app.get("/api/twin")
     def api_twin(player: str, pool: str | None = None):
@@ -243,19 +247,38 @@ def create_app() -> FastAPI:
             ).fetchdf().to_dict("records")
             bat = con.execute(
                 """
-                SELECT b.*, p.display_name, p.slug
-                FROM batting_lines b JOIN people p ON p.person_id = b.person_id
+                SELECT b.*, p.display_name, p.slug,
+                       bp.display_name AS bowler_name,
+                       fp.display_name AS fielder_name
+                FROM batting_lines b
+                JOIN people p ON p.person_id = b.person_id
+                LEFT JOIN people bp ON bp.person_id = b.bowler_id
+                LEFT JOIN people fp ON fp.person_id = b.fielder_id
                 WHERE b.match_id = ? ORDER BY b.innings, b.position
                 """,
                 [match_id],
             ).fetchdf().to_dict("records")
             bowl = con.execute(
                 """
-                SELECT b.*, p.display_name, p.slug
-                FROM bowling_lines b JOIN people p ON p.person_id = b.person_id
+                WITH dx AS (
+                  SELECT innings, innings_kind, bowler,
+                         SUM(CASE WHEN extra_type = 'wides' THEN runs_extras ELSE 0 END) AS wides,
+                         SUM(CASE WHEN extra_type = 'noballs' THEN runs_extras ELSE 0 END) AS noballs
+                  FROM deliveries
+                  WHERE match_id = ?
+                  GROUP BY 1,2,3
+                )
+                SELECT b.*, p.display_name, p.slug,
+                       COALESCE(dx.wides, 0) AS wides,
+                       COALESCE(dx.noballs, 0) AS noballs
+                FROM bowling_lines b
+                JOIN people p ON p.person_id = b.person_id
+                LEFT JOIN dx ON dx.innings = b.innings
+                            AND dx.innings_kind = b.innings_kind
+                            AND dx.bowler = b.person_id
                 WHERE b.match_id = ? ORDER BY b.innings, b.legal_balls DESC
                 """,
-                [match_id],
+                [match_id, match_id],
             ).fetchdf().to_dict("records")
             parts = con.execute(
                 """
@@ -274,10 +297,13 @@ def create_app() -> FastAPI:
                 """
                 SELECT over, ball_in_over, bowler, striker, runs_total, extra_type,
                        wicket_kind, player_out, innings, innings_kind,
-                       p1.display_name AS bowler_name, p2.display_name AS striker_name
+                       runs_extras, is_legal, legal_ball_index,
+                       p1.display_name AS bowler_name, p2.display_name AS striker_name,
+                       p3.display_name AS player_out_name
                 FROM deliveries d
                 LEFT JOIN people p1 ON p1.person_id = d.bowler
                 LEFT JOIN people p2 ON p2.person_id = d.striker
+                LEFT JOIN people p3 ON p3.person_id = d.player_out
                 WHERE d.match_id = ?
                 ORDER BY innings, over, ball_in_over
                 """,
@@ -330,12 +356,12 @@ def create_app() -> FastAPI:
             pid = p["person_id"]
             inns = con.execute(
                 """
-                SELECT b.*, m.start_date, m.competition, m.gender, m.winner, m.result_method,
+                SELECT b.*, m.start_date, m.competition, m.gender, m.winner, m.result, m.result_method,
                        CASE WHEN b.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
                        m.event_name
                 FROM batting_lines b JOIN matches m ON m.match_id = b.match_id
                 WHERE b.person_id = ? AND b.innings_kind = 'regular'
-                ORDER BY m.start_date DESC
+                ORDER BY m.start_date DESC, b.match_id, b.innings
                 """,
                 [pid],
             ).fetchdf().to_dict("records")
@@ -373,11 +399,11 @@ def create_app() -> FastAPI:
             ).fetchdf().to_dict("records")
             bowl_inns = con.execute(
                 """
-                SELECT bl.*, m.start_date, m.competition, m.winner, m.result_method,
+                SELECT bl.*, m.start_date, m.competition, m.winner, m.result, m.result_method,
                        CASE WHEN bl.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition
                 FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
                 WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
-                ORDER BY m.start_date DESC
+                ORDER BY m.start_date DESC, bl.match_id, bl.innings
                 """,
                 [pid],
             ).fetchdf().to_dict("records")
@@ -400,17 +426,18 @@ def create_app() -> FastAPI:
                 """
                 SELECT CASE WHEN pr.person_id_1 = ? THEN p2.display_name ELSE p1.display_name END AS partner,
                        CASE WHEN pr.person_id_1 = ? THEN pr.person_id_2 ELSE pr.person_id_1 END AS partner_id,
+                       CASE WHEN pr.person_id_1 = ? THEN p2.slug ELSE p1.slug END AS partner_slug,
                        COUNT(*) AS inns, SUM(pr.runs) AS runs, ROUND(AVG(pr.runs),1) AS avg,
                        SUM(CASE WHEN pr.runs >= 100 THEN 1 ELSE 0 END) AS hundreds
                 FROM partnerships pr
                 JOIN people p1 ON p1.person_id = pr.person_id_1
                 JOIN people p2 ON p2.person_id = pr.person_id_2
                 WHERE (pr.person_id_1 = ? OR pr.person_id_2 = ?) AND pr.innings_kind = 'regular'
-                GROUP BY 1,2
+                GROUP BY 1,2,3
                 ORDER BY SUM(pr.runs) DESC
                 LIMIT 15
                 """,
-                [pid, pid, pid, pid],
+                [pid, pid, pid, pid, pid],
             ).fetchdf().to_dict("records")
             so = []
             try:
@@ -425,7 +452,12 @@ def create_app() -> FastAPI:
             ).fetchone()
             teams = con.execute(
                 """
-                SELECT x.team, COUNT(DISTINCT x.match_id) AS matches
+                SELECT CASE
+                         WHEN x.team IN ('Royal Challengers Bangalore', 'Royal Challengers Bengaluru')
+                           THEN 'Royal Challengers Bengaluru'
+                         ELSE x.team
+                       END AS team,
+                       COUNT(DISTINCT x.match_id) AS matches
                 FROM xi x
                 WHERE x.person_id = ?
                 GROUP BY 1
@@ -452,9 +484,9 @@ def create_app() -> FastAPI:
                     "last": span[1],
                     "matches": int(span[2] or 0),
                     "line": (
-                        f"{span[0][:4]}–{span[1][:4]} · {int(span[2] or 0)} matches in warehouse"
+                        f"{span[0][:4]}–{span[1][:4]} · {int(span[2] or 0)} matches"
                         if span[0] and span[1]
-                        else f"{int(span[2] or 0)} matches in warehouse"
+                        else f"{int(span[2] or 0)} matches"
                     ),
                 },
                 "summary": _clean_list(summary),

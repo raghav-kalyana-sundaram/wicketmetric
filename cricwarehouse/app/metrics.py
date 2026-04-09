@@ -730,6 +730,7 @@ def _score_performances(balls: pd.DataFrame, rpw: dict[str, float]) -> list[dict
                 "wpa": round(float(r.wpa or 0), 4),
                 "wpa_runs": round(float(r.wpa_runs or 0), 2),
                 "press": round(float(r.press or 0), 2),
+                "blend": float(r.blend),
                 "score": round(float(r.score or 50), 1),
                 "balls": balls_n,
                 "runs": runs_n,

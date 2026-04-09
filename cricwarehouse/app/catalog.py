@@ -735,18 +735,22 @@ def list_performances(
             JOIN people p ON p.person_id = pf.person_id
             JOIN matches m ON m.match_id = pf.match_id
             WHERE {' AND '.join(where)}
-            ORDER BY pf.score DESC
+            ORDER BY pf.blend DESC
             LIMIT ?
             """,
             params + [int(limit)],
         ).fetchdf()
         rows = recs.to_dict("records") if not recs.empty else []
-        for r in rows:
+        for rank, r in enumerate(rows, start=1):
+            r["rank"] = rank
             r["player"] = r.get("display_name")
             r["result"] = "Won" if r.get("winner") == r.get("team") else ("Lost" if r.get("winner") else "—")
+            r["composite"] = round(100 + 10 * float(r.get("blend") or 0), 1)
+            r["bat_line"] = r.get("line") if r.get("discipline") == "bat" else None
+            r["bowl_line"] = r.get("line") if r.get("discipline") == "bowl" else None
         return {
             "rows": _jsonable(rows),
-            "caption": "Scores are percentiles within each competition’s history. Composite of NRC, WPA, and pressure — not raw runs added.",
+            "caption": "Composite index: 100 is the reference line; each 10 points is one blended standard deviation.",
         }
     except Exception:
         return {"rows": [], "caption": "Rebuild T20 metrics to score performances."}
