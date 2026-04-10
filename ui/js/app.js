@@ -67,7 +67,11 @@ function applyTheme(theme) {
   settings.theme = theme === "paper" ? "paper" : "charcoal";
   document.documentElement.dataset.theme = settings.theme;
   const btn = $("theme-toggle");
-  if (btn) btn.textContent = settings.theme === "charcoal" ? "Paper" : "Night";
+  if (btn) {
+    const next = settings.theme === "charcoal" ? "paper" : "charcoal";
+    btn.textContent = `${next === "paper" ? "Paper" : "Charcoal"} theme`;
+    btn.setAttribute("aria-label", `Switch to ${next} theme`);
+  }
 }
 
 async function saveTheme(theme) {
@@ -262,6 +266,48 @@ function acceptAC(item) {
   input.focus();
 }
 
+function bindFieldAutocomplete(inputId, kind = "people") {
+  const field = $(inputId);
+  if (!field) return;
+  field.setAttribute("autocomplete", "off");
+  field.setAttribute("role", "combobox");
+  field.setAttribute("aria-autocomplete", "list");
+  const menu = document.createElement("div");
+  menu.className = "field-ac";
+  menu.hidden = true;
+  field.parentElement.appendChild(menu);
+  let request = 0;
+  field.addEventListener("input", async () => {
+    delete field.dataset.resolved;
+    const q = field.value.trim();
+    if (q.length < 2) { menu.hidden = true; return; }
+    const current = ++request;
+    const result = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`).then((r) => r.json()).catch(() => ({}));
+    if (current !== request) return;
+    const items = kind === "teams" ? (result.teams || []) : (result.people || []);
+    menu.innerHTML = items.slice(0, 8).map((item, i) => {
+      if (kind === "teams") {
+        const name = item.team || item;
+        return `<button type="button" data-i="${i}">${esc(name)}</button>`;
+      }
+      const detail = item.unique_name && item.unique_name !== item.display_name ? item.unique_name : "";
+      return `<button type="button" data-i="${i}">${portrait(item.slug, item.display_name, "xs")}<span>${esc(item.display_name)}${detail ? `<small>${esc(detail)}</small>` : ""}</span></button>`;
+    }).join("");
+    menu.hidden = !items.length;
+    menu.querySelectorAll("button").forEach((button) => button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      const item = items[Number(button.dataset.i)];
+      const name = kind === "teams" ? (item.team || item) : item.display_name;
+      field.value = name;
+      field.dataset.resolved = kind === "teams" ? name : item.slug;
+      menu.hidden = true;
+      field.focus();
+    }));
+    warmPortraits(menu);
+  });
+  field.addEventListener("blur", () => setTimeout(() => { menu.hidden = true; }, 100));
+}
+
 document.addEventListener("keydown", (e) => {
   const tag = document.activeElement?.tagName;
   const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
@@ -310,7 +356,7 @@ function signed(v, d = 1) {
 function flattenCols(columns) {
   const out = [];
   for (const c of columns) {
-    if (c.group) out.push(...c.cols);
+    if (c.group) out.push(...c.cols.map((sub, i) => ({ ...sub, groupStart: i === 0 })));
     else out.push(c);
   }
   return out;
@@ -319,9 +365,11 @@ function flattenCols(columns) {
 function tableHead(columns, { sortKey = "", sortDir = "desc" } = {}) {
   const th = (c, extra = "") => {
     const cls = [c.align === "right" || c.numeric ? "num" : "name", extra, sortKey === c.key ? "sorted" : ""].filter(Boolean).join(" ");
-    const key = c.key ? ` data-key="${esc(c.key)}"` : "";
+    const key = c.key && c.sortable !== false ? ` data-key="${esc(c.key)}"` : "";
     const mark = sortKey === c.key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
-    return `<th class="${cls}" scope="col"${key}${c.rowspan ? ` rowspan="${c.rowspan}"` : ""}${c.colspan ? ` colspan="${c.colspan}"` : ""}>${esc(c.label)}${mark}</th>`;
+    const help = c.help ? ` title="${esc(c.help)}" aria-label="${esc(`${c.label}: ${c.help}`)}"` : "";
+    const info = c.info ? ` <span class="info" tabindex="0" aria-label="About ${esc(c.label)}">?<span class="pop">${esc(c.info)}</span></span>` : "";
+    return `<th class="${cls}" scope="col"${key}${help}${c.rowspan ? ` rowspan="${c.rowspan}"` : ""}${c.colspan ? ` colspan="${c.colspan}"` : ""}>${esc(c.label)}${mark}${info}</th>`;
   };
   if (!columns.some((c) => c.group)) {
     return `<tr>${columns.map((c) => th(c)).join("")}</tr>`;
@@ -331,7 +379,7 @@ function tableHead(columns, { sortKey = "", sortDir = "desc" } = {}) {
   for (const c of columns) {
     if (c.group) {
       top.push(`<th class="num grp" colspan="${c.cols.length}" scope="colgroup">${esc(c.group)}</th>`);
-      for (const s of c.cols) bot.push(th(s, "sub"));
+      for (const [i, s] of c.cols.entries()) bot.push(th(s, `sub${i === 0 ? " group-start" : ""}`));
     } else {
       top.push(th({ ...c, rowspan: 2 }));
     }
@@ -356,8 +404,12 @@ function table(columns, rows, opts = {}) {
   }
   if (sortKey) {
     const hi = sortDir !== "asc";
-    view = view.slice().sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
+    const compareRows = (a, b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if (opts.sortAbs && (sortKey === "delta" || String(sortKey).endsWith("_delta"))) {
+        av = Math.abs(Number(av));
+        bv = Math.abs(Number(bv));
+      }
       const an = av == null || av === "" || av === "–" || av === "—";
       const bn = bv == null || bv === "" || bv === "–" || bv === "—";
       if (an && bn) return 0;
@@ -367,7 +419,18 @@ function table(columns, rows, opts = {}) {
       const nb = Number(String(bv).replace("*", ""));
       if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return hi ? nb - na : na - nb;
       return hi ? String(bv).localeCompare(String(av)) : String(av).localeCompare(String(bv));
-    });
+    };
+    if (opts.groupBy) {
+      const grouped = new Map();
+      for (const row of view) {
+        const key = row[opts.groupBy] ?? Symbol();
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(row);
+      }
+      view = [...grouped.values()].sort((a, b) => compareRows(a[0], b[0])).flat();
+    } else {
+      view = view.slice().sort(compareRows);
+    }
   }
   const maxPage = Math.max(0, Math.ceil(view.length / PAGE_SIZE) - 1);
   const safePage = Math.min(Math.max(0, pageIndex), maxPage);
@@ -376,10 +439,16 @@ function table(columns, rows, opts = {}) {
   const slice = view.slice(start, start + PAGE_SIZE);
   const cols = flattenCols(columns);
   const head = tableHead(columns, { sortKey, sortDir });
-  const heatKeys = heat ? cols.filter((c) => c.numeric && c.key && c.key !== "rank").map((c) => c.key) : [];
+  const deltaMax = Object.fromEntries(cols.filter((c) => c.deltaBar).map((c) => [
+    c.key,
+    Math.max(...view.map((r) => Math.abs(Number(r[c.key]) || 0)), 0),
+  ]));
+  const heatKeys = heat
+    ? cols.filter((c) => c.numeric && c.key && c.key !== "rank" && (heat === true || heat === c.key)).map((c) => c.key)
+    : [];
   const heatRanks = {};
   for (const k of heatKeys) {
-    const nums = slice.map((r) => Number(r[k])).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+    const nums = view.map((r) => Number(r[k])).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
     heatRanks[k] = nums;
   }
   const heatVal = (k, v) => {
@@ -389,28 +458,50 @@ function table(columns, rows, opts = {}) {
     const i = nums.findIndex((x) => x >= n);
     const pct = i < 0 ? 1 : i / Math.max(nums.length - 1, 1);
     const h = HEAT_LOW.has(k) ? 1 - pct : pct;
-    return ` style="--h:${h.toFixed(3)}"`;
+    return ` style="--heat:${(h * 42).toFixed(1)}%"`;
   };
-  const body = slice.map((r) => {
+  const body = slice.map((r, rowIndex) => {
+    const groupKey = opts.groupBy ? r[opts.groupBy] : null;
+    const previous = rowIndex > 0 ? slice[rowIndex - 1] : (start > 0 ? view[start - 1] : null);
+    const next = rowIndex + 1 < slice.length ? slice[rowIndex + 1] : view[start + rowIndex + 1];
+    const samePrevious = opts.groupBy && previous?.[opts.groupBy] === groupKey;
+    const sameNext = opts.groupBy && next?.[opts.groupBy] === groupKey;
     const innings = Boolean(r.start_date || r.match_id);
     const batScore = r.runs_display != null
       ? Number(String(r.runs_display).replace("*", ""))
       : (r.balls != null ? Number(r.runs) : NaN);
     const isHundred = innings && batScore >= 100;
     const isFive = innings && Number(r.wickets) >= 5 && r.balls == null;
-    const resultCls = r.result === "Won" ? "result-won" : r.result === "Lost" ? "result-lost" : "";
+    const resultCls = opts.resultBorders === false ? "" : (r.result === "Won" ? "result-won" : r.result === "Lost" ? "result-lost" : "");
     const cls = [isHundred || isFive ? "milestone" : "", resultCls].filter(Boolean).join(" ");
     const slug = r.slug || r.person_id || "";
     const name = r.player || r.display_name || "";
     const cells = cols.map((c) => {
       let val = r[c.key];
-      if (c.key === "start_date") val = fmtDate(r.start_date);
-      if (c.key === "primary_role") val = val === "bowl" ? "Bowl" : val === "bat" ? "Bat" : val;
-      if (c.link === "player") {
+      const repeatedGroupCell = samePrevious && c.groupOnce;
+      if (repeatedGroupCell) {
+        val = c.key === "start_date"
+          ? `<span class="innings-cont">↳ Inn ${r.innings ?? ""}</span>`
+          : "";
+      } else if (c.key === "start_date") {
+        val = fmtDate(r.start_date);
+      }
+      if (!repeatedGroupCell && c.key === "primary_role") val = val === "bowl" ? "Bowl" : val === "bat" ? "Bat" : val;
+      if (repeatedGroupCell) {
+        // The first row carries match-level context; continuation rows only show innings stats.
+      } else if (c.link === "player") {
         const face = faces ? portrait(r.slug || r.person_id, r.player || r.display_name || val, "xs") : "";
-        val = `<span class="who">${face}<a class="player-link" href="#/player/${esc(r.slug || r.person_id)}">${esc(r.player || r.display_name || val)}</a></span>`;
+        const tag = c.tagKey && r[c.tagKey] ? `<span class="row-tag">${esc(r[c.tagKey])}</span>` : "";
+        val = `<span class="who">${face}<a class="player-link" href="#/player/${esc(r.slug || r.person_id)}">${esc(r.player || r.display_name || val)}</a>${tag}</span>`;
       } else if (c.key === "match" || (c.link === "match")) {
         val = `<a href="#/match/${esc(r.match_id)}">${esc(val || r.opposition || r.match_id)}</a>`;
+      } else if (c.badge && val != null) {
+        const badgeKey = String(val).toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        val = `<span class="comp-badge comp-${badgeKey}">${esc(String(val).toUpperCase())}</span>`;
+      } else if (c.status && val != null) {
+        const status = String(val);
+        const icon = status === "Won" ? "✓" : status === "Lost" ? "×" : status === "Draw" ? "=" : "·";
+        val = `<span class="result-status result-${status.toLowerCase()}"><span aria-hidden="true">${icon}</span> ${esc(status)}</span>`;
       } else if (c.numeric) {
         const raw = r[c.key];
         if (typeof raw === "string" && raw.endsWith("*")) {
@@ -423,7 +514,10 @@ function table(columns, rows, opts = {}) {
             const n = Number(raw);
             const better = c.delta === "lower" ? n < 0 : n > 0;
             const dcls = n === 0 ? "" : better ? "pos" : "neg";
-            val = `<span class="delta ${dcls}">${signed(n, digits)}</span>`;
+            const bar = c.deltaBar && deltaMax[c.key]
+              ? `<span class="delta-scale" style="--delta-size:${Math.abs(n) / deltaMax[c.key] * 100}%"></span>`
+              : "";
+            val = `${bar}<span class="delta ${dcls}">${signed(n, digits)}</span>`;
           } else {
             val = num(raw, digits);
           }
@@ -433,17 +527,29 @@ function table(columns, rows, opts = {}) {
       } else {
         val = esc(val);
       }
-      if ((c.key === "opposition" || c.key === "result") && r.match_id) {
+      if (!repeatedGroupCell && (c.key === "opposition" || c.key === "result") && r.match_id && c.link !== false) {
         val = `<a href="#/match/${esc(r.match_id)}">${val}</a>`;
       }
-      if (copyLine && c.key === "runs_display") {
+      if (!repeatedGroupCell && copyLine && c.key === "runs_display") {
         const line = `${name} ${r.runs_display} (${r.balls || "–"}) vs ${r.opposition || ""} · ${r.competition || ""} · ${fmtDate(r.start_date)}`;
         val += ` <button type="button" class="copy-line" data-copy="${esc(line)}">copy</button>`;
       }
-      const heatCls = heat && c.numeric && c.key !== "rank" ? " heat" : "";
-      return `<td class="${c.align === "right" ? "num" : ""}${heatCls}"${heat ? heatVal(c.key, r[c.key]) : ""}>${val}</td>`;
+      const heatCls = heatKeys.includes(c.key) ? " heat" : "";
+      const secondaryCls = c.roleGroup && r.primary_role && c.roleGroup !== r.primary_role ? " secondary-stat" : "";
+      const title = c.help ? ` title="${esc(c.help)}"` : "";
+      const columnCls = [
+        c.align === "right" ? "num" : "",
+        c.groupStart ? "group-start" : "",
+        c.supporting ? "supporting" : "",
+        c.deltaPrimary ? "delta-primary" : "",
+      ].filter(Boolean).join(" ");
+      return `<td class="${columnCls}${heatCls}${secondaryCls}"${heatCls ? heatVal(c.key, r[c.key]) : ""}${title}>${val}</td>`;
     }).join("");
-    return `<tr class="${cls}" data-slug="${esc(slug)}" data-name="${esc(name)}">${cells}</tr>`;
+    const lowSample = opts.sampleFloor && Math.min(Number(r.m_with) || 0, Number(r.m_wo) || 0) < opts.sampleFloor ? " low-sample" : "";
+    const groupCls = opts.groupBy
+      ? samePrevious ? (sameNext ? " match-group-mid" : " match-group-end") : (sameNext ? " match-group-start" : " match-group-single")
+      : "";
+    return `<tr class="${cls}${lowSample}${groupCls}" data-slug="${esc(slug)}" data-name="${esc(name)}">${cells}</tr>`;
   }).join("");
   const shown = slice.length;
   const more = view.length > start + shown ? `Showing ${start + 1}–${start + shown} of ${view.length.toLocaleString()} — refine or export all` : "";
@@ -516,6 +622,10 @@ function bindTable(query) {
       const st = TABLE_STORE.get(block?.id);
       if (!st) return;
       const key = th.dataset.key;
+      if (st.opts.onSort) {
+        st.opts.onSort(key);
+        return;
+      }
       const dir = st.opts.sortKey === key && st.opts.sortDir === "desc" ? "asc" : "desc";
       st.opts.sortKey = key;
       st.opts.sortDir = dir;
@@ -773,21 +883,40 @@ async function showMatch(id) {
     .filter((inn) => inn.innings_kind !== "super_over")
     .map((inn) => `${esc(inn.batting_team)} ${inn.runs}/${inn.wickets}`)
     .join(" · ");
-  const xiTeams = [...new Set((d.xi || []).map((x) => x.team))];
+  const battingOrder = (d.innings || []).filter((inn) => inn.innings_kind !== "super_over").map((inn) => inn.batting_team);
+  const xiTeams = [...new Set([...battingOrder, ...(d.xi || []).map((x) => x.team)])];
   const xiHtml = xiTeams.length
-    ? `<div class="xi-sheets">${xiTeams.map((team) => {
+    ? `<details class="playing-xi"><summary>Playing XIs</summary><div class="xi-sheets">${xiTeams.map((team) => {
       const side = (d.xi || []).filter((x) => x.team === team);
       return `<div class="xi-sheet"><h3>${esc(team)}</h3><ol>${side.map((x) => {
         const mark = [x.is_captain ? "c" : "", x.is_keeper ? "†" : ""].filter(Boolean).join("");
-        return `<li>${portrait(x.slug, x.display_name, "xs")}<a href="#/player/${esc(x.slug)}">${esc(x.display_name)}</a>${mark ? ` <span class="caption">${mark}</span>` : ""}</li>`;
+        return `<li><a href="#/player/${esc(x.slug)}">${esc(x.display_name)}</a>${mark ? ` <span class="caption">${mark}</span>` : ""}</li>`;
       }).join("")}</ol></div>`;
-    }).join("")}</div>`
+    }).join("")}</div></details>`
     : "";
+  const dismissalText = (b) => {
+    const kind = String(b.dismissal_kind || "").toLowerCase();
+    const bowler = b.bowler_name || "";
+    const fielder = b.fielder_name || "";
+    if (!kind) return "not out";
+    if (kind === "caught") return `c ${fielder || "—"} b ${bowler || "—"}`;
+    if (kind === "caught and bowled") return `c & b ${bowler || fielder || "—"}`;
+    if (kind === "bowled") return `b ${bowler || "—"}`;
+    if (kind === "lbw") return `lbw b ${bowler || "—"}`;
+    if (kind === "stumped") return `st ${fielder || "—"} b ${bowler || "—"}`;
+    if (kind === "hit wicket") return `hit wicket b ${bowler || "—"}`;
+    if (kind === "run out") return `run out (${fielder || "—"})`;
+    return kind.replaceAll("_", " ");
+  };
+  const endLabel = (reason, closed) => {
+    if (reason === "end_of_innings") return closed ? "Innings closed" : "Not out";
+    return String(reason || "—").replaceAll("_", " ");
+  };
   let html = `
     <h1 class="page-title">${esc(m.team_home)} v ${esc(m.team_away)}</h1>
     ${scoreLine ? `<p class="match-scores">${scoreLine}</p>` : ""}
     <p>${esc(result)}</p>
-    <p class="meta-line">${fmtDate(m.start_date)} · ${esc(m.venue || "")} · ${esc(m.competition?.toUpperCase())} · Toss: ${esc(m.toss_winner)} ${esc(m.toss_decision || "")}
+    <p class="meta-line">${fmtDate(m.start_date)} · ${esc(m.venue || "")} · ${esc(m.event_name || m.competition?.toUpperCase())} ${esc(m.season || "")} · Toss: ${esc(m.toss_winner)} ${esc(m.toss_decision || "")}
       ${badges.map((b) => `<span class="badge">${b}</span>`).join(" ")}</p>
     ${xiHtml}
   `;
@@ -795,25 +924,52 @@ async function showMatch(id) {
     const label = inn.innings_kind === "super_over" ? "Super Over" : `Innings ${inn.innings}`;
     const ov = cricketOvers(inn.legal_balls, m.balls_per_over || 6);
     const rr = inn.legal_balls ? (inn.runs * 6 / inn.legal_balls).toFixed(2) : "–";
-    html += `<h2 class="section">${label} — ${esc(inn.batting_team)} ${inn.runs}/${inn.wickets} (${ov})</h2>
-      <p class="inn-meta"><span>RR ${rr}</span><span>Extras ${inn.extras ?? "–"}</span>${inn.declared ? "<span>Declared</span>" : ""}${inn.all_out ? "<span>All out</span>" : ""}</p>`;
+    html += `<h2 class="section">${label} — ${esc(inn.batting_team)} ${inn.runs}/${inn.wickets} (${ov} overs, RR ${rr})</h2>
+      <p class="inn-meta">${inn.declared ? "<span>Declared</span>" : ""}${inn.all_out ? "<span>All out</span>" : ""}</p>`;
     const bats = (d.batting || []).filter((b) => b.innings === inn.innings);
     const bowls = (d.bowling || []).filter((b) => b.innings === inn.innings);
     const parts = (d.partnerships || []).filter((p) => p.innings === inn.innings);
+    const lastFallenWicket = Math.max(0, ...parts.filter((p) => p.end_reason !== "end_of_innings").map((p) => Number(p.wicket_number) || 0));
+    const balls = (d.deliveries || []).filter((ball) => ball.innings === inn.innings && ball.innings_kind === inn.innings_kind);
+    const extrasByType = {};
+    for (const ball of balls) {
+      if (ball.extra_type && Number(ball.runs_extras)) {
+        extrasByType[ball.extra_type] = (extrasByType[ball.extra_type] || 0) + Number(ball.runs_extras);
+      }
+    }
+    let runningScore = 0;
+    let wicketNumber = 0;
+    const nonWickets = new Set(["retired hurt", "retired not out", "absent hurt", "absent ill"]);
+    const falls = [];
+    for (const ball of balls) {
+      runningScore += Number(ball.runs_total) || 0;
+      if (ball.wicket_kind && !nonWickets.has(String(ball.wicket_kind).toLowerCase())) {
+        wicketNumber += 1;
+        falls.push({
+          wicket_number: wicketNumber,
+          runs: runningScore,
+          over: Number(ball.over) || 0,
+          ball_in_over: Number(ball.ball_in_over) || 0,
+          batter: ball.player_out_name || "",
+        });
+      }
+    }
     html += table(
       [
-        { key: "display_name", label: "Batter", align: "left", link: "player" },
-        { key: "dismissal_kind", label: "Dismissal", align: "left" },
+        { key: "display_name", label: "Batter", align: "left", link: "player", tagKey: "milestone_tag" },
+        { key: "dismissal", label: "Dismissal", align: "left" },
         { key: "runs_display", label: "R", align: "right", numeric: true },
         { key: "balls", label: "B", align: "right", numeric: true },
         { key: "fours", label: "4s", align: "right", numeric: true },
         { key: "sixes", label: "6s", align: "right", numeric: true },
-        { key: "sr", label: "SR", align: "right", numeric: true },
+        { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 },
       ],
       bats.map((b) => ({
         ...b,
         player: b.display_name,
         slug: b.slug,
+        dismissal: dismissalText(b),
+        milestone_tag: b.runs >= 100 ? "Century" : "",
         runs_display: b.not_out ? `${b.runs}*` : String(b.runs),
         sr: b.balls ? (b.runs * 100 / b.balls).toFixed(1) : "–",
       })),
@@ -822,17 +978,28 @@ async function showMatch(id) {
     const batted = new Set(bats.map((b) => b.person_id));
     const dnb = (d.xi || []).filter((x) => x.team === inn.batting_team && !batted.has(x.person_id));
     if (dnb.length) {
-      html += `<p class="dnb">Did not bat: ${dnb.map((x) => `<span class="who">${portrait(x.slug, x.display_name, "xs")}<a href="#/player/${esc(x.slug)}">${esc(x.display_name)}</a></span>`).join(", ")}</p>`;
+      html += `<p class="dnb">Did not bat: ${dnb.map((x) => `<a href="#/player/${esc(x.slug)}">${esc(x.display_name)}</a>`).join(", ")}</p>`;
     }
+    const extrasLabels = { byes: "b", legbyes: "lb", wides: "w", noballs: "nb", penalty: "p" };
+    const extrasLine = Object.entries(extrasByType)
+      .filter(([, value]) => value)
+      .map(([key, value]) => `${extrasLabels[key] || key} ${value}`)
+      .join(", ");
+    html += `<div class="scorecard-totals">
+      <div><span>Extras</span><strong>${inn.extras ?? "–"}</strong><small>${extrasLine ? `(${esc(extrasLine)})` : ""}</small></div>
+      <div><span>Total</span><strong>${inn.runs}/${inn.wickets}</strong><small>${ov} overs · RR ${rr}</small></div>
+    </div>`;
     html += table(
       [
-        { key: "display_name", label: "Bowler", align: "left", link: "player" },
-        { key: "overs", label: "O", align: "right", numeric: true },
+        { key: "display_name", label: "Bowler", align: "left", link: "player", tagKey: "milestone_tag" },
+        { key: "overs", label: "O", align: "right", numeric: true, digits: 1 },
         { key: "maidens", label: "M", align: "right", numeric: true },
+        { key: "dots", label: "Dots", align: "right", numeric: true },
         { key: "runs", label: "R", align: "right", numeric: true },
         { key: "wickets", label: "W", align: "right", numeric: true },
-        { key: "econ", label: "Econ", align: "right", numeric: true },
-        { key: "extras", label: "Extras", align: "right", numeric: true },
+        { key: "econ", label: "Econ", align: "right", numeric: true, digits: 1 },
+        { key: "wides", label: "Wd", align: "right", numeric: true },
+        { key: "noballs", label: "Nb", align: "right", numeric: true },
       ],
       bowls.map((b) => {
         const o = Math.floor((b.legal_balls || 0) / (m.balls_per_over || 6));
@@ -842,15 +1009,15 @@ async function showMatch(id) {
           ...b,
           player: b.display_name,
           slug: b.slug,
+          milestone_tag: b.wickets >= 5 ? "5-for" : "",
           overs: `${o}.${r}`,
-          econ: balls ? (b.runs * 6 / balls).toFixed(2) : "–",
+          econ: balls ? (b.runs * 6 / balls).toFixed(1) : "–",
         };
       }),
       { faces: true },
     );
-    const fow = parts.filter((p) => p.end_reason && p.end_reason !== "end_of_innings")
-      .map((p) => `${p.wicket_number}-${p.runs}`).join(", ");
-    if (fow) html += `<p class="fow">Fall of wickets: ${esc(fow)}</p>${fowBeads(parts)}`;
+    const fow = falls.map((fall) => `${fall.wicket_number}-${fall.runs}`).join(", ");
+    if (fow) html += `${fowBeads(falls, Math.ceil(Number(inn.legal_balls || 0) / Number(m.balls_per_over || 6)))}<p class="fow">FoW: ${esc(fow)}</p>`;
     html += `<h3 class="section">Partnerships</h3>`;
     html += table(
       [
@@ -860,11 +1027,18 @@ async function showMatch(id) {
         { key: "balls", label: "B", align: "right", numeric: true },
         { key: "end_reason", label: "End", align: "left" },
       ],
-      parts.map((p) => ({ ...p, pair: `${p.name_1} / ${p.name_2}` })),
+      parts.map((p) => ({
+        ...p,
+        wicket_number: p.end_reason === "end_of_innings" && Number(p.wicket_number) <= lastFallenWicket
+          ? Number(p.wicket_number) + 1
+          : p.wicket_number,
+        pair: `${p.name_1} / ${p.name_2}`,
+        end_reason: endLabel(p.end_reason, inn.all_out || inn.declared),
+      })),
     );
   }
   const n = (d.deliveries || []).length;
-  html += `<button class="drawer" id="del-toggle">Show ${n} deliveries ▸</button>
+  html += `<button class="drawer" id="del-toggle">Ball-by-ball (${n} deliveries) ▸</button>
     <div id="del-table" hidden></div>`;
   main.innerHTML = html;
   bindTable("");
@@ -889,6 +1063,7 @@ async function showMatch(id) {
 
 async function showPlayer(key) {
   setHero(false);
+  main._profileObserver?.disconnect();
   if (!key) {
     main.innerHTML = `<div class="empty"><p>No player selected.</p><button type="button" class="chip" data-home>Back to search</button></div>`;
     main.querySelector("[data-home]")?.addEventListener("click", () => { location.hash = "#/"; });
@@ -968,11 +1143,17 @@ async function showPlayer(key) {
   }
   const pf = d.performances?.rows || [];
   const h2h = d.matchups || { as_batter: [], as_bowler: [] };
-  const h2hComps = [...new Set([...(h2h.as_batter || []), ...(h2h.as_bowler || [])].map((r) => r.competition))];
+  const compOrder = ["test", "odi", "t20i", "ipl", "wpl", "bbl", "wbbl"];
+  const byCompOrder = (a, b) => {
+    const ai = compOrder.indexOf(a);
+    const bi = compOrder.indexOf(b);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi) || String(a).localeCompare(String(b));
+  };
+  const h2hComps = [...new Set([...(h2h.as_batter || []), ...(h2h.as_bowler || [])].map((r) => r.competition))].sort(byCompOrder);
   const comps = [...new Set([
     ...d.summary.map((s) => s.competition),
     ...d.bowling_summary.map((s) => s.competition),
-  ])];
+  ])].sort(byCompOrder);
   const tabs = ["all", ...comps].map((c) => `<button class="tab ${c === "all" ? "active" : ""}" data-comp="${c}">${c === "all" ? "All" : c.toUpperCase()}</button>`).join("");
   const batRows = d.summary.map((s) => {
     const avg = s.outs ? (s.runs / s.outs).toFixed(1) : "—";
@@ -987,7 +1168,7 @@ async function showPlayer(key) {
   });
   const bowlTable = `<h2 class="section">Bowling</h2>` + table(
     [
-      { key: "competition", label: "Comp", align: "left" },
+      { key: "competition", label: "Comp", align: "left", badge: true },
       { key: "matches", label: "M", align: "right", numeric: true },
       { key: "overs", label: "O", align: "right", numeric: true },
       { key: "maidens", label: "Mdns", align: "right", numeric: true },
@@ -1002,7 +1183,7 @@ async function showPlayer(key) {
   );
   const batTable = `<h2 class="section">Batting</h2>` + table(
     [
-      { key: "competition", label: "Comp", align: "left" },
+      { key: "competition", label: "Comp", align: "left", badge: true },
       { key: "matches", label: "M", align: "right", numeric: true },
       { key: "inns", label: "Inns", align: "right", numeric: true },
       { key: "runs", label: "Runs", align: "right", numeric: true },
@@ -1028,6 +1209,7 @@ async function showPlayer(key) {
   const totBowlRuns = bowlRows.reduce((s, r) => s + Number(r.runs || 0), 0);
   const totLegal = bowlRows.reduce((s, r) => s + Number(r.legal_balls || 0), 0);
   const totEcon = totLegal ? (totBowlRuns * 6 / totLegal).toFixed(2) : "–";
+  const totHundreds = batRows.reduce((s, r) => s + Number(r.hundreds || 0), 0);
   const almanac = d.almanac || {};
   const cricinfo = p.key_cricinfo
     ? `<a class="ext" href="https://www.espncricinfo.com/ci/content/player/${encodeURIComponent(p.key_cricinfo)}.html" rel="noreferrer">Cricinfo</a>`
@@ -1049,23 +1231,19 @@ async function showPlayer(key) {
         <p class="meta-line">${esc(p.unique_name)} · ${bowlerFirst ? "Bowler" : "Batter"} first · ${esc(d.span.line)}${cricinfo ? ` · ${cricinfo}` : ""}</p>
         ${teamChips}
         ${ribbon([
-          ["M", d.span?.matches || totM || "–"],
-          ["Inns", totInns || "–"],
+          ["Matches", d.span?.matches || totM || "–"],
           ["Runs", batRuns ? batRuns.toLocaleString() : "–"],
-          ["HS", totHs || "–"],
-          ["Avg", careerAvg != null ? careerAvg.toFixed(1) : "–"],
-          ["SR", totSr],
-          ["W", totW || "–"],
-          ["Econ", totEcon],
+          ["100s", totHundreds || "–"],
+          ["Catches", d.fielding?.catches ?? "–"],
         ])}
       </div>
     </div>
-    <nav class="jump">
-      <button type="button" class="btn-text" data-jump="almanac">Almanac</button>
-      <button type="button" class="btn-text" data-jump="val-cards">Value</button>
-      <button type="button" class="btn-text" data-jump="pf-box">Best</button>
-      <button type="button" class="btn-text" data-jump="h2h-box">Matchups</button>
-      <button type="button" class="btn-text" data-jump="inn-box">Innings</button>
+    <nav class="jump player-jump" aria-label="Player profile sections">
+      <button type="button" class="btn-text active" data-jump="profile-almanac">Almanac</button>
+      <button type="button" class="btn-text" data-jump="profile-value">Value</button>
+      <button type="button" class="btn-text" data-jump="profile-best">Best</button>
+      <button type="button" class="btn-text" data-jump="profile-matchups">Matchups</button>
+      <button type="button" class="btn-text" data-jump="profile-innings">Innings</button>
     </nav>
     <p class="studio-links">
       <a href="#/compare?a=${encodeURIComponent(p.slug)}">Compare</a>
@@ -1073,76 +1251,105 @@ async function showPlayer(key) {
       · <a href="#/shift?player=${encodeURIComponent(p.slug)}">Stat line shift</a>
       · <button type="button" class="btn-text" id="add-tray">C — compare tray</button>
     </p>
-    ${formBlock(d.innings, { n: 10, careerAvg })}
-    ${almanacBlock(almanac)}
-    ${cards}
-    <h2 class="section">Best T20 ${bowlerFirst ? "bowling" : "batting"}</h2>
-    <p class="caption">${esc(d.performances?.caption || "Focused on the heavier workload. Same-match work in the other discipline is in the line.")}</p>
-    <div id="pf-box"></div>
-    <h2 class="section">Batter vs bowler</h2>
-    <p class="caption">Balls they actually faced each other. Twelve-ball floor. Every format they share.</p>
-    <div class="fmt-row" id="h2h-tabs">${["all", ...h2hComps].map((c, i) => `<button class="tab ${i === 0 ? "active" : ""}" data-h2h="${c}">${c === "all" ? "All" : c.toUpperCase()}</button>`).join("")}</div>
-    <div id="h2h-box"></div>
-    <div class="fmt-row" id="p-tabs">${tabs}</div>
-    ${bowlerFirst ? bowlTable + batTable : batTable + bowlTable}
-    <p class="caption">Fielding in this warehouse: ${d.fielding?.catches ?? 0} catches · ${d.fielding?.run_outs ?? 0} run-outs · ${d.fielding?.stumpings ?? 0} stumpings</p>
-    <h2 class="section">${bowlerFirst ? "Bowling innings" : "Batting innings"}</h2>
-    <div id="inn-box"></div>
-    ${bowlerFirst ? `<h2 class="section">Batting innings</h2><div id="bat-box"></div>` : (d.bowling_innings?.length ? `<h2 class="section">Bowling innings</h2><div id="bowl-box"></div>` : "")}
-    <h2 class="section">Partnerships</h2>
-    ${table(
-      [
-        { key: "partner", label: "Pair", align: "left" },
-        { key: "inns", label: "Inns", align: "right", numeric: true },
-        { key: "runs", label: "Runs", align: "right", numeric: true },
-        { key: "avg", label: "Avg", align: "right", numeric: true },
-        { key: "hundreds", label: "100-stands", align: "right", numeric: true },
-      ],
-      d.pairs || [],
-    )}
+    <section class="profile-section" id="profile-almanac">
+      ${formBlock(d.innings, { n: 10, careerAvg })}
+      ${almanacBlock(almanac)}
+    </section>
+    <section class="profile-section profile-scope" id="profile-value">
+      ${cards}
+    </section>
+    <section class="profile-section" id="profile-best">
+      <h2 class="section">Best T20 ${bowlerFirst ? "bowling" : "batting"}</h2>
+      <p class="caption">${esc(d.performances?.caption || "Focused on the heavier workload. Same-match work in the other discipline is shown separately.")}</p>
+      <div id="pf-box"></div>
+    </section>
+    <section class="profile-section profile-scope" id="profile-matchups">
+      <h2 class="section">Batter vs bowler</h2>
+      <p class="caption">Balls they actually faced each other. Twelve-ball floor. Tables are sorted by balls.</p>
+      <div class="fmt-row scoped-tabs" id="h2h-tabs">${["all", ...h2hComps].map((c, i) => `<button class="tab ${i === 0 ? "active" : ""}" data-h2h="${c}">${c === "all" ? "All" : c.toUpperCase()}</button>`).join("")}</div>
+      <div id="h2h-box"></div>
+    </section>
+    <section class="profile-section" id="profile-formats">
+      <h2 class="section">Career by format</h2>
+      ${bowlerFirst ? bowlTable + batTable : batTable + bowlTable}
+      <div class="fielding-strip">
+        <span><strong>${d.fielding?.catches ?? 0}</strong> catches</span>
+        <span><strong>${d.fielding?.run_outs ?? 0}</strong> run-outs</span>
+        <span><strong>${d.fielding?.stumpings ?? 0}</strong> stumpings</span>
+      </div>
+    </section>
+    <section class="profile-section profile-scope" id="profile-innings">
+      <h2 class="section">Innings</h2>
+      <div class="fmt-row scoped-tabs" id="p-tabs">${tabs}</div>
+      <h3 class="section">${bowlerFirst ? "Bowling innings" : "Batting innings"}</h3>
+      <div id="inn-box"></div>
+      ${bowlerFirst ? `<h3 class="section">Batting innings</h3><div id="bat-box"></div>` : (d.bowling_innings?.length ? `<h3 class="section">Bowling innings</h3><div id="bowl-box"></div>` : "")}
+      <h3 class="section">Partnerships</h3>
+      ${table(
+        [
+          { key: "player", label: "Partner", align: "left", link: "player" },
+          { key: "inns", label: "Stands", align: "right", numeric: true, help: "Partnership innings together" },
+          { key: "runs", label: "Runs", align: "right", numeric: true },
+          { key: "avg", label: "Avg", align: "right", numeric: true },
+          { key: "hundreds", label: "100-stands", align: "right", numeric: true },
+        ],
+        (d.pairs || []).map((r) => ({ ...r, player: r.partner, slug: r.partner_slug })),
+      )}
+    </section>
   `;
+  const matchResult = (row) => {
+    if (row.winner === row.team) return "Won";
+    if (row.winner) return "Lost";
+    const result = String(row.result || "").toLowerCase();
+    if (result === "draw") return "Draw";
+    if (result === "tie") return "Tie";
+    if (result === "no result") return "No result";
+    return "—";
+  };
   const paintBat = (comp, el) => {
     const rows = d.innings.filter((i) => comp === "all" || i.competition === comp).map((i) => ({
       ...i,
       runs_display: i.not_out ? `${i.runs}*` : String(i.runs),
       sr: i.balls ? (i.runs * 100 / i.balls).toFixed(1) : "–",
-      result: i.winner === i.team ? "Won" : i.winner ? "Lost" : "—",
+      result: matchResult(i),
       player: p.display_name,
       slug: p.slug,
     }));
     el.innerHTML = table(
       [
-        { key: "start_date", label: "Date", align: "left", link: "match" },
-        { key: "opposition", label: "Opp", align: "left" },
-        { key: "competition", label: "Comp", align: "left" },
+        { key: "start_date", label: "Date", align: "left", link: "match", groupOnce: true },
+        { key: "opposition", label: "Opp", align: "left", groupOnce: true },
+        { key: "competition", label: "Comp", align: "left", badge: true, groupOnce: true },
         { key: "runs_display", label: "R", align: "right", numeric: true },
         { key: "balls", label: "B", align: "right", numeric: true },
         { key: "sr", label: "SR", align: "right", numeric: true },
         { key: "dismissal_kind", label: "Dismissal", align: "left" },
-        { key: "result", label: "Result", align: "left" },
+        { key: "result", label: "Result", align: "left", status: true, link: false, groupOnce: true },
       ],
       rows,
-      { copyLine: true },
+      { copyLine: true, resultBorders: false, groupBy: "match_id" },
     );
   };
   const paintBowl = (comp, el) => {
     const rows = (d.bowling_innings || []).filter((i) => comp === "all" || i.competition === comp).map((i) => {
       const overs = i.legal_balls ? `${Math.floor(i.legal_balls / 6)}.${i.legal_balls % 6}` : "–";
       const econ = i.legal_balls ? (i.runs * 6 / i.legal_balls).toFixed(2) : "–";
-      return { ...i, overs, econ, player: p.display_name, slug: p.slug };
+      return { ...i, overs, econ, result: matchResult(i), player: p.display_name, slug: p.slug };
     });
     el.innerHTML = table(
       [
-        { key: "start_date", label: "Date", align: "left", link: "match" },
-        { key: "opposition", label: "Opp", align: "left" },
-        { key: "competition", label: "Comp", align: "left" },
+        { key: "start_date", label: "Date", align: "left", link: "match", groupOnce: true },
+        { key: "opposition", label: "Opp", align: "left", groupOnce: true },
+        { key: "competition", label: "Comp", align: "left", badge: true, groupOnce: true },
         { key: "overs", label: "O", align: "right", numeric: true },
         { key: "maidens", label: "M", align: "right", numeric: true },
         { key: "runs", label: "R", align: "right", numeric: true },
         { key: "wickets", label: "W", align: "right", numeric: true },
         { key: "econ", label: "Econ", align: "right", numeric: true },
+        { key: "result", label: "Result", align: "left", status: true, link: false, groupOnce: true },
       ],
       rows,
+      { resultBorders: false, groupBy: "match_id" },
     );
   };
   const paint = (comp) => {
@@ -1170,15 +1377,18 @@ async function showPlayer(key) {
     }));
     $("pf-box").innerHTML = table(
       [
-        { key: "score", label: "Score", align: "right", numeric: true },
+        { key: "rank", label: "Rank", align: "right", numeric: true, sortable: false },
+        { key: "composite", label: "Composite", align: "right", numeric: true, digits: 1, sortable: false, help: "The same uncapped composite used on the Best T20 page" },
         { key: "start_date", label: "Date", align: "left", link: "match" },
-        { key: "competition", label: "Comp", align: "left" },
+        { key: "competition", label: "Comp", align: "left", badge: true },
         { key: "opposition", label: "Opp", align: "left" },
-        { key: "line", label: "Line", align: "left" },
+        { key: "bat_line", label: "Bat", align: "left" },
+        { key: "bowl_line", label: "Bowl", align: "left" },
         { key: "venue", label: "Venue", align: "left" },
-        { key: "result", label: "Result", align: "left" },
+        { key: "result", label: "Result", align: "left", status: true, link: false },
       ],
       rows,
+      { resultBorders: false },
     );
   };
   paintPf();
@@ -1189,24 +1399,31 @@ async function showPlayer(key) {
     const batT = table(
       [
         { key: "player", label: "Bowler", align: "left", link: "player" },
-        { key: "competition", label: "Comp", align: "left" },
-        { key: "line", label: "Line", align: "left" },
+        { key: "competition", label: "Comp", align: "left", badge: true },
+        { key: "balls", label: "Balls", align: "right", numeric: true },
+        { key: "line", label: "Line", align: "left", help: "Runs scored off balls faced, with dismissals in parentheses" },
         { key: "sr", label: "SR", align: "right", numeric: true },
         { key: "dismissals", label: "Out", align: "right", numeric: true },
       ],
       bat,
+      { sortKey: "balls", sortDir: "desc" },
     );
     const bowlT = table(
       [
         { key: "player", label: "Batter", align: "left", link: "player" },
-        { key: "competition", label: "Comp", align: "left" },
-        { key: "line", label: "Line", align: "left" },
+        { key: "competition", label: "Comp", align: "left", badge: true },
+        { key: "balls", label: "Balls", align: "right", numeric: true },
+        { key: "line", label: "Line", align: "left", help: "Dismissals and runs conceded off legal balls" },
         { key: "econ", label: "Econ", align: "right", numeric: true },
         { key: "dismissals", label: "W", align: "right", numeric: true },
       ],
       bowl,
+      { sortKey: "balls", sortDir: "desc" },
     );
-    $("h2h-box").innerHTML = `<div class="h2h">${bowlerFirst ? `<div><h3 class="section">Bowled to</h3>${bowlT}</div><div><h3 class="section">Faced</h3>${batT}</div>` : `<div><h3 class="section">Faced</h3>${batT}</div><div><h3 class="section">Bowled to</h3>${bowlT}</div>`}</div>`;
+    $("h2h-box").innerHTML = `<div class="h2h">${bowlerFirst
+      ? `<section class="h2h-panel"><h3 class="section">Bowled to</h3>${bowlT}</section><section class="h2h-panel"><h3 class="section">Faced</h3>${batT}</section>`
+      : `<section class="h2h-panel"><h3 class="section">Faced</h3>${batT}</section><section class="h2h-panel"><h3 class="section">Bowled to</h3>${bowlT}</section>`
+    }</div>`;
   };
   paintH2h("all");
   $("h2h-tabs")?.addEventListener("click", (e) => {
@@ -1245,8 +1462,38 @@ async function showPlayer(key) {
   $("add-tray")?.addEventListener("click", () => trayAdd(p.slug, p.display_name));
   $("print-player")?.addEventListener("click", () => window.print());
   main.querySelectorAll("[data-jump]").forEach((b) => {
-    b.addEventListener("click", () => $(b.dataset.jump)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    b.addEventListener("click", () => {
+      main.querySelectorAll(".player-jump [data-jump]").forEach((button) => button.classList.toggle("active", button === b));
+      $(b.dataset.jump)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   });
+  const jumpNav = main.querySelector(".player-jump");
+  const jumpSections = [...main.querySelectorAll(".profile-section[id]")].filter((section) =>
+    jumpNav?.querySelector(`[data-jump="${section.id}"]`)
+  );
+  if (jumpNav && jumpSections.length) {
+    let scheduled = false;
+    const updateJump = () => {
+      scheduled = false;
+      const probe = jumpNav.getBoundingClientRect().bottom + 48;
+      const current = jumpSections.find((section) => {
+        const rect = section.getBoundingClientRect();
+        return rect.top <= probe && rect.bottom > probe;
+      }) || jumpSections.reduce((best, section) => (
+        Math.abs(section.getBoundingClientRect().top - probe) < Math.abs(best.getBoundingClientRect().top - probe) ? section : best
+      ));
+      jumpNav.querySelectorAll("[data-jump]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.jump === current.id);
+      });
+    };
+    main._profileScroll = () => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(updateJump);
+    };
+    window.addEventListener("scroll", main._profileScroll, { passive: true });
+    updateJump();
+  }
   bindTable("");
   warmPortraits(main);
 }
@@ -1284,70 +1531,85 @@ async function showStats() {
     const fmtOpts = state.gender === "female"
       ? [["t20i_wpl","T20I + WPL"],["t20i","T20I"],["wpl","WPL"],["odi","ODI"],["test","Tests"],["wbbl","WBBL"],["","All"]]
       : [["t20i_ipl","T20I + IPL"],["t20i","T20I"],["ipl","IPL"],["odi","ODI"],["test","Tests"],["bbl","BBL"],["","All"]];
+    const naturalSortDir = HEAT_LOW.has(state.sort) ? "asc" : "desc";
     main.innerHTML = `
       <h1 class="page-title">Stats</h1>
       <p class="lede">Counting stats and T20 value in one table. Click a header to sort. C on a row to compare. T for table focus.</p>
-      <div class="filters">
-        <label>Format
-          <select id="st-comp">
-            ${fmtOpts.map(([k,l]) => `<option value="${k}" ${state.comp===k?"selected":""}>${l}</option>`).join("")}
-          </select>
-        </label>
-        <label>Gender
-          <select id="st-g">
-            <option value="male" ${state.gender==="male"?"selected":""}>Men</option>
-            <option value="female" ${state.gender==="female"?"selected":""}>Women</option>
-          </select>
-        </label>
-        <label>Role
-          <select id="st-role">
-            <option value="all">All</option>
-            <option value="bat" ${state.role==="bat"?"selected":""}>Batters first</option>
-            <option value="bowl" ${state.role==="bowl"?"selected":""}>Bowlers first</option>
-          </select>
-        </label>
-        <label>Sort
-          <select id="st-sort">
-            ${[["war","WAR"],["war_per_game","WAR / game"],["rae_bat","RAE bat / game"],["rae_bowl","RAE bowl / game"],["wpa","WPA"],["runs","Runs"],["wickets","Wickets"],["avg","Bat avg"],["sr","Strike rate"],["bowl_avg","Bowl avg"],["econ","Econ"]].map(([k,l]) => `<option value="${k}" ${state.sort===k?"selected":""}>${l}</option>`).join("")}
-          </select>
-        </label>
-        <label class="min-inns">Floor
-          <input type="range" id="st-min" min="1" max="40" value="${state.min_inns}">
-          <span id="st-min-v">${state.min_inns} inns</span>
-        </label>
-        <label class="check"><input type="checkbox" id="st-wtc" ${state.wtc?"checked":""}> WTC sides only</label>
-        <label class="check"><input type="checkbox" id="st-sc" ${state.scatter?"checked":""}> WAR vs SR</label>
-        <button type="button" class="btn-text" id="st-share">Copy view</button>
+      <div class="stats-toolbar">
+        <div class="filters stats-filters" aria-label="Filters">
+          <label>Format
+            <select id="st-comp">
+              ${fmtOpts.map(([k,l]) => `<option value="${k}" ${state.comp===k?"selected":""}>${l}</option>`).join("")}
+            </select>
+          </label>
+          <label>Gender
+            <select id="st-g">
+              <option value="male" ${state.gender==="male"?"selected":""}>Men</option>
+              <option value="female" ${state.gender==="female"?"selected":""}>Women</option>
+            </select>
+          </label>
+          <label>Role
+            <select id="st-role">
+              <option value="all">All roles</option>
+              <option value="bat" ${state.role==="bat"?"selected":""}>Batters</option>
+              <option value="bowl" ${state.role==="bowl"?"selected":""}>Bowlers</option>
+            </select>
+          </label>
+          <label>Min innings / wickets
+            <input type="number" id="st-min" min="1" max="999" step="1" value="${state.min_inns}" inputmode="numeric">
+          </label>
+          <label class="check"><input type="checkbox" id="st-wtc" ${state.wtc?"checked":""}> WTC sides only</label>
+        </div>
+        <div class="view-options" aria-label="View options">
+          <span class="view-label">View</span>
+          <button type="button" class="view-toggle" id="st-sc" aria-pressed="${state.scatter}">WAR vs strike rate</button>
+          <button type="button" class="copy-view" id="st-share" title="Copy a link to these filters">Copy view</button>
+        </div>
       </div>
       <p class="scope">${esc(d.scope || "")}</p>
       <div id="st-scatter">${state.scatter ? scatterSVG(d.rows || [], { xKey: "sr", yKey: "war", xLab: "Strike rate", yLab: "WAR" }) : ""}</div>
+      <div class="heat-legend"><span>Cell shading</span><i aria-hidden="true"></i><span>higher percentile in sorted column</span></div>
       <div id="st-table"></div>`;
-    const cols = [
-      { key: "rank", label: "#", align: "right", numeric: true },
-      { key: "player", label: "Player", align: "left", link: "player" },
-      { key: "primary_role", label: "Role", align: "left" },
-      { key: "matches", label: "M", align: "right", numeric: true },
-      { key: "war", label: "WAR", align: "right", numeric: true },
-      { key: "war_per_game", label: "WAR/g", align: "right", numeric: true },
-      { key: "runs", label: "Runs", align: "right", numeric: true },
-      { key: "hs", label: "HS", align: "right", numeric: true },
-      { key: "avg", label: "Avg", align: "right", numeric: true },
-      { key: "sr", label: "SR", align: "right", numeric: true },
-      { key: "hundreds", label: "100s", align: "right", numeric: true },
-      { key: "wickets", label: "W", align: "right", numeric: true },
-      { key: "bowl_avg", label: "BAvg", align: "right", numeric: true },
-      { key: "econ", label: "Econ", align: "right", numeric: true },
+    const coreCols = [
+      { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+      { key: "player", label: "Player", align: "left", link: "player", sortable: false },
+      { key: "primary_role", label: "Role", align: "left", sortable: false },
+      { key: "matches", label: "M", align: "right", numeric: true, sortable: false, help: "Matches played" },
+      { key: "war", label: "WAR", align: "right", numeric: true, help: "Career wins above replacement in this filtered pool" },
+      { key: "war_per_game", label: "WAR/g", align: "right", numeric: true, help: "WAR per match; shown after 20 matches" },
     ];
-    $("st-table").innerHTML = table(cols, d.rows || [], { heat: true, sortKey: state.sort, sortDir: "desc" });
+    const batCols = [
+      { key: "runs", label: "Runs", align: "right", numeric: true, roleGroup: "bat", help: "Career runs" },
+      { key: "hs", label: "HS", align: "right", numeric: true, sortable: false, roleGroup: "bat", help: "Highest score" },
+      { key: "avg", label: "Avg", align: "right", numeric: true, roleGroup: "bat", help: "Batting average: runs per dismissal" },
+      { key: "sr", label: "SR", align: "right", numeric: true, roleGroup: "bat", help: "Batting strike rate: runs per 100 balls" },
+      { key: "hundreds", label: "100s", align: "right", numeric: true, sortable: false, roleGroup: "bat", help: "Innings of 100 or more" },
+    ];
+    const bowlCols = [
+      { key: "wickets", label: "W", align: "right", numeric: true, roleGroup: "bowl", help: "Career wickets" },
+      { key: "bowl_avg", label: "BAvg", align: "right", numeric: true, roleGroup: "bowl", help: "Bowling average: runs conceded per wicket" },
+      { key: "econ", label: "Econ", align: "right", numeric: true, roleGroup: "bowl", help: "Economy rate: runs conceded per six legal balls" },
+    ];
+    const cols = [...coreCols];
+    if (state.role !== "bowl") cols.push({ group: "Batting", cols: batCols });
+    if (state.role !== "bat") cols.push({ group: "Bowling", cols: bowlCols });
+    $("st-table").innerHTML = table(cols, d.rows || [], {
+      heat: state.sort,
+      sortKey: state.sort,
+      sortDir: naturalSortDir,
+      onSort: (key) => {
+        if (key === "rank" || key === "player" || key === "primary_role" || key === "matches" || key === "hs" || key === "hundreds") return;
+        state.sort = key;
+        paint();
+      },
+    });
     bindTable("");
     const bind = (id, key) => $(id)?.addEventListener("change", (e) => { state[key] = e.target.value; paint(); });
     bind("st-comp", "comp");
     bind("st-g", "gender");
     bind("st-role", "role");
-    bind("st-sort", "sort");
     $("st-wtc")?.addEventListener("change", (e) => { state.wtc = e.target.checked; paint(); });
-    $("st-sc")?.addEventListener("change", (e) => { state.scatter = e.target.checked; paint(); });
-    $("st-min")?.addEventListener("input", (e) => { $("st-min-v").textContent = `${e.target.value} inns`; });
+    $("st-sc")?.addEventListener("click", () => { state.scatter = !state.scatter; paint(); });
     $("st-min")?.addEventListener("change", (e) => { state.min_inns = Number(e.target.value); paint(); });
     $("st-share")?.addEventListener("click", () => copyText(location.href));
   };
@@ -1383,7 +1645,7 @@ async function showWowy() {
     <div id="wy-out"></div>`;
   const run = async () => {
     const team = $("wy-team").value.trim();
-    const player = $("wy-player").value.trim();
+    const player = $("wy-player").dataset.resolved || $("wy-player").value.trim();
     if (!team || !player) {
       $("wy-out").innerHTML = `<p class="caption">Pick a team and a player.</p>`;
       return;
@@ -1420,6 +1682,8 @@ async function showWowy() {
     warmPortraits($("wy-out"));
   };
   $("wy-go").addEventListener("click", run);
+  bindFieldAutocomplete("wy-team", "teams");
+  bindFieldAutocomplete("wy-player", "people");
   if (qplayer) run();
 }
 
@@ -1435,9 +1699,10 @@ async function showBest() {
     if (state.comp) qs.set("comp", state.comp);
     if (state.mode !== "composite") qs.set("discipline", state.disc);
     const d = await (await fetch(`/api/best?${qs}`)).json();
+    const compositeInfo = "NRC contributes 55%, WPA translated to runs 35%, and pressure 10%. Each component is standardized within competition, gender, and discipline. Batting and bowling blends from the same match are added. The index is unbounded: 100 is the reference line and each 10 points is one blended standard deviation. It is not raw runs added.";
     main.innerHTML = `
       <h1 class="page-title">Best T20</h1>
-      <p class="lede">Match composites by default — batting and bowling from the same night, balls-weighted. Tick WTC to drop associate internationals.</p>
+      <p class="lede">The strongest T20 performances in this warehouse, with batting and bowling from the same match counted together.</p>
       <div class="filters">
         <label>View
           <select id="bt-m">
@@ -1465,23 +1730,25 @@ async function showBest() {
             <option value="female" ${state.gender==="female"?"selected":""}>Women</option>
           </select>
         </label>
-        <label class="check"><input type="checkbox" id="bt-wtc" ${state.wtc?"checked":""}> WTC sides only</label>
+        <label class="check" title="Drops associate internationals; domestic league matches are unchanged."><input type="checkbox" id="bt-wtc" ${state.wtc?"checked":""}> WTC sides only</label>
       </div>
-      <p class="caption">${esc(d.caption || "")}</p>
+      <p class="performance-scale"><strong>Reading the composite:</strong> 100 is the reference line; a great all-round night lands in the 130s; the all-time top performances clear 180. A 2-for raises a hundred—it does not average it down.</p>
       <div id="bt-table"></div>`;
     $("bt-table").innerHTML = table(
       [
-        { key: "score", label: "Score", align: "right", numeric: true },
+        { key: "rank", label: "Rank", align: "right", numeric: true, sortable: false },
+        { key: "composite", label: "Composite", align: "right", numeric: true, digits: 1, sortable: false, info: compositeInfo },
         { key: "player", label: "Player", align: "left", link: "player" },
         { key: "start_date", label: "Date", align: "left", link: "match" },
-        { key: "competition", label: "Comp", align: "left" },
+        { key: "competition", label: "Comp", align: "left", badge: true },
         { key: "opposition", label: "Opp", align: "left" },
-        { key: "line", label: "Line", align: "left" },
+        { key: "bat_line", label: "Bat", align: "left" },
+        { key: "bowl_line", label: "Bowl", align: "left" },
         { key: "venue", label: "Venue", align: "left" },
-        { key: "result", label: "Result", align: "left" },
+        { key: "result", label: "Result", align: "left", status: true, link: false },
       ],
       d.rows || [],
-      { heat: true, faces: true },
+      { faces: true, resultBorders: false },
     );
     bindTable("");
     warmPortraits(main);
@@ -1543,8 +1810,8 @@ function shiftFormats() {
 }
 
 function goCompare() {
-  const a = $("c-a")?.value.trim() || hashParam("a");
-  const b = $("c-b")?.value.trim() || hashParam("b");
+  const a = $("c-a")?.dataset.resolved || $("c-a")?.value.trim() || hashParam("a");
+  const b = $("c-b")?.dataset.resolved || $("c-b")?.value.trim() || hashParam("b");
   const comp = $("c-comp")?.value || hashParam("comp") || "t20i_ipl";
   if (!a || !b) return;
   location.hash = `#/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}&comp=${encodeURIComponent(comp)}`;
@@ -1560,13 +1827,13 @@ function matchupBoard(batter, bowler, st, poolLabel, pool) {
         { n: st.runs, k: "Runs" },
         { n: st.balls, k: "Balls" },
         { n: avg, k: "Avg", lead: true },
-        { n: st.dismissals, k: "Out" },
+        { n: st.dismissals, k: "Dismissals" },
       ]
     : [
         { n: st.runs, k: "Runs" },
         { n: st.balls, k: "Balls" },
         { n: st.sr ?? "–", k: "Strike rate" },
-        { n: st.dismissals, k: "Out" },
+        { n: st.dismissals, k: "Dismissals" },
       ];
   const footBits = tests
     ? [avg === "–" ? "Not dismissed" : null, st.sr != null ? `${st.sr} SR` : null, st.econ != null ? `${st.econ} econ` : null]
@@ -1628,13 +1895,6 @@ function xiImpactCards(pa, pb, pool) {
     }
     const bat = xi.bat || {}, bowl = xi.bowl || {};
     const bowlFirst = xi.primary_role === "bowl";
-    const splitLine = (label, bucket) => {
-      if (!bucket) return "";
-      const b = bucket.bat || {};
-      const d = b.avg_delta;
-      const cls = d == null || d === 0 ? "" : d > 0 ? "pos" : "neg";
-      return `<p class="xi-line">${label} ${b.avg_with ?? "–"} → ${b.avg_wo ?? "–"} <span class="${cls}">${d == null ? "" : signed(d, 1)}</span> · ${bucket.matches_with || 0} XI / ${bucket.matches_wo || 0} without</p>`;
-    };
     const hero = xi.schedule_mix ? null : (bowlFirst ? bowl.econ_delta : bat.avg_delta);
     const heroLabel = xi.schedule_mix
       ? "schedule mix — not a teammate effect"
@@ -1647,8 +1907,8 @@ function xiImpactCards(pa, pb, pool) {
       <div class="duel-card${ahead ? " ahead" : ""}">
         <h2>${portrait(person.slug, person.display_name, "sm")}<a href="#/player/${esc(person.slug)}">${esc(person.display_name)}</a></h2>
         <p class="caption">${esc(xi.team || "")} · ${xi.matches_with || 0} XI · ${xi.matches_wo || 0} without</p>
-        <p class="team-avg-line"><span class="fig ${hcls}">${hero == null ? (xi.schedule_mix ? "mix" : "–") : signed(hero, digits)}</span> <span class="caption">${heroLabel}</span></p>
-        ${xi.home || xi.away ? `${splitLine("Home", xi.home)}${splitLine("Away", xi.away)}` : `<p class="xi-line">Batters ${bat.avg_with ?? "–"} avg · ${bat.sr_with ?? "–"} SR → ${bat.avg_wo ?? "–"} · ${bat.sr_wo ?? "–"}</p>`}
+        <p class="team-avg-line"><span class="fig ${hcls}${xi.schedule_mix ? " mix-warning" : ""}">${hero == null ? (xi.schedule_mix ? "schedule mix" : "–") : signed(hero, digits)}</span> <span class="caption">${heroLabel}</span></p>
+        <p class="xi-line">Batters ${bat.avg_with ?? "–"} avg · ${bat.sr_with ?? "–"} SR → ${bat.avg_wo ?? "–"} · ${bat.sr_wo ?? "–"}</p>
         <p class="xi-line">Bowlers ${bowl.econ_with ?? "–"} econ · ${bowl.avg_with ?? "–"} avg → ${bowl.econ_wo ?? "–"} · ${bowl.avg_wo ?? "–"}</p>
         <p class="xi-verdict">${esc(xi.verdict || "")}</p>
         <p class="caption"><a href="#/shift?player=${encodeURIComponent(person.slug)}&amp;team=${encodeURIComponent(xi.team || "")}&amp;comp=${encodeURIComponent(pool)}">Full teammate lines</a></p>
@@ -1670,27 +1930,29 @@ function sharedVsTable(rows, aName, bName, kind) {
     return `<p class="caption">No ${noun} both faced in this format (12-ball floor).</p>`;
   }
   const deltaH = rows[0]?.delta_label || "";
-  return `<table class="compare-grid shared-vs">
-    <thead><tr>
-      <th>${kind === "bowl" ? "Batter" : "Bowler"}</th>
-      <th>${esc(aName)}</th>
-      <th>${esc(bName)}</th>
-      <th>Δ ${esc(deltaH)}</th>
-      <th>Comp</th>
-    </tr></thead>
-    <tbody>${rows.map((r) => {
-      const better = r.delta == null ? null : (kind === "bowl" ? r.delta < 0 : r.delta > 0);
-      const cls = better == null || r.delta === 0 ? "" : (better ? "pos" : "neg");
-      const d = r.delta == null ? "–" : `${r.delta > 0 ? "+" : ""}${r.delta}`;
-      return `<tr>
-        <td><a href="#/player/${esc(r.opp_slug || r.slug)}">${esc(r.opponent || r.player)}</a></td>
-        <td>${esc(r.a_line)}</td>
-        <td>${esc(r.b_line)}</td>
-        <td class="delta ${cls}">${d}</td>
-        <td>${esc(r.competition)}</td>
-      </tr>`;
-    }).join("")}</tbody>
-  </table>`;
+  return table(
+    [
+      { key: "player", label: kind === "bowl" ? "Batter" : "Bowler", align: "left", link: "player" },
+      { key: "a_line", label: aName, align: "left" },
+      { key: "b_line", label: bName, align: "left" },
+      {
+        key: "delta",
+        label: `Δ ${deltaH}`,
+        align: "right",
+        numeric: true,
+        digits: deltaH === "econ" ? 2 : 1,
+        delta: kind === "bowl" ? "lower" : "higher",
+        info: `Player A minus Player B. Green means the result favors ${aName}.`,
+      },
+      { key: "competition", label: "Comp", align: "left", badge: true },
+    ],
+    rows.map((row) => ({
+      ...row,
+      player: row.opponent || row.player,
+      slug: row.opp_slug || row.slug,
+    })),
+    { sortKey: "delta", sortDir: "desc", sortAbs: true },
+  );
 }
 
 async function showCompare() {
@@ -1717,6 +1979,8 @@ async function showCompare() {
         <button class="btn primary" id="c-go">Compare</button>
       </div>`;
     $("c-go").addEventListener("click", goCompare);
+    bindFieldAutocomplete("c-a", "people");
+    bindFieldAutocomplete("c-b", "people");
     return;
   }
   const d = await (await fetch(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}&comp=${encodeURIComponent(comp)}`)).json();
@@ -1739,42 +2003,83 @@ async function showCompare() {
   const female = pa.gender === "female" || pb.gender === "female";
   const pool = d.pool || comp;
   const h = d.h2h || {};
-  const mixed = d.pairing === "mixed";
-  const valRow = (r) => {
+  const showMinor = hashParam("minor") === "1";
+  const disciplineFor = (key) => {
+    if (["wickets", "bowl_avg", "econ", "bowl_sr", "rae_bowl"].includes(key)) return "bowl";
+    if (["inns", "runs", "hs", "avg", "sr", "hundreds", "fifties", "rae_bat"].includes(key)) return "bat";
+    return null;
+  };
+  const valRow = (r, kind) => {
     const dec = r.digits != null
       ? r.digits
       : ({ war: 2, war_per_game: 3, rae_bat: 2, rae_bowl: 2, wpa: 3, pressure: 1 }[r.key] ?? 1);
     const fmt = (v) => (v == null ? "–" : Number(v).toFixed(dec));
     const lower = !!r.lower;
-    const aWin = r.a != null && r.b != null && (lower ? r.a < r.b : r.a > r.b);
-    const bWin = r.a != null && r.b != null && (lower ? r.b < r.a : r.b > r.a);
-    const mag = (aWin || bWin) ? ` (+${Math.abs(r.a - r.b).toFixed(dec)})` : "";
-    const cell = (v, rank, win) =>
-      `<td class="num${win ? " win" : ""}">${fmt(v)}${win ? `<span class="margin">${mag}</span>` : ""}${rank ? `<div class="sc">#${rank}</div>` : ""}</td>`;
-    return `<tr${pool === "test" && r.key === "avg" ? ' class="key-row"' : pool === "test" && r.key === "sr" ? ' class="quiet-row"' : ""}>
-      ${cell(r.a, r.a_rank, aWin)}
+    const discipline = disciplineFor(r.key);
+    const bothRelevant = !discipline || (pa.primary_role === discipline && pb.primary_role === discipline);
+    const classicRate = ["avg", "bowl_avg", "econ", "bowl_sr"].includes(r.key) || (r.key === "sr" && pool !== "test");
+    const valueRate = ["war", "war_per_game", "wpa", "pressure"].includes(r.key) || (discipline && bothRelevant);
+    const colorable = kind === "value" ? valueRate : classicRate && bothRelevant;
+    const aWin = colorable && r.a != null && r.b != null && (lower ? r.a < r.b : r.a > r.b);
+    const bWin = colorable && r.a != null && r.b != null && (lower ? r.b < r.a : r.b > r.a);
+    const cell = (v, other, rank, win, minor) => {
+      const margin = win ? ` <span class="margin">(${signed(Number(v) - Number(other), dec)})</span>` : "";
+      return `<td class="num${win ? " win" : ""}${minor ? " minor" : ""}">${fmt(v)}${margin}${rank ? `<div class="sc">#${rank}</div>` : ""}</td>`;
+    };
+    const rowClass = pool === "test" && r.key === "avg" ? "key-row" : pool === "test" && r.key === "sr" ? "quiet-row" : "";
+    const explanation = pool === "test" && r.key === "avg"
+      ? ' title="Emphasized because batting average is the primary Test batting rate."'
+      : pool === "test" && r.key === "sr"
+        ? ' title="Test strike rate is shown for context and is not scored as an advantage."'
+        : "";
+    return `<tr class="${rowClass}"${explanation}>
       <td class="stat">${esc(r.label)}</td>
-      ${cell(r.b, r.b_rank, bWin)}
+      ${cell(r.a, r.b, r.a_rank, aWin, !showMinor && discipline && pa.primary_role !== discipline)}
+      ${cell(r.b, r.a, r.b_rank, bWin, !showMinor && discipline && pb.primary_role !== discipline)}
     </tr>`;
   };
-  const grid = (rows, extra = "") => !rows?.length ? "" : `<table class="compare-grid">
-        <thead><tr><th>${esc(pa.display_name)}</th><th></th><th>${esc(pb.display_name)}</th></tr></thead>
-        <tbody>${rows.map(valRow).join("")}</tbody>
+  const grid = (rows, kind, extra = "") => !rows?.length ? "" : `<table class="compare-grid">
+        <thead><tr><th>Metric</th><th>${esc(pa.display_name)}</th><th>${esc(pb.display_name)}</th></tr></thead>
+        <tbody>${rows.map((row) => valRow(row, kind)).join("")}</tbody>
       </table>${extra}`;
   const classicRows = [...(d.classic || [])];
   if (pool === "test") {
     const order = ["matches", "inns", "runs", "avg", "hs", "hundreds", "fifties", "sr", "wickets", "bowl_avg", "econ", "bowl_sr"];
     classicRows.sort((a, b) => (order.indexOf(a.key) + 99) - (order.indexOf(b.key) + 99));
   }
-  const classicBlock = classicRows.length
-    ? `<h2 class="section">${esc(d.pool_label || "Career")}</h2>${grid(classicRows)}`
+  const focusedClassicRows = showMinor
+    ? classicRows
+    : classicRows.filter((row) => {
+        if (d.pairing === "bat_bat") return disciplineFor(row.key) !== "bowl";
+        if (d.pairing === "bowl_bowl") return row.key === "matches" || disciplineFor(row.key) !== "bat";
+        return true;
+      });
+  const classicBlock = focusedClassicRows.length
+    ? `<h2 class="section">${esc(d.pool_label || "Career")} <span class="section-qualifier">(career)</span></h2>${grid(focusedClassicRows, "classic")}`
     : "";
+  const focusedValueRows = showMinor
+    ? (d.rows || [])
+    : (d.rows || []).filter((row) => {
+        if (d.pairing === "bat_bat") return disciplineFor(row.key) !== "bowl";
+        if (d.pairing === "bowl_bowl") return disciplineFor(row.key) !== "bat";
+        return true;
+      });
   const valueBlock = d.has_t20_value
-    ? `<h2 class="section">T20 value</h2>${grid(d.rows)}`
+    ? `<h2 class="section">T20 value</h2>${grid(focusedValueRows, "value")}`
     : "";
-  const lede = mixed
-    ? `${esc(d.pool_label || "")} — balls they faced each other, then career lines.`
-    : `${esc(d.pool_label || "")} — career lines in this format. Same opponents below.`;
+  const hasH2h = Boolean(h.a_faced_b || h.b_faced_a);
+  const h2hBlock = hasH2h ? matchupStage(pa, pb, h, d.pool_label, pool) : "";
+  const hasSharedBowlers = Boolean(d.shared_bowlers?.length);
+  const hasSharedBatters = Boolean(d.shared_batters?.length);
+  const sharedBlock = !hasSharedBowlers && !hasSharedBatters
+    ? `<h2 class="section">Shared opponents</h2><p class="caption">No shared opponents in this format (12-ball floor).</p>`
+    : `
+      <p class="comparison-legend"><span class="pos">Green</span> = advantage ${esc(pa.display_name)}. <span class="neg">Red</span> = advantage ${esc(pb.display_name)}. Δ is ${esc(pa.display_name)} minus ${esc(pb.display_name)}.</p>
+      ${hasSharedBowlers ? `<h2 class="section">Vs the same bowlers</h2><p class="caption">Test average deltas require at least three dismissals for each player; limited-overs comparisons use strike rate.</p>${sharedVsTable(d.shared_bowlers, pa.display_name, pb.display_name, "bat")}` : ""}
+      ${hasSharedBatters ? `<h2 class="section">Vs the same batters</h2><p class="caption">Test bowling-average deltas require at least three dismissals for each player; limited-overs comparisons use economy.</p>${sharedVsTable(d.shared_batters, pa.display_name, pb.display_name, "bowl")}` : ""}`;
+  const lede = hasH2h
+    ? `${esc(d.pool_label || "")} — direct head-to-head, then value and career lines.`
+    : `${esc(d.pool_label || "")} — value and career lines, then shared opponents.`;
   main.innerHTML = `
     <h1 class="page-title">Player comparison</h1>
     <p class="lede">${lede}</p>
@@ -1782,48 +2087,61 @@ async function showCompare() {
       <label>Player A <input type="text" id="c-a" value="${esc(pa.display_name)}"></label>
       <label>Player B <input type="text" id="c-b" value="${esc(pb.display_name)}"></label>
       ${formatSelect("c-comp", pool, female)}
+      <button type="button" class="view-toggle" id="c-minor" aria-pressed="${showMinor}">Show minor discipline</button>
       <button class="btn primary" id="c-go">Compare</button>
     </div>
-    ${classicBlock}
+    ${h2hBlock}
     ${valueBlock}
-    ${mixed ? matchupStage(pa, pb, h, d.pool_label, pool) : ""}
+    ${classicBlock}
     ${xiImpactCards(pa, pb, pool)}
-    <h2 class="section">Vs the same bowlers</h2>
-    <p class="caption">Only bowlers both faced in this format. 12-ball floor. Δ is ${pool === "test" ? "average" : "strike rate"}, ${esc(pa.display_name)} minus ${esc(pb.display_name)}.</p>
-    ${sharedVsTable(d.shared_bowlers, pa.display_name, pb.display_name, "bat")}
-    <h2 class="section">Vs the same batters</h2>
-    <p class="caption">Only batters both bowled to in this format. Δ is ${pool === "test" ? "bowling average" : "economy"}, lower with ${esc(pa.display_name)} is green.</p>
-    ${sharedVsTable(d.shared_batters, pa.display_name, pb.display_name, "bowl")}`;
+    ${sharedBlock}`;
   $("c-go").addEventListener("click", goCompare);
   $("c-comp")?.addEventListener("change", goCompare);
+  $("c-minor")?.addEventListener("click", () => {
+    const qs = new URLSearchParams({ a: pa.slug, b: pb.slug, comp: pool });
+    if (!showMinor) qs.set("minor", "1");
+    location.hash = `#/compare?${qs}`;
+  });
+  bindFieldAutocomplete("c-a", "people");
+  bindFieldAutocomplete("c-b", "people");
+  bindTable("");
   warmPortraits(main);
 }
 
 async function showTeamCompare() {
   setHero(false);
   main.classList.add("wide");
+  setDocTitle("Team compare");
   const state = {
     a: hashParam("a") || "India",
     b: hashParam("b") || "Australia",
     comp: hashParam("comp") || "t20i",
-    season: hashParam("season") || "",
+    season_a: hashParam("season_a") || hashParam("season") || "",
+    season_b: hashParam("season_b") || hashParam("season") || "",
     gender: hashParam("gender") || "male",
   };
   const qs = new URLSearchParams({ a: state.a, b: state.b, comp: state.comp, gender: state.gender });
-  if (state.season) qs.set("season", state.season);
+  if (state.season_a) qs.set("season_a", state.season_a);
+  if (state.season_b) qs.set("season_b", state.season_b);
   const d = await (await fetch(`/api/team-compare?${qs}`)).json();
-  const seasons = (d.seasons || []).map((s) => `<option ${s === (d.season || state.season) ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const seasonOptions = (items, selected) =>
+    (items || []).map((s) => `<option value="${esc(s)}" ${s === selected ? "selected" : ""}>${esc(s)}</option>`).join("");
+  const seasonsA = seasonOptions(d.seasons_a, d.season_a || state.season_a);
+  const seasonsB = seasonOptions(d.seasons_b, d.season_b || state.season_b);
   const dash = (v) => (v == null || v === "") ? "–" : v;
   const isTest = d.comp === "test";
   const isT20 = !!d.t20;
   const fmtW = (v) => (v == null || v === "") ? "–" : Number(v).toFixed(3);
   const t20Lane = (side) => `
+    <div class="team-row lane-head">
+      <span>Rank</span><span>Player</span><span>Role · XIs</span><span>WAR/G</span>
+    </div>
     ${(side.players || []).map((p) => `
     <div class="team-row">
-      <span class="rk">#${p.rank}</span>
+      <span class="rk" title="Ranked by WAR per game">${p.rank}</span>
       <a href="#/player/${esc(p.slug)}">${esc(p.display_name)}</a>
       <span class="caption">${esc(p.line || "")}</span>
-      <span class="fig">${fmtW(p.war_per_game)}</span>
+      <span class="fig ${Number(p.war_per_game) < 0 ? "neg" : ""}">${fmtW(p.war_per_game)}</span>
     </div>`).join("")}
     <div class="team-row tot">
       <span></span>
@@ -1871,7 +2189,7 @@ async function showTeamCompare() {
   const lane = (side) => isTest ? testLane(side) : isT20 ? t20Lane(side) : compactLane(side);
   const rec = (side) => {
     const n = side.matches || 0, w = side.wins || 0;
-    return `${w}–${Math.max(n - w, 0)} · ${side.win_pct ?? "–"}% · ${esc(d.season || "")}`;
+    return `${n} GP · ${w}–${Math.max(n - w, 0)} · ${side.win_pct ?? "–"}% · ${esc(side.season || "")}`;
   };
   const avgHero = (side) => {
     if (isTest) {
@@ -1890,6 +2208,7 @@ async function showTeamCompare() {
   const aSum = d.a?.war_sum, bSum = d.b?.war_sum;
   const aAhead = isT20 && aSum != null && bSum != null && aSum > bSum;
   const bAhead = isT20 && aSum != null && bSum != null && bSum > aSum;
+  const edgeTeam = aAhead ? d.a?.team : bAhead ? d.b?.team : null;
   const mid = isTest
     ? `<div class="duel-mid">
         <p class="team-avg-line"><span class="fig">${dash(d.a?.team_avg)}</span></p>
@@ -1899,10 +2218,8 @@ async function showTeamCompare() {
       </div>`
     : isT20
       ? `<div class="duel-mid">
-          <p class="team-avg-line"><span class="fig">${fmtW(aSum)}</span></p>
-          <p class="caption">WAR / game</p>
-          <p class="caption" style="margin:10px 0 4px">vs</p>
-          <p class="team-avg-line"><span class="fig">${fmtW(bSum)}</span></p>
+          <p class="team-edge">${edgeTeam ? `${esc(edgeTeam)} <span class="fig pos">+${Math.abs(d.edge).toFixed(3)}</span>` : "Even"}</p>
+          <p class="caption">WAR / game edge</p>
         </div>`
       : `<div class="duel-mid caption">Batting<br>order</div>`;
   main.innerHTML = `
@@ -1920,7 +2237,12 @@ async function showTeamCompare() {
           <option value="female" ${state.gender==="female"?"selected":""}>Women</option>
         </select>
       </label>
-      <label>Season <select id="tc-s"><option value="">Latest</option>${seasons}</select></label>
+      <label>Side A season
+        <select id="tc-sa"><option value="">Latest</option>${seasonsA}</select>
+      </label>
+      <label>Side B season
+        <select id="tc-sb"><option value="">Latest</option>${seasonsB}</select>
+      </label>
       <button class="btn primary" id="tc-go">Compare</button>
     </div>
     <div class="duel${isTest ? " duel-tests" : ""}">
@@ -1939,9 +2261,13 @@ async function showTeamCompare() {
       </div>
     </div>`;
   const go = () => {
-    location.hash = `#/teams?a=${encodeURIComponent($("tc-a").value)}&b=${encodeURIComponent($("tc-b").value)}&comp=${$("tc-c").value}&gender=${$("tc-g").value}&season=${encodeURIComponent($("tc-s").value)}`;
+    const a = $("tc-a").dataset.resolved || $("tc-a").value;
+    const b = $("tc-b").dataset.resolved || $("tc-b").value;
+    location.hash = `#/teams?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}&comp=${$("tc-c").value}&gender=${$("tc-g").value}&season_a=${encodeURIComponent($("tc-sa").value)}&season_b=${encodeURIComponent($("tc-sb").value)}`;
   };
   $("tc-go").addEventListener("click", go);
+  bindFieldAutocomplete("tc-a", "teams");
+  bindFieldAutocomplete("tc-b", "teams");
 }
 
 async function showTwin() {
@@ -1957,7 +2283,7 @@ async function showTwin() {
     </div>
     <div id="tw-out"></div>`;
   const run = async () => {
-    const q = $("tw-p").value.trim();
+    const q = $("tw-p").dataset.resolved || $("tw-p").value.trim();
     if (!q) return;
     location.hash = `#/twin?player=${encodeURIComponent(q)}`;
     const d = await (await fetch(`/api/twin?player=${encodeURIComponent(q)}`)).json();
@@ -1969,15 +2295,23 @@ async function showTwin() {
       return;
     }
     if (!d.ok) { $("tw-out").innerHTML = `<div class="error">${esc(d.error)}</div>`; return; }
+    $("tw-p").value = d.person?.display_name || q;
     const twin = (d.twins || [])[0];
+    const profileBar = (value, max, who) => {
+      if (value == null) return `<div class="twin-track twin-axis"></div>`;
+      const magnitude = max ? Math.abs(Number(value)) / max * 50 : 0;
+      return `<div class="twin-track twin-axis">
+        <span class="twin-zero"></span>
+        <span class="twin-fill ${who} ${Number(value) < 0 ? "neg" : "pos"}" style="--mag:${magnitude}%"></span>
+      </div>`;
+    };
     const bars = (d.bars || []).map((bar) => {
-      const max = Math.max(Math.abs(bar.a_rel || 0), Math.abs(bar.b_rel || 0), Math.abs(bar.league || 1), 1);
-      const pct = (v) => 50 + 50 * (v / (max * 2 || 1));
+      const max = Math.max(Math.abs(Number(bar.a) || 0), Math.abs(Number(bar.b) || 0));
       return `<div class="twin-row">
         <span>${esc(bar.label)}</span>
         <div class="twin-bars">
-          <div class="twin-track"><div class="twin-fill a" style="width:${Math.min(100, Math.abs(bar.a_rel) / max * 50 + 50)}%"></div></div>
-          <div class="twin-track"><div class="twin-fill b" style="width:${Math.min(100, Math.abs(bar.b_rel || 0) / max * 50 + 50)}%"></div></div>
+          ${profileBar(bar.a, max, "a")}
+          ${profileBar(bar.b, max, "b")}
         </div>
         <span class="fig">${bar.a}</span>
         <span class="fig">${bar.b ?? "–"}</span>
@@ -1985,27 +2319,34 @@ async function showTwin() {
     }).join("");
     $("tw-out").innerHTML = `
       <div class="duel">
-        <div class="duel-card">
+        <div class="duel-card twin-card">
           <h2>${portrait(d.person.slug, d.person.display_name, "sm")}<a href="#/player/${esc(d.person.slug)}">${esc(d.person.display_name)}</a></h2>
-          <p class="caption">${esc(d.anchor?.competition || "").toUpperCase()} ${esc(d.anchor?.season || "")} · ${d.anchor?.primary_role === "bowl" ? "Bowler" : "Batter"} first</p>
+          <p class="caption"><span class="series-swatch a"></span>${esc(d.pool_label || "")} · ${d.anchor?.primary_role === "bowl" ? "Bowler" : "Batter"} · WAR ${d.anchor?.war ?? "–"}</p>
         </div>
-        <div class="duel-mid"><p class="page-title">${twin ? twin.match : "–"}</p><p class="caption">match</p></div>
-        <div class="duel-card">
+        <div class="duel-mid"><p class="page-title">${twin ? `${twin.match}%` : "–"}</p><p class="caption">profile match<br>100% = identical shape</p></div>
+        <div class="duel-card twin-card">
           <h2>${twin ? `${portrait(twin.slug, twin.display_name, "sm")}<a href="#/player/${esc(twin.slug)}">${esc(twin.display_name)}</a>` : "—"}</h2>
-          <p class="caption">${twin ? `WAR ${twin.war}` : "No neighbour yet"}</p>
+          <p class="caption">${twin ? `<span class="series-swatch b"></span>${esc(d.pool_label || "")} · ${twin.primary_role === "bowl" ? "Bowler" : "Batter"} · WAR ${twin.war}` : "No neighbour yet"}</p>
         </div>
       </div>
-      <p class="caption">Left is ${esc(d.person.display_name)}; right is the twin. Values vs the ${esc(d.pool_label || "")} pool.</p>
+      <p class="caption">Bars plot the displayed career-profile values on a shared zero axis within each metric. Shape can match even when overall quality differs.</p>
       ${bars}
       <h2 class="section">Also close</h2>
-      ${table(
-        [{ key: "player", label: "Player", align: "left", link: "player" }, { key: "match", label: "Match", align: "right", numeric: true }, { key: "war", label: "WAR", align: "right", numeric: true }],
-        (d.twins || []).map((t) => ({ ...t, player: t.display_name })),
-      )}`;
+      <table class="data twin-neighbours">
+        <thead><tr><th>Player</th><th>Role</th><th class="num">Match</th><th class="num">WAR</th><th>Action</th></tr></thead>
+        <tbody>${(d.twins || []).map((t) => `<tr>
+          <td><a href="#/player/${esc(t.slug)}">${esc(t.display_name)}</a></td>
+          <td>${t.primary_role === "bowl" ? "Bowler" : "Batter"}</td>
+          <td class="num">${t.match}%</td>
+          <td class="num">${t.war}</td>
+          <td><a href="#/compare?a=${encodeURIComponent(d.person.slug)}&b=${encodeURIComponent(t.slug)}&pool=${encodeURIComponent(d.pool || "")}">Compare</a></td>
+        </tr>`).join("")}</tbody>
+      </table>`;
     bindTable("");
     warmPortraits($("tw-out"));
   };
   $("tw-go").addEventListener("click", run);
+  bindFieldAutocomplete("tw-p", "people");
   if (player) run();
 }
 
@@ -2016,6 +2357,8 @@ async function showShift() {
   const player = hashParam("player") || "";
   const team = hashParam("team") || "";
   const comp = hashParam("comp") || "t20i";
+  const minGames = Math.max(1, Number(hashParam("min")) || 5);
+  const compactShift = hashParam("compact") === "1";
   const formats = shiftFormats().map(([k, l]) =>
     `<option value="${k}" ${comp === k ? "selected" : ""}>${l}</option>`).join("");
   main.innerHTML = `
@@ -2023,22 +2366,35 @@ async function showShift() {
     <p class="lede">How teammates bowl and bat with you in the XI vs without you — from your first appearance in this format onward.</p>
     <div class="filters">
       <label>Player <input type="text" id="sh-p" value="${esc(player)}" placeholder="Bumrah"></label>
-      <label>Team <input type="text" id="sh-t" value="${esc(team)}" placeholder="India (optional)"></label>
+      <label>Team (optional) <input type="text" id="sh-t" value="${esc(team)}" placeholder="India"></label>
       <label>Format
         <select id="sh-c">${formats}</select>
       </label>
+      <label>Min games each split
+        <input type="number" id="sh-min" min="1" max="50" value="${minGames}">
+      </label>
+      <button type="button" class="view-toggle" id="sh-compact" aria-pressed="${compactShift}">Δ only</button>
       <button class="btn primary" id="sh-go">Run shift</button>
     </div>
     <div id="sh-out"></div>`;
   const go = () => {
-    const p = $("sh-p").value.trim();
+    const p = $("sh-p").dataset.resolved || $("sh-p").value.trim();
     if (!p) return;
     const qs = new URLSearchParams({ player: p, comp: $("sh-c").value });
-    if ($("sh-t").value.trim()) qs.set("team", $("sh-t").value.trim());
+    const selectedTeam = $("sh-t").dataset.resolved || $("sh-t").value.trim();
+    if (selectedTeam) qs.set("team", selectedTeam);
+    qs.set("min", String(Math.max(1, Number($("sh-min").value) || 1)));
+    if ($("sh-compact").getAttribute("aria-pressed") === "true") qs.set("compact", "1");
     location.hash = `#/shift?${qs}`;
   };
   $("sh-go").addEventListener("click", go);
+  bindFieldAutocomplete("sh-p", "people");
+  bindFieldAutocomplete("sh-t", "teams");
   $("sh-c").addEventListener("change", go);
+  $("sh-compact").addEventListener("click", () => {
+    $("sh-compact").setAttribute("aria-pressed", $("sh-compact").getAttribute("aria-pressed") !== "true");
+    if (player) go();
+  });
   if (!player) return;
   const qs = new URLSearchParams({ player });
   if (team) qs.set("team", team);
@@ -2054,53 +2410,115 @@ async function showShift() {
   if (!d.ok) { $("sh-out").innerHTML = `<div class="error">${esc(d.error)}</div>`; return; }
   const n = (k, l, extra = {}) => ({ key: k, label: l, align: "right", numeric: true, ...extra });
   const g = (label, cols) => ({ group: label, cols });
-  const bowlCols = [
+  const support = { supporting: true };
+  const deltaCol = (key, label, delta, digits, info = "") => n(key, label, {
+    delta, digits, deltaPrimary: true, deltaBar: true, ...(info ? { info } : {}),
+  });
+  const fullBowlCols = [
     { key: "player", label: "Partner", align: "left", link: "player" },
-    g("Matches", [n("m_with", "With"), n("m_wo", "W/o")]),
-    g("Wickets", [n("wk_with", "With"), n("wk_wo", "W/o")]),
-    g("Avg", [n("avg_with", "With"), n("avg_wo", "W/o"), n("avg_delta", "Δ", { delta: "lower", digits: 1 })]),
-    g("Econ", [n("econ_with", "With", { digits: 2 }), n("econ_wo", "W/o", { digits: 2 }), n("econ_delta", "Δ", { delta: "lower", digits: 2 })]),
-    g("SR", [n("sr_with", "With"), n("sr_wo", "W/o"), n("sr_delta", "Δ", { delta: "lower", digits: 1 })]),
+    g("Matches", [n("m_with", "With", support), n("m_wo", "W/o", support)]),
+    g("Wickets", [n("wk_with", "With", support), n("wk_wo", "W/o", support)]),
+    g("Avg", [n("avg_with", "With", support), n("avg_wo", "W/o", support), deltaCol("avg_delta", "Δ", "lower", 1)]),
+    g("Econ", [n("econ_with", "With", { ...support, digits: 2 }), n("econ_wo", "W/o", { ...support, digits: 2 }), deltaCol("econ_delta", "Δ", "lower", 2)]),
+    g("SR", [n("sr_with", "With", support), n("sr_wo", "W/o", support), deltaCol("sr_delta", "Δ", "lower", 1)]),
   ];
-  const batCols = [
+  const fullBatCols = [
     { key: "player", label: "Partner", align: "left", link: "player" },
-    g("Matches", [n("m_with", "With"), n("m_wo", "W/o")]),
-    g("Inns", [n("inns_with", "With"), n("inns_wo", "W/o"), n("no_with", "NO")]),
-    g("Runs", [n("runs_with", "With"), n("runs_wo", "W/o"), n("hs_with", "HS")]),
-    g("Avg", [n("avg_with", "With"), n("avg_wo", "W/o"), n("avg_delta", "Δ", { delta: "higher", digits: 1 })]),
-    g("SR", [n("sr_with", "With"), n("sr_wo", "W/o"), n("sr_delta", "Δ", { delta: "higher", digits: 1 })]),
-    g("100s", [n("hundred_with", "With"), n("hundred_wo", "W/o")]),
-    g("50s", [n("fifty_with", "With"), n("fifty_wo", "W/o")]),
+    g("Matches", [n("m_with", "With", support), n("m_wo", "W/o", support)]),
+    g("Inns", [n("inns_with", "With", support), n("inns_wo", "W/o", support), n("no_with", "NO", support)]),
+    g("Runs", [n("runs_with", "With", support), n("runs_wo", "W/o", support), n("hs_with", "HS", support)]),
+    g("Avg", [n("avg_with", "With", support), n("avg_wo", "W/o", support), deltaCol("avg_delta", "Δ", "higher", 1)]),
+    g("SR", [n("sr_with", "With", support), n("sr_wo", "W/o", support), deltaCol("sr_delta", "Δ", "higher", 1)]),
+    g("100s", [n("hundred_with", "With", support), n("hundred_wo", "W/o", support)]),
+    g("50s", [n("fifty_with", "With", support), n("fifty_wo", "W/o", support)]),
   ];
-  const advCols = [
+  const fullAdvCols = [
     { key: "player", label: "Partner", align: "left", link: "player" },
-    g("RAE / game", [n("rae_with", "With", { digits: 2 }), n("rae_wo", "W/o", { digits: 2 }), n("rae_delta", "Δ", { delta: "higher", digits: 2 })]),
-    g("WPA / game", [n("wpa_with", "With", { digits: 3 }), n("wpa_wo", "W/o", { digits: 3 }), n("wpa_delta", "Δ", { delta: "higher", digits: 3 })]),
-    g("Press / game", [n("press_with", "With", { digits: 2 }), n("press_wo", "W/o", { digits: 2 })]),
-    g("Score", [n("score_with", "With"), n("score_wo", "W/o"), n("score_delta", "Δ", { delta: "higher", digits: 1 })]),
+    g("RAE / game", [n("rae_with", "With", { ...support, digits: 2 }), n("rae_wo", "W/o", { ...support, digits: 2 }), deltaCol("rae_delta", "Δ", "higher", 2)]),
+    g("WPA / game", [n("wpa_with", "With", { ...support, digits: 3 }), n("wpa_wo", "W/o", { ...support, digits: 3 }), deltaCol("wpa_delta", "Δ", "higher", 3)]),
+    g("Pressure / game", [n("press_with", "With", { ...support, digits: 2 }), n("press_wo", "W/o", { ...support, digits: 2 }), deltaCol("press_delta", "Δ", "higher", 2)]),
+    g("Score", [
+      n("score_with", "With", { ...support, info: "Ball-weighted 0–100 performance percentile within this competition pool." }),
+      n("score_wo", "W/o", support),
+      deltaCol("score_delta", "Δ", "higher", 1, "Change in ball-weighted 0–100 performance percentile."),
+    ]),
   ];
+  const sampleCol = { key: "sample", label: "Games W / W-O", align: "right" };
+  const compactBowlCols = [
+    { key: "player", label: "Partner", align: "left", link: "player" }, sampleCol,
+    deltaCol("avg_delta", "AVG Δ", "lower", 1),
+    deltaCol("econ_delta", "ECON Δ", "lower", 2),
+    deltaCol("sr_delta", "SR Δ", "lower", 1),
+  ];
+  const compactBatCols = [
+    { key: "player", label: "Partner", align: "left", link: "player" }, sampleCol,
+    deltaCol("avg_delta", "AVG Δ", "higher", 1),
+    deltaCol("sr_delta", "SR Δ", "higher", 1),
+  ];
+  const compactAdvCols = [
+    { key: "player", label: "Partner", align: "left", link: "player" }, sampleCol,
+    deltaCol("rae_delta", "RAE Δ", "higher", 2),
+    deltaCol("wpa_delta", "WPA Δ", "higher", 3),
+    deltaCol("press_delta", "PRESS Δ", "higher", 2),
+    deltaCol("score_delta", "SCORE Δ", "higher", 1, "Change in ball-weighted 0–100 performance percentile."),
+  ];
+  const prepare = (rows) => (rows || [])
+    .filter((r) => Math.min(Number(r.m_with) || 0, Number(r.m_wo) || 0) >= minGames)
+    .map((r) => ({ ...r, sample: `${r.m_with} / ${r.m_wo}` }));
+  const bowlRows = prepare(d.bowling);
+  const batRows = prepare(d.batting);
+  const bowlCols = compactShift ? compactBowlCols : fullBowlCols;
+  const batCols = compactShift ? compactBatCols : fullBatCols;
+  const advCols = compactShift ? compactAdvCols : fullAdvCols;
   const bowlFirst = d.primary_role === "bowl";
+  const tableOpts = (sortKey) => ({ sortKey, sortDir: "desc", sortAbs: true, sampleFloor: minGames });
   const bowlBlock = `
+    <section id="shift-bowling" class="profile-section">
     <h2 class="section">Bowling partners</h2>
-    <p class="caption">Average, economy, and strike rate with ${esc(d.person.display_name)} → without. Lower avg/econ/SR with them is green.</p>
-    ${table(bowlCols, d.bowling || [])}`;
+    <p class="caption">Average, economy, and strike rate with ${esc(d.person.display_name)} → without.</p>
+    ${table(bowlCols, bowlRows, tableOpts("avg_delta"))}</section>`;
   const batBlock = `
+    <section id="shift-batting" class="profile-section">
     <h2 class="section">Batting partners</h2>
-    <p class="caption">Matches, inns, runs, average, strike rate, hundreds, and fifties with ${esc(d.person.display_name)} in the XI → without. Higher avg/SR with them is green.</p>
-    ${table(batCols, d.batting || [])}`;
+    <p class="caption">Matches, innings, runs, average, and strike rate with ${esc(d.person.display_name)} in the XI → without.</p>
+    ${table(batCols, batRows, tableOpts("avg_delta"))}</section>`;
   const advBowl = `
+    <section id="shift-bowling-value" class="profile-section">
     <h2 class="section">T20 bowling value</h2>
-    <p class="caption">Per game in each split. RAE, WPA, pressure, and 0–100 score from this warehouse (${esc(d.pool_label || "T20")}). Higher RAE/WPA with them is green.</p>
-    ${table(advCols, d.bowling || [])}`;
+    <p class="caption">Per game in each split. Score is ball-weighted performance percentile in ${esc(d.pool_label || "T20")}.</p>
+    ${table(advCols, bowlRows, tableOpts("score_delta"))}</section>`;
   const advBat = `
+    <section id="shift-batting-value" class="profile-section">
     <h2 class="section">T20 batting value</h2>
-    <p class="caption">Same model, batting. Higher strike-rate value and score with them is green.</p>
-    ${table(advCols, d.batting || [])}`;
+    <p class="caption">Same value model, batting. Score is ball-weighted performance percentile in ${esc(d.pool_label || "T20")}.</p>
+    ${table(advCols, batRows, tableOpts("score_delta"))}</section>`;
   const advBlock = d.t20 ? (bowlFirst ? advBowl + advBat : advBat + advBowl) : "";
   $("sh-out").innerHTML = `
     <p class="scope">${esc(d.caption || "")}</p>
+    <nav class="jump player-jump shift-jump" aria-label="Stat line shift sections">
+      <button data-jump="shift-batting">Batting partners</button>
+      <button data-jump="shift-bowling">Bowling partners</button>
+      ${d.t20 ? `<button data-jump="shift-batting-value">T20 batting value</button><button data-jump="shift-bowling-value">T20 bowling value</button>` : ""}
+    </nav>
+    <p class="shift-legend"><span class="pos">Green</span> = teammates perform better with ${esc(d.person.display_name)} in the XI. <span class="neg">Red</span> = worse. Showing partners with at least ${minGames} games in both splits; click any header to sort.</p>
     ${bowlFirst ? bowlBlock + batBlock : batBlock + bowlBlock}
     ${advBlock}`;
+  $("sh-out").querySelectorAll("[data-jump]").forEach((button) => button.addEventListener("click", () => {
+    document.getElementById(button.dataset.jump)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+  const shiftSections = [...$("sh-out").querySelectorAll(".profile-section")];
+  const setShiftActive = (id) => {
+    $("sh-out").querySelectorAll("[data-jump]").forEach((button) => button.classList.toggle("active", button.dataset.jump === id));
+  };
+  if (shiftSections[0]) setShiftActive(shiftSections[0].id);
+  main._sectionObserver?.disconnect();
+  main._sectionObserver = new IntersectionObserver((entries) => {
+    const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+    if (!visible) return;
+    setShiftActive(visible.target.id);
+  }, { rootMargin: "-110px 0px -65% 0px" });
+  shiftSections.forEach((section) => main._sectionObserver.observe(section));
+  bindTable("");
 }
 
 async function showMetrics() {
@@ -2323,6 +2741,12 @@ async function route() {
 }
 
 async function routeInner() {
+  if (main._profileScroll) {
+    window.removeEventListener("scroll", main._profileScroll);
+    main._profileScroll = null;
+  }
+  main._profileObserver?.disconnect();
+  main._sectionObserver?.disconnect();
   main.classList.remove("wide");
   document.body.classList.remove("table-focus");
   delete document.body.dataset.playerSlug;
