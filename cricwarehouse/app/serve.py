@@ -38,16 +38,33 @@ def _fmt_date(iso: str | None) -> str:
         return iso
 
 
+class RevalidatingStatic(StaticFiles):
+    """Force revalidation of the app's own code.
+
+    Fonts and images are content-stable and stay cacheable, but a cached copy of
+    app.js or app.css after an update reads to the user as the app being broken.
+    ETags keep the revalidation cheap: unchanged files come back as 304s.
+    """
+
+    ALWAYS_FRESH = (".css", ".js", ".html")
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if str(full_path).endswith(self.ALWAYS_FRESH):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def create_app() -> FastAPI:
     ensure_dirs()
     app = FastAPI(title="Wicket Metric", docs_url=None, redoc_url=None)
 
     if UI.exists():
-        app.mount("/static", StaticFiles(directory=str(UI)), name="static")
+        app.mount("/static", RevalidatingStatic(directory=str(UI)), name="static")
 
     @app.get("/")
     def index():
-        return FileResponse(UI / "index.html")
+        return FileResponse(UI / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/favicon.ico")
     def favicon():
@@ -110,8 +127,46 @@ def create_app() -> FastAPI:
             con.close()
 
     @app.get("/api/pulse")
-    def api_pulse(limit: int = 8):
-        return catalog.pulse(limit=limit)
+    def api_pulse(limit: int = 8, tier: str = "top", gender: str | None = None):
+        return catalog.pulse(limit=limit, tier=tier, gender=gender or None)
+
+    @app.get("/api/onthisday")
+    def api_on_this_day(month: int | None = None, day: int | None = None, limit: int = 6):
+        now = datetime.now()
+        return catalog.on_this_day(
+            month=month or now.month, day=day or now.day, limit=limit
+        )
+
+    @app.get("/api/records")
+    def api_records(
+        kind: str = "high_scores",
+        comp: str | None = None,
+        gender: str | None = "male",
+        wtc: bool = False,
+        limit: int = 50,
+    ):
+        from cricwarehouse.app import records as rec
+        return rec.records(kind=kind, comp=comp or None, gender=gender or None, wtc=wtc, limit=limit)
+
+    @app.get("/api/venues")
+    def api_venues(q: str = "", limit: int = 40):
+        from cricwarehouse.app import records as rec
+        return rec.venue_list(q=q, limit=limit)
+
+    @app.get("/api/venue")
+    def api_venue(name: str, comp: str | None = None, gender: str | None = None):
+        from cricwarehouse.app import records as rec
+        return rec.venue(name=name, comp=comp or None, gender=gender or None)
+
+    @app.get("/api/team")
+    def api_team(name: str, comp: str | None = None, gender: str | None = None):
+        from cricwarehouse.app import records as rec
+        return rec.team(name=name, comp=comp or None, gender=gender or None)
+
+    @app.get("/api/match/{match_id}/extras")
+    def api_match_extras(match_id: str):
+        from cricwarehouse.app import records as rec
+        return rec.match_extras(match_id)
 
     @app.get("/api/query")
     def api_query(q: str = ""):
