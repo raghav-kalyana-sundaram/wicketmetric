@@ -3,6 +3,7 @@ import {
   initChrome, setDocTitle, favList, renderFavStar, trayAdd,
   formBlock, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
   portrait, warmPortraits, ribbon, almanacBlock,
+  manhattan, progression, performerCards, statCards, recentList, recentPush,
 } from "./chrome.js";
 
 const $ = (id) => document.getElementById(id);
@@ -364,7 +365,8 @@ function flattenCols(columns) {
 
 function tableHead(columns, { sortKey = "", sortDir = "desc" } = {}) {
   const th = (c, extra = "") => {
-    const cls = [c.align === "right" || c.numeric ? "num" : "name", extra, sortKey === c.key ? "sorted" : ""].filter(Boolean).join(" ");
+    const rankCls = c.key === "rank" || c.key === "position" ? "col-rank" : "";
+    const cls = [c.align === "right" || c.numeric ? "num" : "name", rankCls, extra, sortKey === c.key ? "sorted" : ""].filter(Boolean).join(" ");
     const key = c.key && c.sortable !== false ? ` data-key="${esc(c.key)}"` : "";
     const mark = sortKey === c.key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
     const help = c.help ? ` title="${esc(c.help)}" aria-label="${esc(`${c.label}: ${c.help}`)}"` : "";
@@ -394,7 +396,11 @@ const HEAT_LOW = new Set(["econ", "bowl_avg"]);
 function table(columns, rows, opts = {}) {
   rows = Array.isArray(rows) ? rows : [];
   columns = columns || [];
-  const { pageIndex = 0, total = rows.length, query = "", compact = false, heat = false, copyLine = false, sortKey = "", sortDir = "desc", filter = "", faces = false } = opts;
+  const {
+    pageIndex = 0, total = rows.length, query = "", compact = false, heat = false, copyLine = false,
+    sortKey = "", sortDir = "desc", filter = "", faces = false,
+    searchable = false, searchLabel = "Filter this table", sticky = true,
+  } = opts;
   const id = opts.id || `tbl-${++tableSeq}`;
   TABLE_STORE.set(id, { columns, rows, opts: { ...opts, id } });
   const needle = (filter || "").trim().toLowerCase();
@@ -495,6 +501,12 @@ function table(columns, rows, opts = {}) {
         val = `<span class="who">${face}<a class="player-link" href="#/player/${esc(r.slug || r.person_id)}">${esc(r.player || r.display_name || val)}</a>${tag}</span>`;
       } else if (c.key === "match" || (c.link === "match")) {
         val = `<a href="#/match/${esc(r.match_id)}">${esc(val || r.opposition || r.match_id)}</a>`;
+      } else if (c.link === "venue" && val) {
+        const clip = c.clip === false ? "" : ' class="cell-clip"';
+        const target = r.venue || val;
+        val = `<a${clip} title="${esc(target)}" href="#/venue?name=${encodeURIComponent(target)}">${esc(val)}</a>`;
+      } else if (c.link === "team" && val) {
+        val = `<a href="#/team?name=${encodeURIComponent(val)}">${esc(val)}</a>`;
       } else if (c.badge && val != null) {
         const badgeKey = String(val).toLowerCase().replace(/[^a-z0-9_-]/g, "");
         val = `<span class="comp-badge comp-${badgeKey}">${esc(String(val).toUpperCase())}</span>`;
@@ -539,6 +551,7 @@ function table(columns, rows, opts = {}) {
       const title = c.help ? ` title="${esc(c.help)}"` : "";
       const columnCls = [
         c.align === "right" ? "num" : "",
+        c.key === "rank" || c.key === "position" ? "col-rank" : "",
         c.groupStart ? "group-start" : "",
         c.supporting ? "supporting" : "",
         c.deltaPrimary ? "delta-primary" : "",
@@ -553,13 +566,18 @@ function table(columns, rows, opts = {}) {
   }).join("");
   const shown = slice.length;
   const more = view.length > start + shown ? `Showing ${start + 1}–${start + shown} of ${view.length.toLocaleString()} — refine or export all` : "";
+  const alwaysOpen = searchable || Boolean(filter);
+  const hits = needle ? `<span class="filter-hits">${view.length.toLocaleString()} of ${rows.length.toLocaleString()}</span>` : "";
   return `
     <div class="table-block" id="${id}">
-    <input class="table-filter" data-tbl="${id}" type="search" placeholder="Filter this table" value="${esc(filter)}" ${filter ? "" : "hidden"} aria-label="Filter table">
-    <div class="table-wrap${compact ? " compact" : ""}">
+    <div class="table-tools${alwaysOpen ? "" : " bare"}">
+      <input class="table-filter" data-tbl="${id}" type="search" placeholder="${esc(searchLabel)}" value="${esc(filter)}" ${alwaysOpen ? "" : "hidden"} aria-label="${esc(searchLabel)}">
+      ${hits}
+    </div>
+    <div class="table-wrap${compact ? " compact" : ""}${sticky && slice.length > 24 ? " sticky-head" : ""}">
       <table class="data">
         <thead>${head}</thead>
-        <tbody>${body || `<tr><td colspan="${cols.length}" class="muted">No rows</td></tr>`}</tbody>
+        <tbody>${body || `<tr><td colspan="${cols.length}" class="muted">No rows${needle ? ` matching “${esc(filter)}”` : ""}</td></tr>`}</tbody>
       </table>
       <div class="table-foot">
         <span>${more}</span>
@@ -669,9 +687,16 @@ function setHero(isHome) {
   queryShell.classList.toggle("docked", !isHome);
   searchToggle.hidden = isHome;
   if (isHome) closeSearch();
+  const navAliases = {
+    "#/compare": ["#/teams", "#/twin", "#/shift"],
+    "#/grounds": ["#/venue"],
+    "#/stats": ["#/rankings", "#/metrics", "#/war"],
+    "#/standings": ["#/team"],
+  };
   document.querySelectorAll(".util a").forEach((a) => {
     const href = a.getAttribute("href");
-    const on = location.hash.startsWith(href) || (href === "#/compare" && ["#/teams", "#/twin", "#/shift"].some((p) => location.hash.startsWith(p)));
+    const on = location.hash.startsWith(href)
+      || (navAliases[href] || []).some((p) => location.hash.startsWith(p));
     a.classList.toggle("active", on);
   });
 }
@@ -693,11 +718,30 @@ function closeSearch() {
   input.blur();
 }
 
+const PULSE_TIER_KEY = "wm-pulse-tier";
+const PULSE_TIERS = [
+  ["top", "Full members + leagues"],
+  ["internationals", "Internationals"],
+  ["leagues", "Leagues"],
+  ["all", "Everything"],
+];
+
+function personRail(title, items, hint = "") {
+  if (!items.length) return "";
+  return `<div class="fav-rail"><h3>${esc(title)}${hint ? ` <span class="caption">${esc(hint)}</span>` : ""}</h3>${
+    items.map((f) => `<a class="chip fav-chip" href="#/player/${esc(f.slug)}">${portrait(f.slug, f.name, "xs")}${esc(f.name)}</a>`).join(" ")
+  }</div>`;
+}
+
 async function showHomeSnapshot() {
   setDocTitle("");
-  const [snap, pulse] = await Promise.all([
+  let tier = "top";
+  try { tier = localStorage.getItem(PULSE_TIER_KEY) || "top"; } catch { /* blocked */ }
+  if (!PULSE_TIERS.some(([id]) => id === tier)) tier = "top";
+  main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+  const [snap, otd] = await Promise.all([
     fetch("/api/snapshot").then((r) => r.json()).catch(() => ({ rows: [] })),
-    fetch("/api/pulse").then((r) => r.json()).catch(() => ({ hundreds: [], five_fors: [], matches: [] })),
+    fetch("/api/onthisday?limit=5").then((r) => r.json()).catch(() => ({ matches: [], innings: [] })),
   ]);
   if (!snap.rows?.length) {
     main.innerHTML = `<div class="error">Warehouse not built yet. Run: <code class="cmd">python -m cricwarehouse pull && python -m cricwarehouse build</code> — or open the <a href="#/build">Build</a> page.</div>`;
@@ -709,6 +753,57 @@ async function showHomeSnapshot() {
     { key: "matches", label: "Matches", align: "right", numeric: true },
     { key: "range", label: "Date range", align: "left" },
   ];
+  const favs = favList();
+  const recent = recentList().filter((r) => !favs.some((f) => f.slug === r.slug)).slice(0, 8);
+  const today = new Date();
+  const dayLabel = today.toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+  const otdBlock = (otd.matches?.length || otd.innings?.length)
+    ? `<section class="otd">
+        <h2 class="section">On this day · ${esc(dayLabel)}</h2>
+        <div class="otd-grid">
+          <div>
+            <h3>Matches</h3>
+            ${(otd.matches || []).map((r) => `<a class="otd-row" href="#/match/${esc(r.match_id)}">
+              <span class="otd-year">${esc(r.year)}</span>
+              <span class="otd-body"><strong>${esc(r.team_home)}</strong> v <strong>${esc(r.team_away)}</strong>
+                <span class="caption">${esc(r.comp || "")} · ${esc(r.result || "")}</span></span>
+            </a>`).join("") || `<p class="caption">Nothing on this date.</p>`}
+          </div>
+          <div>
+            <h3>Hundreds</h3>
+            ${(otd.innings || []).map((r) => `<a class="otd-row" href="#/match/${esc(r.match_id)}">
+              <span class="otd-year">${esc(r.year)}</span>
+              <span class="otd-body"><strong>${esc(r.display_name)}</strong> ${esc(r.line)}
+                <span class="caption">${esc(r.comp || "")} v ${esc(r.opposition || "")}</span></span>
+            </a>`).join("") || `<p class="caption">No hundreds on this date.</p>`}
+          </div>
+        </div>
+      </section>`
+    : "";
+  main.innerHTML = `
+    ${personRail("Pinned", favs)}
+    ${personRail("Recently viewed", recent)}
+    <nav class="home-jump" aria-label="Browse">
+      <a href="#/records">Record book</a>
+      <a href="#/stats">Stats table</a>
+      <a href="#/rankings">Rankings</a>
+      <a href="#/best">Best T20</a>
+      <a href="#/standings">Standings</a>
+      <a href="#/grounds">Grounds</a>
+      <a href="#/compare">Compare two players</a>
+    </nav>
+    <div class="pulse-head">
+      <h2 class="section">Latest</h2>
+      <div class="fmt-row" id="pulse-tier" role="group" aria-label="Which cricket to show">
+        <span class="fmt-label">Show</span>
+        ${PULSE_TIERS.map(([id, label]) => `<button type="button" class="tab ${id === tier ? "active" : ""}" data-tier="${id}">${label}</button>`).join("")}
+      </div>
+    </div>
+    <div id="pulse-box"><div class="skel"></div></div>
+    ${otdBlock}
+    <h2 class="section">In the warehouse</h2>
+    <p class="scope">${snap.deliveries?.toLocaleString()} deliveries across ${snap.rows.reduce((s, r) => s + Number(r.matches || 0), 0).toLocaleString()} matches</p>
+    ${table(cols, snap.rows, { query: "", compact: true })}`;
   const pulseItem = (r, line) =>
     `<div class="pulse-row">
       ${portrait(r.slug, r.display_name, "sm")}
@@ -717,30 +812,38 @@ async function showHomeSnapshot() {
         <a href="#/match/${esc(r.match_id)}"><span class="kicker">${fmtDate(r.start_date)} · ${esc(r.comp || r.competition || "")}</span> ${esc(line)} v ${esc(r.opposition || "")}</a>
       </div>
     </div>`;
-  const favs = favList();
-  const favRail = favs.length
-    ? `<div class="fav-rail"><h3>Pinned</h3>${favs.map((f) => `<a class="chip fav-chip" href="#/player/${esc(f.slug)}">${portrait(f.slug, f.name, "xs")}${esc(f.name)}</a>`).join(" ")}</div>`
-    : "";
-  main.innerHTML = `
-    ${favRail}
-    <div class="pulse">
+  const paintPulse = async (which) => {
+    const box = $("pulse-box");
+    box.innerHTML = `<div class="skel"></div>`;
+    const pulse = await fetch(`/api/pulse?tier=${encodeURIComponent(which)}`)
+      .then((r) => r.json())
+      .catch(() => ({ hundreds: [], five_fors: [], matches: [] }));
+    box.innerHTML = `<div class="pulse">
       <div>
-        <h3>Latest hundreds</h3>
-        ${(pulse.hundreds || []).map((r) => pulseItem(r, r.line)).join("") || `<p class="caption">None yet.</p>`}
+        <h3>Hundreds</h3>
+        ${(pulse.hundreds || []).map((r) => pulseItem(r, r.line)).join("") || `<p class="caption">None in this filter.</p>`}
       </div>
       <div>
-        <h3>Latest five-fors</h3>
-        ${(pulse.five_fors || []).map((r) => pulseItem(r, r.line)).join("") || `<p class="caption">None yet.</p>`}
+        <h3>Five-fors</h3>
+        ${(pulse.five_fors || []).map((r) => pulseItem(r, r.line)).join("") || `<p class="caption">None in this filter.</p>`}
       </div>
       <div>
-        <h3>Latest matches</h3>
+        <h3>Matches</h3>
         ${(pulse.matches || []).map((r) =>
           `<a class="pulse-match" href="#/match/${esc(r.match_id)}"><span class="kicker">${fmtDate(r.start_date)} · ${esc(r.comp || "")}</span><br><strong>${esc(r.team_home)}</strong> v <strong>${esc(r.team_away)}</strong><br><span class="caption">${esc(r.result || "")}</span></a>`
-        ).join("")}
+        ).join("") || `<p class="caption">None in this filter.</p>`}
       </div>
-    </div>
-    <p class="scope">${snap.deliveries?.toLocaleString()} deliveries in warehouse</p>` +
-    table(cols, snap.rows, { query: "", compact: true });
+    </div>`;
+    warmPortraits(box);
+  };
+  await paintPulse(tier);
+  $("pulse-tier")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-tier]");
+    if (!btn) return;
+    $("pulse-tier").querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === btn));
+    try { localStorage.setItem(PULSE_TIER_KEY, btn.dataset.tier); } catch { /* blocked */ }
+    paintPulse(btn.dataset.tier);
+  });
   bindTable("");
   warmPortraits(main);
 }
@@ -810,15 +913,44 @@ async function showResults(q) {
   });
 }
 
+// Four pages answer "who is best at X" in different ways. Without a link
+// between them, Rankings in particular is only reachable from the palette.
+const LEADERBOARD_PAGES = [
+  ["stats", "Stats table", "/stats"],
+  ["rankings", "Rankings", "/rankings"],
+  ["records", "Record book", "/records"],
+  ["best", "Best T20", "/best"],
+];
+
+function leaderboardNav(active) {
+  return `<nav class="browse" aria-label="Leaderboards">${
+    LEADERBOARD_PAGES.map(([id, label, href]) =>
+      id === active
+        ? `<span class="browse-here" aria-current="page">${label}</span>`
+        : `<a href="#${href}">${label}</a>`
+    ).join("")
+  }</nav>`;
+}
+
+function titleCase(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return s;
+  return s.replace(/\b[a-z]/g, (m) => m.toUpperCase());
+}
+
 function playoffBlock(playoffs) {
   const cols = [
-    { key: "start_date", label: "Date", align: "left" },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
     { key: "event_stage", label: "Stage", align: "left" },
-    { key: "team_home", label: "Home", align: "left" },
-    { key: "team_away", label: "Away", align: "left" },
-    { key: "winner", label: "Winner", align: "left" },
+    { key: "team_home", label: "Home", align: "left", link: "team" },
+    { key: "team_away", label: "Away", align: "left", link: "team" },
+    { key: "winner", label: "Winner", align: "left", link: "team" },
   ];
-  return `<h2 class="section">Playoffs</h2>` + table(cols, playoffs);
+  const rows = (playoffs || []).map((r) => ({
+    ...r,
+    event_stage: titleCase(r.event_stage),
+  }));
+  return `<h2 class="section">Playoffs</h2>` + table(cols, rows, { resultBorders: false });
 }
 
 function renderCompare(res) {
@@ -861,8 +993,13 @@ async function showMatch(id) {
     main.querySelector("[data-home]")?.addEventListener("click", () => { location.hash = "#/"; });
     return;
   }
-  const r = await fetch(`/api/match/${encodeURIComponent(id)}`);
+  main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+  const [r, extrasRes] = await Promise.all([
+    fetch(`/api/match/${encodeURIComponent(id)}`),
+    fetch(`/api/match/${encodeURIComponent(id)}/extras`).catch(() => null),
+  ]);
   const d = await r.json().catch(() => ({}));
+  const extras = extrasRes ? await extrasRes.json().catch(() => ({})) : {};
   const m = d.match;
   if (!r.ok || !m) {
     const msg = typeof d.detail === "string" ? d.detail : "Match not found";
@@ -912,12 +1049,50 @@ async function showMatch(id) {
     if (reason === "end_of_innings") return closed ? "Innings closed" : "Not out";
     return String(reason || "—").replaceAll("_", " ");
   };
+  const regularInns = (d.innings || []).filter((inn) => inn.innings_kind !== "super_over");
+  const bpo = Number(m.balls_per_over) || 6;
+  const oversByInnings = new Map();
+  for (const row of extras.overs || []) {
+    if (row.innings_kind !== "regular") continue;
+    if (!oversByInnings.has(row.innings)) oversByInnings.set(row.innings, []);
+    oversByInnings.get(row.innings).push(row);
+  }
+  const limitedOvers = m.competition !== "test";
+  const progressionBlock = (() => {
+    if (!limitedOvers || regularInns.length < 2) return "";
+    const lanes = regularInns.slice(0, 2).map((inn) => {
+      const rows = (oversByInnings.get(inn.innings) || []).slice().sort((a, b) => a.over - b.over);
+      let runs = 0;
+      const points = [{ over: 0, runs: 0, wickets: 0 }];
+      for (const o of rows) {
+        runs += Number(o.runs) || 0;
+        points.push({ over: Number(o.over) + 1, runs, wickets: Number(o.wickets) || 0 });
+      }
+      return { team: inn.batting_team, points };
+    });
+    const target = regularInns[1]?.target_runs || (Number(regularInns[0]?.runs) || 0) + 1;
+    return lanes.some((l) => l.points.length > 3)
+      ? `<h2 class="section">How it unfolded</h2>${progression(lanes, { target })}`
+      : "";
+  })();
+  const performers = performerCards(extras.top_bat, extras.top_bowl);
+  const stageBits = [
+    m.event_name || (m.competition || "").toUpperCase(),
+    m.season || "",
+    m.event_stage ? String(m.event_stage).replaceAll("_", " ") : "",
+  ].filter(Boolean).join(" · ");
   let html = `
-    <h1 class="page-title">${esc(m.team_home)} v ${esc(m.team_away)}</h1>
+    <div class="page-head">
+      <h1 class="page-title">${esc(m.team_home)} v ${esc(m.team_away)}</h1>
+      <button type="button" class="copy-view" id="share-match" title="Copy a link to this scorecard">Copy link</button>
+    </div>
     ${scoreLine ? `<p class="match-scores">${scoreLine}</p>` : ""}
-    <p>${esc(result)}</p>
-    <p class="meta-line">${fmtDate(m.start_date)} · ${esc(m.venue || "")} · ${esc(m.event_name || m.competition?.toUpperCase())} ${esc(m.season || "")} · Toss: ${esc(m.toss_winner)} ${esc(m.toss_decision || "")}
+    <p class="match-result">${esc(result)}</p>
+    <p class="meta-line">${fmtDate(m.start_date)} · <a href="#/venue?name=${encodeURIComponent(m.venue || "")}">${esc(m.venue || "")}</a> · ${esc(stageBits)}${m.toss_winner ? ` · Toss: ${esc(m.toss_winner)} ${esc(m.toss_decision || "")}` : ""}
       ${badges.map((b) => `<span class="badge">${b}</span>`).join(" ")}</p>
+    <p class="meta-line"><a href="#/team?name=${encodeURIComponent(m.team_home)}">${esc(m.team_home)}</a> · <a href="#/team?name=${encodeURIComponent(m.team_away)}">${esc(m.team_away)}</a> team records</p>
+    ${performers}
+    ${progressionBlock}
     ${xiHtml}
   `;
   for (const inn of d.innings || []) {
@@ -1016,6 +1191,14 @@ async function showMatch(id) {
       }),
       { faces: true },
     );
+    const innOvers = oversByInnings.get(inn.innings) || [];
+    if (inn.innings_kind === "regular" && innOvers.length >= 3) {
+      const scheduled = Number(m.revised_overs || m.scheduled_overs || 0);
+      html += manhattan(innOvers, {
+        maxOvers: limitedOvers ? Math.max(scheduled, Math.ceil(Number(inn.legal_balls || 0) / bpo)) : 0,
+        label: inn.batting_team,
+      });
+    }
     const fow = falls.map((fall) => `${fall.wicket_number}-${fall.runs}`).join(", ");
     if (fow) html += `${fowBeads(falls, Math.ceil(Number(inn.legal_balls || 0) / Number(m.balls_per_over || 6)))}<p class="fow">FoW: ${esc(fow)}</p>`;
     html += `<h3 class="section">Partnerships</h3>`;
@@ -1043,6 +1226,7 @@ async function showMatch(id) {
   main.innerHTML = html;
   bindTable("");
   warmPortraits(main);
+  bindShare("share-match");
   $("del-toggle")?.addEventListener("click", () => {
     const box = $("del-table");
     if (!box.hidden) { box.hidden = true; return; }
@@ -1219,6 +1403,78 @@ async function showPlayer(key) {
       `<a href="#/wowy?team=${encodeURIComponent(t.team)}&player=${encodeURIComponent(p.slug)}">${esc(t.team)}<span class="n">${t.matches}</span></a>`
     ).join("")}</div>`
     : "";
+  const totAvg = batOuts ? (batRuns / batOuts).toFixed(1) : null;
+  const totFifties = batRows.reduce((s, r) => s + Number(r.fifties || 0), 0);
+  const bestBowlInn = (d.bowling_innings || []).reduce((best, i) => {
+    if (!best) return i;
+    const bw = Number(i.wickets || 0), cw = Number(best.wickets || 0);
+    if (bw !== cw) return bw > cw ? i : best;
+    return Number(i.runs || 0) < Number(best.runs || 0) ? i : best;
+  }, null);
+  const bestBat = d.innings.reduce((best, i) => (!best || Number(i.runs || 0) > Number(best.runs || 0) ? i : best), null);
+  const bestPair = (d.pairs || [])[0];
+  const bestYear = (almanac.years || []).reduce((best, y) => (!best || Number(y.runs || 0) > Number(best.runs || 0) ? y : best), null);
+  const heroStats = bowlerFirst
+    ? [
+        ["Matches", d.span?.matches || totM || "–"],
+        ["Wickets", totW || "–"],
+        ["Econ", totEcon],
+        ["Best", bestBowlInn ? `${bestBowlInn.wickets}/${bestBowlInn.runs}` : "–"],
+        ["Runs", batRuns ? batRuns.toLocaleString() : "–"],
+        ["Bat avg", totAvg ?? "–"],
+      ]
+    : [
+        ["Matches", d.span?.matches || totM || "–"],
+        ["Runs", batRuns ? batRuns.toLocaleString() : "–"],
+        ["Average", totAvg ?? "–"],
+        ["Strike rate", totSr],
+        ["HS", totHs || "–"],
+        ["100s / 50s", `${totHundreds || 0} / ${totFifties || 0}`],
+      ];
+  const milestoneCards = statCards([
+    bestBat && Number(bestBat.runs) > 0 ? {
+      kicker: "Highest score",
+      value: `${bestBat.runs}${bestBat.not_out ? "*" : ""}`,
+      note: `v ${esc(bestBat.opposition || "—")} · ${fmtDate(bestBat.start_date)}`,
+      href: bestBat.match_id ? `#/match/${encodeURIComponent(bestBat.match_id)}` : "",
+      linkLabel: "Scorecard",
+    } : null,
+    bestBowlInn && Number(bestBowlInn.wickets) > 0 ? {
+      kicker: "Best bowling",
+      value: `${bestBowlInn.wickets}/${bestBowlInn.runs}`,
+      note: `v ${esc(bestBowlInn.opposition || "—")} · ${fmtDate(bestBowlInn.start_date)}`,
+      href: bestBowlInn.match_id ? `#/match/${encodeURIComponent(bestBowlInn.match_id)}` : "",
+      linkLabel: "Scorecard",
+    } : null,
+    bestYear ? {
+      kicker: "Best year with the bat",
+      value: Number(bestYear.runs || 0).toLocaleString(),
+      note: `${bestYear.year} · ${bestYear.inns ?? "–"} innings at ${bestYear.avg ?? "–"}`,
+    } : null,
+    bestPair ? {
+      kicker: "Most productive partner",
+      value: Number(bestPair.runs || 0).toLocaleString(),
+      note: `with ${esc(bestPair.partner)} · ${bestPair.inns} stands`,
+      href: bestPair.partner_slug ? `#/player/${encodeURIComponent(bestPair.partner_slug)}` : "",
+      linkLabel: "Profile",
+    } : null,
+  ]);
+  const formatCardRows = batRows
+    .map((s) => {
+      const bowlRow = bowlRows.find((b) => b.competition === s.competition) || {};
+      return { ...s, wickets: bowlRow.wickets, bowl_econ: bowlRow.econ };
+    })
+    .sort((a, b) => Number(b.matches || 0) - Number(a.matches || 0))
+    .slice(0, 5);
+  const formatCards = formatCardRows.length
+    ? `<div class="format-cards">${formatCardRows.map((s) => `
+        <article class="format-card">
+          <div class="fc-comp"><span class="comp-badge comp-${esc(String(s.competition).toLowerCase())}">${esc(String(s.competition).toUpperCase())}</span><span class="caption">${s.matches} matches</span></div>
+          <div class="fc-line"><strong>${Number(s.runs || 0).toLocaleString()}</strong> runs at ${esc(String(s.avg))}</div>
+          <div class="caption">${esc(String(s.sr))} SR · HS ${s.hs ?? "–"} · ${s.hundreds || 0}×100 · ${s.fifties || 0}×50</div>
+          ${s.wickets ? `<div class="caption">${s.wickets} wickets at ${esc(String(s.bowl_econ ?? "–"))} econ</div>` : ""}
+        </article>`).join("")}</div>`
+    : "";
   main.innerHTML = `
     <div class="player-hero">
       ${portrait(p.slug, p.display_name, "lg")}
@@ -1226,16 +1482,12 @@ async function showPlayer(key) {
         <div class="page-head">
           <h1 class="page-title">${esc(p.display_name)}</h1>
           <button type="button" class="fav-star" id="fav-star" aria-pressed="false">Pin</button>
+          <button type="button" class="copy-view" id="share-player" title="Copy a link to this profile">Copy link</button>
           <button type="button" class="btn-text" id="print-player">Print card</button>
         </div>
         <p class="meta-line">${esc(p.unique_name)} · ${bowlerFirst ? "Bowler" : "Batter"} first · ${esc(d.span.line)}${cricinfo ? ` · ${cricinfo}` : ""}</p>
         ${teamChips}
-        ${ribbon([
-          ["Matches", d.span?.matches || totM || "–"],
-          ["Runs", batRuns ? batRuns.toLocaleString() : "–"],
-          ["100s", totHundreds || "–"],
-          ["Catches", d.fielding?.catches ?? "–"],
-        ])}
+        ${ribbon(heroStats)}
       </div>
     </div>
     <nav class="jump player-jump" aria-label="Player profile sections">
@@ -1243,6 +1495,7 @@ async function showPlayer(key) {
       <button type="button" class="btn-text" data-jump="profile-value">Value</button>
       <button type="button" class="btn-text" data-jump="profile-best">Best</button>
       <button type="button" class="btn-text" data-jump="profile-matchups">Matchups</button>
+      <button type="button" class="btn-text" data-jump="profile-formats">By format</button>
       <button type="button" class="btn-text" data-jump="profile-innings">Innings</button>
     </nav>
     <p class="studio-links">
@@ -1252,6 +1505,8 @@ async function showPlayer(key) {
       · <button type="button" class="btn-text" id="add-tray">C — compare tray</button>
     </p>
     <section class="profile-section" id="profile-almanac">
+      ${formatCards}
+      ${milestoneCards}
       ${formBlock(d.innings, { n: 10, careerAvg })}
       ${almanacBlock(almanac)}
     </section>
@@ -1458,9 +1713,11 @@ async function showPlayer(key) {
   setDocTitle(p.display_name);
   document.body.dataset.playerSlug = p.slug;
   document.body.dataset.playerName = p.display_name;
+  recentPush(p.slug, p.display_name);
   renderFavStar(p.slug, p.display_name);
   $("add-tray")?.addEventListener("click", () => trayAdd(p.slug, p.display_name));
   $("print-player")?.addEventListener("click", () => window.print());
+  bindShare("share-player");
   main.querySelectorAll("[data-jump]").forEach((b) => {
     b.addEventListener("click", () => {
       main.querySelectorAll(".player-jump [data-jump]").forEach((button) => button.classList.toggle("active", button === b));
@@ -1498,6 +1755,19 @@ async function showPlayer(key) {
   warmPortraits(main);
 }
 
+// Rate stats (average, strike rate, economy) get the WTC-sides filter, because
+// associate-level T20Is otherwise fill the top of every rate table.
+const STAT_PRESETS = [
+  { label: "T20 value", hint: "Career WAR across T20Is and the IPL", state: { comp: "t20i_ipl", role: "all", sort: "war", min_inns: 8, wtc: false } },
+  { label: "Run scorers", hint: "Most runs in T20Is and the IPL", state: { comp: "t20i_ipl", role: "bat", sort: "runs", min_inns: 20, wtc: false } },
+  { label: "Wicket takers", hint: "Most wickets in T20Is and the IPL", state: { comp: "t20i_ipl", role: "bowl", sort: "wickets", min_inns: 20, wtc: false } },
+  { label: "Best average", hint: "Batting average, Test nations, 40-innings floor", state: { comp: "t20i_ipl", role: "bat", sort: "avg", min_inns: 40, wtc: true } },
+  { label: "Fastest scoring", hint: "Strike rate, Test nations, 40-innings floor", state: { comp: "t20i_ipl", role: "bat", sort: "sr", min_inns: 40, wtc: true } },
+  { label: "Tightest bowling", hint: "Economy rate, Test nations, 40-wicket floor", state: { comp: "t20i_ipl", role: "bowl", sort: "econ", min_inns: 40, wtc: true } },
+  { label: "Test batting", hint: "Test runs, 20-innings floor", state: { comp: "test", role: "bat", sort: "runs", min_inns: 20, wtc: false } },
+  { label: "Test bowling", hint: "Test wickets, 20-wicket floor", state: { comp: "test", role: "bowl", sort: "wickets", min_inns: 20, wtc: false } },
+];
+
 async function showStats() {
   setHero(false);
   main.classList.add("wide");
@@ -1532,9 +1802,17 @@ async function showStats() {
       ? [["t20i_wpl","T20I + WPL"],["t20i","T20I"],["wpl","WPL"],["odi","ODI"],["test","Tests"],["wbbl","WBBL"],["","All"]]
       : [["t20i_ipl","T20I + IPL"],["t20i","T20I"],["ipl","IPL"],["odi","ODI"],["test","Tests"],["bbl","BBL"],["","All"]];
     const naturalSortDir = HEAT_LOW.has(state.sort) ? "asc" : "desc";
+    const activePreset = STAT_PRESETS.find((p) =>
+      Object.entries(p.state).every(([k, v]) => String(state[k]) === String(v))
+    );
     main.innerHTML = `
       <h1 class="page-title">Stats</h1>
       <p class="lede">Counting stats and T20 value in one table. Click a header to sort. C on a row to compare. T for table focus.</p>
+      ${leaderboardNav("stats")}
+      <div class="record-tabs" id="st-presets" role="group" aria-label="Quick views">
+        <span class="fmt-label">Quick views</span>
+        ${STAT_PRESETS.map((p, i) => `<button type="button" class="chip ${activePreset === p ? "on" : ""}" data-preset="${i}" title="${esc(p.hint)}">${esc(p.label)}</button>`).join("")}
+      </div>
       <div class="stats-toolbar">
         <div class="filters stats-filters" aria-label="Filters">
           <label>Format
@@ -1597,6 +1875,8 @@ async function showStats() {
       heat: state.sort,
       sortKey: state.sort,
       sortDir: naturalSortDir,
+      searchable: true,
+      searchLabel: "Find a player in this table",
       onSort: (key) => {
         if (key === "rank" || key === "player" || key === "primary_role" || key === "matches" || key === "hs" || key === "hundreds") return;
         state.sort = key;
@@ -1604,6 +1884,14 @@ async function showStats() {
       },
     });
     bindTable("");
+    $("st-presets")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-preset]");
+      if (!btn) return;
+      const preset = STAT_PRESETS[Number(btn.dataset.preset)];
+      if (!preset) return;
+      Object.assign(state, preset.state);
+      paint();
+    });
     const bind = (id, key) => $(id)?.addEventListener("change", (e) => { state[key] = e.target.value; paint(); });
     bind("st-comp", "comp");
     bind("st-g", "gender");
@@ -1703,6 +1991,7 @@ async function showBest() {
     main.innerHTML = `
       <h1 class="page-title">Best T20</h1>
       <p class="lede">The strongest T20 performances in this warehouse, with batting and bowling from the same match counted together.</p>
+      ${leaderboardNav("best")}
       <div class="filters">
         <label>View
           <select id="bt-m">
@@ -1774,6 +2063,634 @@ function hashParam(name) {
   } catch {
     return "";
   }
+}
+
+function shareButton(id = "share-view") {
+  return `<button type="button" class="copy-view" id="${id}" title="Copy a link to this view">Copy link</button>`;
+}
+
+function bindShare(id = "share-view") {
+  $(id)?.addEventListener("click", () => copyText(location.href));
+}
+
+const COMP_CHOICES = [
+  ["", "All competitions"],
+  ["test", "Tests"],
+  ["odi", "ODI"],
+  ["t20i", "T20I"],
+  ["ipl", "IPL"],
+  ["wpl", "WPL"],
+  ["bbl", "BBL"],
+  ["wbbl", "WBBL"],
+  ["internationals", "All internationals"],
+  ["leagues", "All leagues"],
+];
+
+const RECORD_COLUMNS = {
+  high_scores: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "player", label: "Player", align: "left", link: "player" },
+    { key: "runs_display", label: "Runs", align: "right", numeric: true },
+    { key: "balls", label: "B", align: "right", numeric: true },
+    { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 },
+    { key: "fours", label: "4s", align: "right", numeric: true },
+    { key: "sixes", label: "6s", align: "right", numeric: true },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  best_bowling: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "player", label: "Player", align: "left", link: "player" },
+    { key: "figures", label: "Figures", align: "left" },
+    { key: "overs", label: "O", align: "right", numeric: true },
+    { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 },
+    { key: "maidens", label: "Mdns", align: "right", numeric: true },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  partnerships: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "runs", label: "Runs", align: "right", numeric: true },
+    { key: "pair", label: "Pair", align: "left" },
+    { key: "wicket_number", label: "Wkt", align: "right", numeric: true },
+    { key: "balls", label: "B", align: "right", numeric: true },
+    { key: "team", label: "For", align: "left" },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  team_totals: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "total", label: "Total", align: "left" },
+    { key: "team", label: "Side", align: "left", link: "team" },
+    { key: "overs", label: "O", align: "right", numeric: true },
+    { key: "rr", label: "RR", align: "right", numeric: true, digits: 2 },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  low_totals: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "total", label: "Total", align: "left" },
+    { key: "team", label: "Side", align: "left", link: "team" },
+    { key: "overs", label: "O", align: "right", numeric: true },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  most_sixes: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "player", label: "Player", align: "left", link: "player" },
+    { key: "sixes", label: "6s", align: "right", numeric: true },
+    { key: "runs_display", label: "Runs", align: "right", numeric: true },
+    { key: "balls", label: "B", align: "right", numeric: true },
+    { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  fast_hundreds: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "balls_to", label: "Balls to 100", align: "right", numeric: true, help: "Balls faced when the hundred came up" },
+    { key: "player", label: "Player", align: "left", link: "player" },
+    { key: "runs_display", label: "Finished", align: "right", numeric: true },
+    { key: "balls", label: "B", align: "right", numeric: true },
+    { key: "sixes", label: "6s", align: "right", numeric: true },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  fast_fifties: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "balls_to", label: "Balls to 50", align: "right", numeric: true, help: "Balls faced when the fifty came up" },
+    { key: "player", label: "Player", align: "left", link: "player" },
+    { key: "runs_display", label: "Finished", align: "right", numeric: true },
+    { key: "balls", label: "B", align: "right", numeric: true },
+    { key: "sixes", label: "6s", align: "right", numeric: true },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  big_wins: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "margin", label: "Margin", align: "left" },
+    { key: "winner", label: "Winner", align: "left", link: "team" },
+    { key: "loser", label: "Beat", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+  carried_bat: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 },
+    { key: "player", label: "Player", align: "left", link: "player" },
+    { key: "runs_display", label: "Runs", align: "right", numeric: true },
+    { key: "balls", label: "B", align: "right", numeric: true },
+    { key: "sixes", label: "6s", align: "right", numeric: true },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
+};
+
+async function showRecords() {
+  setHero(false);
+  main.classList.add("wide");
+  setDocTitle("Records");
+  const state = {
+    kind: hashParam("kind") || "high_scores",
+    comp: hashParam("comp") || "",
+    gender: hashParam("gender") || "male",
+    wtc: hashParam("wtc") === "true",
+  };
+  const paint = async () => {
+    const qs = new URLSearchParams({ kind: state.kind, gender: state.gender, limit: "60" });
+    if (state.comp) qs.set("comp", state.comp);
+    if (state.wtc) qs.set("wtc", "true");
+    history.replaceState(null, "", `#/records?${qs}`);
+    main.innerHTML = `
+      <h1 class="page-title">Record book</h1>
+      <p class="lede">The extremes this warehouse holds. Cricsheet is deep on internationals and the listed leagues — read these as records in this warehouse, not the game’s.</p>
+      ${leaderboardNav("records")}
+      <div id="rec-body"><div class="skel"></div><div class="skel"></div></div>`;
+    const d = await fetch(`/api/records?${qs}`).then((r) => r.json()).catch(() => ({ rows: [], kinds: [] }));
+    const kinds = d.kinds || [];
+    const rows = (d.rows || []).map((r, i) => ({ ...r, rank: i + 1, player: r.display_name || r.player }));
+    const cols = RECORD_COLUMNS[state.kind] || RECORD_COLUMNS.high_scores;
+    $("rec-body").innerHTML = `
+      <div class="record-tabs" role="group" aria-label="Record type">
+        ${kinds.map((k) => `<button type="button" class="chip ${k.id === state.kind ? "on" : ""}" data-kind="${esc(k.id)}">${esc(k.label)}</button>`).join("")}
+      </div>
+      <div class="stats-toolbar">
+        <div class="filters" aria-label="Filters">
+          <label>Competition
+            <select id="rc-comp">${COMP_CHOICES.map(([k, l]) => `<option value="${k}" ${state.comp === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+          </label>
+          <label>Gender
+            <select id="rc-g">
+              <option value="male" ${state.gender === "male" ? "selected" : ""}>Men</option>
+              <option value="female" ${state.gender === "female" ? "selected" : ""}>Women</option>
+              <option value="" ${state.gender === "" ? "selected" : ""}>Both</option>
+            </select>
+          </label>
+          <label class="check" title="Drops associate internationals; leagues are unchanged."><input type="checkbox" id="rc-wtc" ${state.wtc ? "checked" : ""}> Full members only</label>
+        </div>
+        <div class="view-options">${shareButton("rc-share")}</div>
+      </div>
+      <h2 class="section">${esc(d.label || "")}</h2>
+      <p class="caption">${esc(d.blurb || "")}</p>
+      <p class="scope">${esc(d.scope || "")}</p>
+      ${table(cols, rows, { searchable: true, searchLabel: "Filter these records" })}`;
+    bindTable("");
+    warmPortraits(main);
+    bindShare("rc-share");
+    $("rec-body").querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => {
+      state.kind = b.dataset.kind;
+      paint();
+    }));
+    $("rc-comp")?.addEventListener("change", (e) => { state.comp = e.target.value; paint(); });
+    $("rc-g")?.addEventListener("change", (e) => { state.gender = e.target.value; paint(); });
+    $("rc-wtc")?.addEventListener("change", (e) => { state.wtc = e.target.checked; paint(); });
+  };
+  await paint();
+}
+
+async function showGrounds() {
+  setHero(false);
+  setDocTitle("Grounds");
+  const q = hashParam("q") || "";
+  main.innerHTML = `
+    <h1 class="page-title">Grounds</h1>
+    <p class="lede">Which venues favour the chase, what a par first-innings score looks like, and who scores runs there.</p>
+    <div class="filters">
+      <label>Find a ground <input type="text" id="gr-q" value="${esc(q)}" placeholder="Eden Gardens"></label>
+    </div>
+    <div id="gr-out"><div class="skel"></div></div>`;
+  const paint = async (needle) => {
+    const d = await fetch(`/api/venues?q=${encodeURIComponent(needle || "")}&limit=60`)
+      .then((r) => r.json()).catch(() => ({ venues: [] }));
+    $("gr-out").innerHTML = table(
+      [
+        { key: "ground", label: "Ground", align: "left", link: "venue", clip: false },
+        { key: "city", label: "City", align: "left" },
+        { key: "matches", label: "Matches", align: "right", numeric: true },
+        { key: "range", label: "Span", align: "left" },
+      ],
+      d.venues || [],
+      { sortKey: "matches", sortDir: "desc", searchable: true, searchLabel: "Filter grounds" },
+    );
+    bindTable("");
+  };
+  await paint(q);
+  let timer;
+  $("gr-q")?.addEventListener("input", (e) => {
+    clearTimeout(timer);
+    const v = e.target.value.trim();
+    timer = setTimeout(() => {
+      history.replaceState(null, "", v ? `#/grounds?q=${encodeURIComponent(v)}` : "#/grounds");
+      paint(v);
+    }, 220);
+  });
+}
+
+async function showVenue(name) {
+  setHero(false);
+  main.classList.add("wide");
+  const ground = name || hashParam("name") || "";
+  if (!ground) return showGrounds();
+  setDocTitle(ground);
+  const comp = hashParam("comp") || "";
+  const gender = hashParam("gender") || "";
+  main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+  const qs = new URLSearchParams({ name: ground });
+  if (comp) qs.set("comp", comp);
+  if (gender) qs.set("gender", gender);
+  const d = await fetch(`/api/venue?${qs}`).then((r) => r.json()).catch(() => ({ ok: false }));
+  if (!d.ok) {
+    main.innerHTML = `<div class="empty"><p>${esc(d.error || "Ground not found.")}</p>
+      <a class="chip" href="#/grounds">All grounds</a></div>`;
+    return;
+  }
+  const fi = d.first_innings || {};
+  const res = d.results || {};
+  const toss = d.toss || {};
+  const tossTotal = (toss.bat || 0) + (toss.field || 0);
+  main.innerHTML = `
+    <div class="page-head">
+      <h1 class="page-title">${esc(d.venue)}</h1>
+      ${shareButton("vn-share")}
+    </div>
+    <p class="meta-line">${esc(d.city || "")} · ${d.matches.toLocaleString()} matches · ${esc(d.range || "")}</p>
+    <div class="stats-toolbar">
+      <div class="filters">
+        <label>Competition
+          <select id="vn-comp">${COMP_CHOICES.map(([k, l]) => `<option value="${k}" ${comp === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        </label>
+        <label>Gender
+          <select id="vn-g">
+            <option value="" ${gender === "" ? "selected" : ""}>Both</option>
+            <option value="male" ${gender === "male" ? "selected" : ""}>Men</option>
+            <option value="female" ${gender === "female" ? "selected" : ""}>Women</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    ${comp ? "" : `<p class="caption">Showing every format together — a Test innings and a T20 innings are in the same average. Pick a competition for a number you can use.</p>`}
+    ${statCards([
+      { kicker: "Par first innings", value: fi.avg == null ? "–" : num(fi.avg, 1), note: fi.run_rate != null ? `${fi.run_rate} run rate` : "" },
+      { kicker: "Highest first innings", value: fi.max == null ? "–" : num(fi.max, 0) },
+      { kicker: "Chase wins", value: res.chase_pct == null ? "–" : `${res.chase_pct}%`, note: `${res.chasing || 0} chasing · ${res.defending || 0} defending` },
+      { kicker: "Captains who batted", value: tossTotal ? `${Math.round((toss.bat || 0) * 100 / tossTotal)}%` : "–", note: `${toss.bat || 0} bat · ${toss.field || 0} field at the toss` },
+    ])}
+    <h2 class="section">By competition</h2>
+    ${table(
+      [
+        { key: "comp", label: "Competition", align: "left" },
+        { key: "matches", label: "Matches", align: "right", numeric: true },
+        { key: "first_date", label: "First", align: "left" },
+        { key: "last_date", label: "Latest", align: "left" },
+      ],
+      d.by_comp || [],
+    )}
+    <h2 class="section">Most runs here</h2>
+    ${table(
+      [
+        { key: "player", label: "Player", align: "left", link: "player" },
+        { key: "inns", label: "Inns", align: "right", numeric: true },
+        { key: "runs", label: "Runs", align: "right", numeric: true },
+        { key: "hs", label: "HS", align: "right", numeric: true },
+        { key: "avg", label: "Avg", align: "right", numeric: true, digits: 1 },
+        { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 },
+        { key: "hundreds", label: "100s", align: "right", numeric: true },
+        { key: "fifties", label: "50s", align: "right", numeric: true },
+      ],
+      d.top_bat || [],
+      { faces: true, sortKey: "runs", sortDir: "desc" },
+    )}
+    <h2 class="section">Most wickets here</h2>
+    ${table(
+      [
+        { key: "player", label: "Player", align: "left", link: "player" },
+        { key: "inns", label: "Inns", align: "right", numeric: true },
+        { key: "overs", label: "O", align: "right", numeric: true },
+        { key: "wickets", label: "W", align: "right", numeric: true },
+        { key: "best", label: "Best", align: "right", numeric: true },
+        { key: "avg", label: "Avg", align: "right", numeric: true, digits: 1 },
+        { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 },
+      ],
+      d.top_bowl || [],
+      { faces: true, sortKey: "wickets", sortDir: "desc" },
+    )}
+    <h2 class="section">Latest matches here</h2>
+    ${table(
+      [
+        { key: "start_date", label: "Date", align: "left", link: "match" },
+        { key: "fixture", label: "Match", align: "left" },
+        { key: "comp", label: "Comp", align: "left", badge: true },
+        { key: "result", label: "Result", align: "left" },
+      ],
+      d.recent || [],
+    )}`;
+  bindTable("");
+  warmPortraits(main);
+  bindShare("vn-share");
+  const reload = () => {
+    const qsx = new URLSearchParams({ name: d.venue });
+    if ($("vn-comp").value) qsx.set("comp", $("vn-comp").value);
+    if ($("vn-g").value) qsx.set("gender", $("vn-g").value);
+    location.hash = `#/venue?${qsx}`;
+  };
+  $("vn-comp")?.addEventListener("change", reload);
+  $("vn-g")?.addEventListener("change", reload);
+}
+
+async function showTeam(name) {
+  setHero(false);
+  main.classList.add("wide");
+  const side = name || hashParam("name") || "";
+  if (!side) {
+    main.innerHTML = `<h1 class="page-title">Teams</h1>
+      <p class="lede">Pick a side for its record, its head-to-head ledger, and the players who did the work.</p>
+      <div class="filters"><label>Side <input type="text" id="tm-q" placeholder="India"></label>
+      <button class="btn primary" id="tm-go">Open</button></div>`;
+    bindFieldAutocomplete("tm-q", "teams");
+    const go = () => {
+      const v = $("tm-q").dataset.resolved || $("tm-q").value.trim();
+      if (v) location.hash = `#/team?name=${encodeURIComponent(v)}`;
+    };
+    $("tm-go").addEventListener("click", go);
+    return;
+  }
+  setDocTitle(side);
+  const comp = hashParam("comp") || "";
+  const gender = hashParam("gender") || "";
+  main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+  const qs = new URLSearchParams({ name: side });
+  if (comp) qs.set("comp", comp);
+  if (gender) qs.set("gender", gender);
+  const d = await fetch(`/api/team?${qs}`).then((r) => r.json()).catch(() => ({ ok: false }));
+  if (!d.ok) {
+    main.innerHTML = `<div class="empty"><p>${esc(d.error || "Side not found.")}</p></div>`;
+    return;
+  }
+  main.innerHTML = `
+    <div class="page-head">
+      <h1 class="page-title">${esc(d.team)}</h1>
+      ${shareButton("tm-share")}
+    </div>
+    <p class="meta-line">${d.matches.toLocaleString()} matches · ${esc(d.range || "")} · <a href="#/wowy?team=${encodeURIComponent(d.team)}">WOWY for this side</a></p>
+    <div class="stats-toolbar">
+      <div class="filters">
+        <label>Competition
+          <select id="tm-comp">${COMP_CHOICES.map(([k, l]) => `<option value="${k}" ${comp === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        </label>
+        <label>Gender
+          <select id="tm-g">
+            <option value="" ${gender === "" ? "selected" : ""}>Both</option>
+            <option value="male" ${gender === "male" ? "selected" : ""}>Men</option>
+            <option value="female" ${gender === "female" ? "selected" : ""}>Women</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    ${statCards([
+      { kicker: "Record", value: `${d.wins}–${d.losses}`, note: d.undecided ? `${d.undecided} drawn or no result` : "" },
+      { kicker: "Win rate", value: d.win_pct == null ? "–" : `${d.win_pct}%`, note: "of decided matches" },
+      { kicker: "Matches", value: d.matches.toLocaleString() },
+      { kicker: "Span", value: esc(d.range || "–") },
+    ])}
+    <h2 class="section">By competition</h2>
+    ${table(
+      [
+        { key: "comp", label: "Competition", align: "left" },
+        { key: "matches", label: "P", align: "right", numeric: true },
+        { key: "wins", label: "W", align: "right", numeric: true },
+        { key: "losses", label: "L", align: "right", numeric: true },
+        { key: "win_pct", label: "Win %", align: "right", numeric: true, digits: 1 },
+      ],
+      d.by_comp || [],
+    )}
+    <h2 class="section">Head to head</h2>
+    <p class="caption">Every side they have met in this filter. Win % counts decided matches only.</p>
+    ${table(
+      [
+        { key: "opposition", label: "Opponent", align: "left", link: "team" },
+        { key: "matches", label: "P", align: "right", numeric: true },
+        { key: "wins", label: "W", align: "right", numeric: true },
+        { key: "losses", label: "L", align: "right", numeric: true },
+        { key: "undecided", label: "D / NR", align: "right", numeric: true },
+        { key: "win_pct", label: "Win %", align: "right", numeric: true, digits: 1 },
+        { key: "last_met", label: "Last met", align: "left" },
+      ],
+      d.h2h || [],
+      { sortKey: "matches", sortDir: "desc", searchable: true, searchLabel: "Filter opponents" },
+    )}
+    <h2 class="section">Most runs for ${esc(d.team)}</h2>
+    ${table(
+      [
+        { key: "player", label: "Player", align: "left", link: "player" },
+        { key: "inns", label: "Inns", align: "right", numeric: true },
+        { key: "runs", label: "Runs", align: "right", numeric: true },
+        { key: "hs", label: "HS", align: "right", numeric: true },
+        { key: "avg", label: "Avg", align: "right", numeric: true, digits: 1 },
+        { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 },
+        { key: "hundreds", label: "100s", align: "right", numeric: true },
+      ],
+      d.top_bat || [],
+      { faces: true, sortKey: "runs", sortDir: "desc" },
+    )}
+    <h2 class="section">Most wickets for ${esc(d.team)}</h2>
+    ${table(
+      [
+        { key: "player", label: "Player", align: "left", link: "player" },
+        { key: "inns", label: "Inns", align: "right", numeric: true },
+        { key: "wickets", label: "W", align: "right", numeric: true },
+        { key: "best", label: "Best", align: "right", numeric: true },
+        { key: "avg", label: "Avg", align: "right", numeric: true, digits: 1 },
+        { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 },
+      ],
+      d.top_bowl || [],
+      { faces: true, sortKey: "wickets", sortDir: "desc" },
+    )}
+    <h2 class="section">Latest matches</h2>
+    ${table(
+      [
+        { key: "start_date", label: "Date", align: "left", link: "match" },
+        { key: "opposition", label: "Opponent", align: "left" },
+        { key: "comp", label: "Comp", align: "left", badge: true },
+        { key: "outcome", label: "Result", align: "left", status: true, link: false },
+        { key: "result", label: "Margin", align: "left" },
+        { key: "venue", label: "Ground", align: "left", link: "venue" },
+      ],
+      d.recent || [],
+      { resultBorders: false },
+    )}`;
+  bindTable("");
+  warmPortraits(main);
+  bindShare("tm-share");
+  const reload = () => {
+    const qsx = new URLSearchParams({ name: d.team });
+    if ($("tm-comp").value) qsx.set("comp", $("tm-comp").value);
+    if ($("tm-g").value) qsx.set("gender", $("tm-g").value);
+    location.hash = `#/team?${qsx}`;
+  };
+  $("tm-comp")?.addEventListener("change", reload);
+  $("tm-g")?.addEventListener("change", reload);
+}
+
+const RANK_METRICS = [
+  ["runs", "Most runs"],
+  ["wickets", "Most wickets"],
+  ["avg", "Best batting average"],
+  ["sr", "Best strike rate"],
+  ["econ", "Best economy"],
+  ["hundreds", "Most hundreds"],
+  ["war", "Most WAR"],
+];
+
+async function showRankings() {
+  setHero(false);
+  main.classList.add("wide");
+  setDocTitle("Rankings");
+  const state = {
+    metric: hashParam("metric") || "runs",
+    comp: hashParam("comp") || "t20i",
+    gender: hashParam("gender") || "male",
+    min: Number(hashParam("min") || 20),
+  };
+  const paint = async () => {
+    const qs = new URLSearchParams({
+      metric: state.metric, gender: state.gender, min_inns: String(state.min),
+    });
+    if (state.comp) qs.set("comp", state.comp);
+    history.replaceState(null, "", `#/rankings?${qs}`);
+    main.innerHTML = `
+      <h1 class="page-title">Rankings</h1>
+      <p class="lede">One leaderboard at a time. Pick the metric, the competition, and the qualifying floor.</p>
+      ${leaderboardNav("rankings")}
+      <div id="rk-body"><div class="skel"></div><div class="skel"></div></div>`;
+    const d = await fetch(`/api/rankings?${qs}`).then((r) => r.json()).catch(() => ({ rows: [] }));
+    const rows = (d.rows || []).map((r, i) => ({ ...r, rank: i + 1, player: r.player || r.display_name }));
+    const extra = {
+      runs: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "avg", label: "Avg", align: "right", numeric: true, digits: 1 }, { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 }],
+      hundreds: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "runs", label: "Runs", align: "right", numeric: true }],
+      avg: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "runs", label: "Runs", align: "right", numeric: true }],
+      sr: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "runs", label: "Runs", align: "right", numeric: true }],
+      wickets: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 }],
+      econ: [{ key: "wickets", label: "W", align: "right", numeric: true }],
+      war: [{ key: "matches", label: "M", align: "right", numeric: true }],
+    }[state.metric] || [];
+    const metricCol = {
+      key: state.metric,
+      label: (RANK_METRICS.find(([k]) => k === state.metric) || ["", state.metric])[1].replace(/^(Most|Best) /, ""),
+      align: "right",
+      numeric: true,
+      digits: ["avg", "sr"].includes(state.metric) ? 1 : ["econ"].includes(state.metric) ? 2 : ["war"].includes(state.metric) ? 2 : 0,
+    };
+    $("rk-body").innerHTML = `
+      <div class="record-tabs" role="group" aria-label="Metric">
+        ${RANK_METRICS.map(([k, l]) => `<button type="button" class="chip ${k === state.metric ? "on" : ""}" data-metric="${k}">${l}</button>`).join("")}
+      </div>
+      <div class="stats-toolbar">
+        <div class="filters">
+          <label>Competition
+            <select id="rk-comp">${COMP_CHOICES.slice(0, 8).map(([k, l]) => `<option value="${k}" ${state.comp === k ? "selected" : ""}>${l || "All"}</option>`).join("")}</select>
+          </label>
+          <label>Gender
+            <select id="rk-g">
+              <option value="male" ${state.gender === "male" ? "selected" : ""}>Men</option>
+              <option value="female" ${state.gender === "female" ? "selected" : ""}>Women</option>
+            </select>
+          </label>
+          <label>Min innings <input type="number" id="rk-min" min="1" max="500" value="${state.min}"></label>
+        </div>
+        <div class="view-options">${shareButton("rk-share")}</div>
+      </div>
+      <p class="scope">${esc(d.scope || "")}</p>
+      ${table(
+        [
+          { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+          { key: "player", label: "Player", align: "left", link: "player" },
+          metricCol,
+          ...extra,
+        ],
+        rows,
+        { faces: true, heat: state.metric, searchable: true, searchLabel: "Find a player" },
+      )}`;
+    bindTable("");
+    warmPortraits(main);
+    bindShare("rk-share");
+    $("rk-body").querySelectorAll("[data-metric]").forEach((b) => b.addEventListener("click", () => {
+      state.metric = b.dataset.metric;
+      paint();
+    }));
+    $("rk-comp")?.addEventListener("change", (e) => { state.comp = e.target.value; paint(); });
+    $("rk-g")?.addEventListener("change", (e) => { state.gender = e.target.value; paint(); });
+    $("rk-min")?.addEventListener("change", (e) => { state.min = Number(e.target.value) || 1; paint(); });
+  };
+  await paint();
+}
+
+const STANDINGS_COMPS = [["ipl", "IPL"], ["wpl", "WPL"], ["bbl", "BBL"], ["wbbl", "WBBL"], ["t20i", "T20 World Cup"]];
+
+async function showStandings() {
+  setHero(false);
+  setDocTitle("Standings");
+  const state = {
+    comp: hashParam("comp") || "ipl",
+    season: hashParam("season") || "",
+  };
+  const paint = async () => {
+    const qs = new URLSearchParams({ comp: state.comp });
+    if (state.season) qs.set("season", state.season);
+    main.innerHTML = `
+      <h1 class="page-title">Standings</h1>
+      <p class="lede">Points tables and the knockouts that followed, season by season.</p>
+      <div id="sd-body"><div class="skel"></div><div class="skel"></div></div>`;
+    const d = await fetch(`/api/standings?${qs}`).then((r) => r.json()).catch(() => ({ rows: [] }));
+    if (!state.season && d.season) state.season = d.season;
+    history.replaceState(null, "", `#/standings?comp=${state.comp}&season=${encodeURIComponent(state.season || "")}`);
+    const cols = [
+      { key: "position", label: "#", align: "right", numeric: true },
+      { key: "team", label: "Team", align: "left", link: "team" },
+      { key: "played", label: "P", align: "right", numeric: true },
+      { key: "won", label: "W", align: "right", numeric: true },
+      { key: "lost", label: "L", align: "right", numeric: true },
+      { key: "no_result", label: "NR", align: "right", numeric: true },
+      { key: "points", label: "Pts", align: "right", numeric: true },
+      { key: "nrr", label: "NRR", align: "right", numeric: true, digits: 3 },
+    ].filter((c) => (d.rows || []).some((r) => r[c.key] != null) || c.key === "position");
+    $("sd-body").innerHTML = `
+      <div class="stats-toolbar">
+        <div class="filters">
+          <label>Competition
+            <select id="sd-comp">${STANDINGS_COMPS.map(([k, l]) => `<option value="${k}" ${state.comp === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+          </label>
+          <label>Season
+            <select id="sd-season">${(d.seasons || []).map((s) => `<option ${s === state.season ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>
+          </label>
+        </div>
+        <div class="view-options">${shareButton("sd-share")}</div>
+      </div>
+      ${(d.rows || []).length ? `<h2 class="section">Points table</h2>${table(cols, d.rows)}` : `<p class="caption">No points table stored for this season.</p>`}
+      ${(d.playoffs || []).length ? playoffBlock(d.playoffs) : ""}`;
+    bindTable("");
+    bindShare("sd-share");
+    $("sd-comp")?.addEventListener("change", (e) => { state.comp = e.target.value; state.season = ""; paint(); });
+    $("sd-season")?.addEventListener("change", (e) => { state.season = e.target.value; paint(); });
+  };
+  await paint();
 }
 
 function pickList(people, side) {
@@ -1955,6 +2872,15 @@ function sharedVsTable(rows, aName, bName, kind) {
   );
 }
 
+const CLASSIC_DUELS = [
+  { a: "v-kohli", b: "je-root", comp: "test", label: "Kohli v Root", note: "The Fab Four question, in whites" },
+  { a: "v-kohli", b: "spd-smith", comp: "test", label: "Kohli v Smith", note: "Two ways to bat for a decade" },
+  { a: "jc-buttler", b: "ms-dhoni", comp: "t20i_ipl", label: "Buttler v Dhoni", note: "Keeper-batters who finished" },
+  { a: "jj-bumrah", b: "rashid-khan", comp: "t20i_ipl", label: "Bumrah v Rashid Khan", note: "Best T20 bowler alive" },
+  { a: "ra-jadeja", b: "r-ashwin", comp: "test", label: "Jadeja v Ashwin", note: "The spin twins, split apart" },
+  { a: "ch-gayle", b: "ab-de-villiers", comp: "ipl", label: "Gayle v de Villiers", note: "Chinnaswamy, two ways" },
+];
+
 async function showCompare() {
   setHero(false);
   main.classList.add("wide");
@@ -1963,6 +2889,16 @@ async function showCompare() {
   const b = hashParam("b");
   const comp = hashParam("comp") || "t20i_ipl";
   if (!a || !b) {
+    const pinned = [...favList(), ...recentList()]
+      .filter((v, i, arr) => arr.findIndex((x) => x.slug === v.slug) === i)
+      .slice(0, 8);
+    const yours = pinned.length >= 2
+      ? `<h2 class="section">From your list</h2>
+         <p class="caption">Two clicks: pick the left name, then the right.</p>
+         <div class="chips" id="c-mine">${pinned.map((f) =>
+            `<button type="button" class="chip" data-mine="${esc(f.slug)}" data-name="${esc(f.name)}">${portrait(f.slug, f.name, "xs")}${esc(f.name)}</button>`
+          ).join("")}</div>`
+      : "";
     main.innerHTML = `
       <h1 class="page-title">Compare</h1>
       <p class="lede">Same format, same opponents. Pick two names, or jump to teams, a profile twin, or a stat-line shift.</p>
@@ -1977,10 +2913,28 @@ async function showCompare() {
         <label>Player B <input type="text" id="c-b" placeholder="Root" value="${esc(b)}"></label>
         ${formatSelect("c-comp", comp, false)}
         <button class="btn primary" id="c-go">Compare</button>
-      </div>`;
+      </div>
+      ${yours}
+      <h2 class="section">Arguments worth having</h2>
+      <p class="caption">Ready-made pairs. Each opens in the format where they overlap most.</p>
+      <div class="suggest-grid">${CLASSIC_DUELS.map((duel) => `
+        <a class="suggest-card" href="#/compare?a=${encodeURIComponent(duel.a)}&b=${encodeURIComponent(duel.b)}&comp=${encodeURIComponent(duel.comp)}">
+          <span class="suggest-names">${esc(duel.label)}</span>
+          <span class="caption">${esc(duel.note)}</span>
+        </a>`).join("")}</div>`;
     $("c-go").addEventListener("click", goCompare);
     bindFieldAutocomplete("c-a", "people");
     bindFieldAutocomplete("c-b", "people");
+    $("c-mine")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-mine]");
+      if (!btn) return;
+      const fieldA = $("c-a");
+      const fieldB = $("c-b");
+      const target = fieldA.value.trim() && !fieldB.value.trim() ? fieldB : (fieldA.value.trim() ? fieldB : fieldA);
+      target.value = btn.dataset.name;
+      target.dataset.resolved = btn.dataset.mine;
+      if (fieldA.dataset.resolved && fieldB.dataset.resolved) goCompare();
+    });
     return;
   }
   const d = await (await fetch(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}&comp=${encodeURIComponent(comp)}`)).json();
@@ -2779,17 +3733,18 @@ async function routeInner() {
   if (head === "player") return showPlayer(parts[1]);
   if (head === "stats") return showStats();
   if (head.startsWith("wowy")) return showWowy();
-  if (head === "rankings") return showStats();
+  if (head === "rankings") return showRankings();
+  if (head === "records") return showRecords();
+  if (head === "grounds") return showGrounds();
+  if (head === "venue") return showVenue(parts[1] ? decodeURIComponent(parts[1]) : "");
+  if (head === "team") return showTeam(parts[1] ? decodeURIComponent(parts[1]) : "");
   if (head === "best") return showBest();
   if (head === "compare") return showCompare();
   if (head === "teams") return showTeamCompare();
   if (head === "twin") return showTwin();
   if (head === "shift") return showShift();
   if (head === "metrics" || head === "war") return showMetrics();
-  if (head === "standings") {
-    setQuery("standings comp:ipl");
-    return showResults("standings comp:ipl");
-  }
+  if (head === "standings") return showStandings();
   if (head === "build") return showBuild();
   if (head === "sql") return showSQL();
   if (head === "docs" || head === "resources") return showDocs(parts[1] || "model");
@@ -2797,7 +3752,22 @@ async function routeInner() {
   await showHomeSnapshot();
 }
 
-window.addEventListener("hashchange", () => { page = 0; closeSearch(); route(); });
+let lastRoutePath = null;
+
+// Hash routing leaves the old scroll position behind, so a new page can open
+// halfway down. Anchors within the same page (the player jump bar) must keep it.
+function resetScrollForNewRoute() {
+  const path = location.hash.replace(/^#/, "").split("?")[0] || "/";
+  if (path !== lastRoutePath) window.scrollTo(0, 0);
+  lastRoutePath = path;
+}
+
+window.addEventListener("hashchange", () => {
+  page = 0;
+  closeSearch();
+  resetScrollForNewRoute();
+  route();
+});
 
 (async function init() {
   initChrome({
@@ -2815,5 +3785,6 @@ window.addEventListener("hashchange", () => { page = 0; closeSearch(); route(); 
   await loadSettings();
   await loadStatus();
   syncHighlight();
+  lastRoutePath = location.hash.replace(/^#/, "").split("?")[0] || "/";
   await route();
 })();
