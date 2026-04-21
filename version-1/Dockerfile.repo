@@ -1,0 +1,23 @@
+# ── Cricket Metrics — Backend (full repo, with data in image) ─────
+# Use this only when building from REPO ROOT with output_t20i/ and
+# output_ipl/ present. For Railway, use Root Directory = gui/backend
+# and Nixpacks (see DEPLOYMENT.md); do NOT use this file from Railway.
+#
+# Local build from repo root:
+#   docker build -f Dockerfile.repo -t cricket-metrics-backend .
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY gui/backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY output_t20i/ /app/output_t20i/
+COPY output_ipl/  /app/output_ipl/
+COPY gui/backend/ /app/
+
+ENV DATA_ROOT=/app
+ENV HOST=0.0.0.0
+EXPOSE 8080
+CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}

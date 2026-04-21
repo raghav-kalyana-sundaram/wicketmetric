@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+# setuptools/pip output — do not commit (duplicates routers/, inflates Vercel bundle)
+gui/backend/build/
+
+# Node
+node_modules/
+gui/frontend/dist/
+
+# Data sources (raw JSON — too large for git)
+t20s_male_json/
+ipl_json/
+cricketdata/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large archives (GitHub file limit 100 MB)
+cricket-output.tar.gz
+
+# Pipeline Parquet / CSV (large; keep out of git)
+data/output/
+data/cricket.duckdb
+# Ad-hoc DuckDB at version-1 root (local/CI; GitHub max 100 MB)
+cricket.duckdb
+# Legacy repo-root output dirs
+output/
+output_t20i/
+output_ipl/
+
+# Environment (do not commit secrets)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+.vercel
+.env*.local
+.env.vercel.check

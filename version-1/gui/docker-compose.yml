@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Canonical multi-slice tree: data/output/{mens_t20i,womens_t20i,mens_ipl,womens_ipl}
+      - ../data/output:/app/output:ro
+    environment:
+      # Do NOT set OUTPUT_DIR — load_all_data() discovers slices under /app/output/<format>/
+      - HOST=0.0.0.0
+      - PORT=8000
+    command: uvicorn app:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy

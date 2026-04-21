@@ -1,0 +1,34 @@
+# ── Large data sources (raw JSON) ─────────────────────────────────
+t20s_male_json/
+ipl_json/
+
+# ── Python artifacts ──────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# ── Node artifacts ────────────────────────────────────────────────
+node_modules/
+gui/frontend/dist/
+gui/frontend/.env.local
+
+# ── IDE / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Git ───────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Tests & docs (not needed in production images) ────────────────
+tests/
+.pytest_cache/
+*.md
+
+# ── Legacy output dir ────────────────────────────────────────────
+output/
