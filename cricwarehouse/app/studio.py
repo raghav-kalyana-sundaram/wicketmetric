@@ -541,9 +541,16 @@ def _shared_opponents(
             "b_avg": br.get("avg"),
             "a_econ": ar.get("econ"),
             "b_econ": br.get("econ"),
+            "a_dismissals": ar.get("dismissals"),
+            "b_dismissals": br.get("dismissals"),
         }
         if kind == "bat" and tests:
-            if ar.get("avg") is not None and br.get("avg") is not None:
+            if (
+                ar.get("avg") is not None
+                and br.get("avg") is not None
+                and int(ar.get("dismissals") or 0) >= 3
+                and int(br.get("dismissals") or 0) >= 3
+            ):
                 row["delta"] = round(float(ar["avg"]) - float(br["avg"]), 1)
             else:
                 row["delta"] = None
@@ -552,7 +559,12 @@ def _shared_opponents(
             row["delta"] = round(float(ar["sr"]) - float(br["sr"]), 1)
             row["delta_label"] = "SR"
         elif kind == "bowl" and tests:
-            if ar.get("avg") is not None and br.get("avg") is not None:
+            if (
+                ar.get("avg") is not None
+                and br.get("avg") is not None
+                and int(ar.get("dismissals") or 0) >= 3
+                and int(br.get("dismissals") or 0) >= 3
+            ):
                 row["delta"] = round(float(ar["avg"]) - float(br["avg"]), 1)
             else:
                 row["delta"] = None
@@ -691,12 +703,25 @@ def _value_rows(va: dict, vb: dict) -> list[dict]:
     am = {m["key"]: m for m in va.get("metrics") or []}
     bm = {m["key"]: m for m in vb.get("metrics") or []}
     rows = []
-    for key in ("war", "war_per_game", "rae_bat", "rae_bowl", "wpa", "pressure"):
+    for key in (
+        "war",
+        "war_per_game",
+        "raa_bat",
+        "raa_bowl",
+        "tsr",
+        "te",
+        "war_bat",
+        "war_bowl",
+        "twr_bat",
+        "twr_bowl",
+    ):
         a, b = am.get(key) or {}, bm.get(key) or {}
         av, bv = a.get("value"), b.get("value")
         delta = None
         if av is not None and bv is not None:
             delta = round(float(av) - float(bv), 3)
+        if av is None and bv is None:
+            continue
         rows.append(
             {
                 "key": key,
@@ -707,6 +732,8 @@ def _value_rows(va: dict, vb: dict) -> list[dict]:
                 "a_rank": a.get("rank"),
                 "b_rank": b.get("rank"),
                 "copy": a.get("copy") or b.get("copy") or "",
+                "lower": key in {"te", "twr_bat"},
+                "digits": 2 if key in {"tsr", "te", "twr_bat", "twr_bowl", "war", "war_bat", "war_bowl"} else (3 if key == "war_per_game" else 1),
             }
         )
     return rows

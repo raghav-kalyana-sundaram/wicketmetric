@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from cricwarehouse.competitions import classify_match, is_world_cup, normalize_stage
+from cricwarehouse.laws import dismissal_effect, is_mapped
 
 try:
     import orjson
@@ -30,13 +31,60 @@ def _pid(registry: dict[str, str], name: str | None) -> str | None:
     return registry.get(name) or registry.get(name.strip())
 
 
+EXTRA_KEYS = ("wides", "noballs", "byes", "legbyes", "penalty")
+
+
 def _extra_type(extras_obj: dict | None) -> str | None:
     if not extras_obj:
         return None
-    for key in ("wides", "noballs", "byes", "legbyes", "penalty"):
+    for key in EXTRA_KEYS:
         if extras_obj.get(key):
             return key
     return next(iter(extras_obj), None)
+
+
+def _coerce_count(value: Any) -> int:
+    """Narrow coercion for run counts.
+
+    Historical files store a few numeric fields as digit-only strings. That is
+    unambiguous and safe to read; anything else is left at zero so it surfaces
+    as a reconciliation gap instead of a silent guess.
+    """
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value == int(value) else 0
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return 0
+
+
+def _extra_parts(extras_obj: dict | None) -> dict[str, int]:
+    if not extras_obj:
+        return {k: 0 for k in EXTRA_KEYS}
+    return {k: _coerce_count(extras_obj.get(k)) for k in EXTRA_KEYS}
+
+
+def _powerplay_ranges(inn: dict, bpo: int) -> list[tuple[int, int]]:
+    """Mandatory powerplay intervals as [first ball, last ball] legal-ball indices.
+
+    Cricsheet records the interval in overs-and-deliveries notation, so `5.6`
+    is the sixth ball of the sixth over, not five point six overs. The recorded
+    interval is preferred over the overs 0-5 fallback because shortened matches
+    move it.
+    """
+    out: list[tuple[int, int]] = []
+    for pp in inn.get("powerplays") or []:
+        if (pp.get("type") or "mandatory") != "mandatory":
+            continue
+        lo = _overs_to_balls(pp.get("from"), bpo)
+        hi = _overs_to_balls(pp.get("to"), bpo)
+        if lo is None or hi is None:
+            continue
+        out.append((lo, hi))
+    return out
 
 
 def _result_method(info: dict) -> str:
@@ -90,6 +138,7 @@ def parse_match(
     competition = classify_match(info, readme_code)
     if competition is None:
         return None
+    meta = data.get("meta") or {}
 
     registry: dict[str, str] = (info.get("registry") or {}).get("people") or {}
     teams = info.get("teams") or []
@@ -159,6 +208,11 @@ def parse_match(
         "balls_per_over": bpo,
         "season": season,
         "eliminator_winner": outcome.get("eliminator"),
+        # Provenance. A reissued Cricsheet file must invalidate anything derived
+        # from the version it replaced, so the revision travels with the match.
+        "data_version": str(meta.get("data_version") or "") or None,
+        "revision": _coerce_count(meta.get("revision")) or None,
+        "source_created": str(meta.get("created") or "") or None,
     }
 
     people: list[dict] = []
@@ -217,6 +271,10 @@ def parse_match(
             bowling_team = next((t for t in teams if t != batting_team), team_away)
 
         target = inn.get("target") or {}
+        powerplays = _powerplay_ranges(inn, bpo)
+        pre_penalty = _coerce_count((inn.get("penalty_runs") or {}).get("pre"))
+        post_penalty = _coerce_count((inn.get("penalty_runs") or {}).get("post"))
+        schema_warnings: list[str] = []
         bat_stats: dict[str, dict] = {}
         bowl_stats: dict[str, dict] = {}
         order: list[str] = []
@@ -306,13 +364,15 @@ def parse_match(
             for ball_i, d in enumerate(over.get("deliveries") or [], start=1):
                 extras_obj = d.get("extras") or {}
                 extra_type = _extra_type(extras_obj)
-                is_wide = extra_type == "wides"
-                is_noball = extra_type == "noballs"
+                parts = _extra_parts(extras_obj)
+                is_wide = parts["wides"] > 0
+                is_noball = parts["noballs"] > 0
                 legal = not is_wide and not is_noball
                 runs = d.get("runs") or {}
-                runs_batter = int(runs.get("batter") or 0)
-                runs_extras = int(runs.get("extras") or 0)
-                runs_total = int(runs.get("total") or (runs_batter + runs_extras))
+                runs_batter = _coerce_count(runs.get("batter"))
+                runs_extras = _coerce_count(runs.get("extras"))
+                runs_total = _coerce_count(runs.get("total")) or (runs_batter + runs_extras)
+                non_boundary = bool(runs.get("non_boundary"))
                 wickets = d.get("wickets") or []
                 wicket_kind = wickets[0]["kind"] if wickets else None
                 player_out_name = wickets[0].get("player_out") if wickets else None
@@ -323,6 +383,24 @@ def parse_match(
                         fid = _pid(registry, fname)
                         if fid:
                             fielders.append(fid)
+                # Three separate wicket counts. One binary flag cannot express a
+                # run-out (team loses a resource, bowler earns nothing) or a
+                # retirement (nobody loses anything).
+                d_team = d_bat = d_bowl = 0
+                kinds: list[str] = []
+                outs: list[str] = []
+                for w in wickets:
+                    kind = (w.get("kind") or "").strip().lower()
+                    if not is_mapped(kind):
+                        schema_warnings.append(f"dismissal:{kind}")
+                    t, b, o = dismissal_effect(kind)
+                    d_team += t
+                    d_bat += b
+                    d_bowl += o
+                    kinds.append(kind)
+                    oid = _pid(registry, w.get("player_out"))
+                    if oid:
+                        outs.append(oid)
                 striker_name = d.get("batter")
                 non_name = d.get("non_striker")
                 bowler_name = d.get("bowler")
@@ -368,13 +446,12 @@ def parse_match(
                         bst["current_over"] = over_no
                         bst["over_runs"] = 0
                         bst["over_legal"] = 0
-                    charged = runs_batter + (
-                        runs_extras if extra_type in {"wides", "noballs"} else 0
-                    )
+                    # Byes, leg-byes and penalties are not the bowler's runs even
+                    # when they share a delivery with a no-ball.
+                    charged = runs_batter + parts["wides"] + parts["noballs"]
                     bst["runs"] += charged
                     bst["over_runs"] += charged
-                    if extra_type in {"wides", "noballs"}:
-                        bst["extras"] += runs_extras
+                    bst["extras"] += parts["wides"] + parts["noballs"]
                     if legal:
                         bst["legal_balls"] += 1
                         bst["over_legal"] = bst.get("over_legal", 0) + 1
@@ -385,14 +462,7 @@ def parse_match(
                     kind = w.get("kind") or ""
                     out_name = w.get("player_out")
                     out_id = _pid(registry, out_name)
-                    bowler_credited = kind in {
-                        "bowled",
-                        "caught",
-                        "caught and bowled",
-                        "lbw",
-                        "stumped",
-                        "hit wicket",
-                    }
+                    bowler_credited = bool(dismissal_effect(kind)[2])
                     if bowler and bowler_credited:
                         bowl_stats[bowler]["wickets"] += 1
                     if out_id and out_id in bat_stats:
@@ -423,7 +493,7 @@ def parse_match(
                                 bowler, {"catches": 0, "run_outs": 0, "stumpings": 0}
                             )
                             acc["catches"] += 1
-                    if kind not in {"retired hurt", "retired not out", "absent hurt", "absent ill"}:
+                    if dismissal_effect(kind)[0]:
                         innings_wkts += 1
                         wicket_number += 1
                         flush_partnership(kind, legal_index)
@@ -457,9 +527,30 @@ def parse_match(
                         "wicket_kind": wicket_kind,
                         "player_out": _pid(registry, player_out_name),
                         "fielder_ids": "|".join(fielders) if fielders else None,
+                        "extra_wides": parts["wides"],
+                        "extra_noballs": parts["noballs"],
+                        "extra_byes": parts["byes"],
+                        "extra_legbyes": parts["legbyes"],
+                        "extra_penalty": parts["penalty"],
+                        # An all-run four or an overthrow is not a boundary, and
+                        # counting it as one inflates every boundary residual.
+                        "non_boundary": non_boundary,
+                        "wicket_count": len(wickets),
+                        "wicket_kinds": "|".join(kinds) if len(kinds) > 1 else None,
+                        "wicket_players": "|".join(outs) if len(outs) > 1 else None,
+                        "d_team": d_team,
+                        "d_bat": d_bat,
+                        "d_bowl": d_bowl,
+                        "is_powerplay": any(
+                            lo <= (legal_index if legal else legal_index + 1) <= hi
+                            for lo, hi in powerplays
+                        ),
+                        "recorded_powerplay": bool(powerplays),
                     }
                 )
 
+        if pair_a and pair_b and (pair_runs or pair_balls):
+            wicket_number += 1
         flush_partnership("end_of_innings", legal_index)
         for bst in bowl_stats.values():
             if bst.get("current_over") is not None and bst.get("over_legal", 0) >= bpo and bst.get("over_runs", 0) == 0:
@@ -473,7 +564,7 @@ def parse_match(
                 "innings_kind": innings_kind,
                 "batting_team": batting_team,
                 "bowling_team": bowling_team,
-                "runs": innings_runs,
+                "runs": innings_runs + pre_penalty + post_penalty,
                 "wickets": innings_wkts,
                 "legal_balls": legal_index,
                 "extras": extras_total,
@@ -481,6 +572,18 @@ def parse_match(
                 "all_out": allout,
                 "target_runs": target.get("runs"),
                 "target_overs": target.get("overs"),
+                # Innings-level penalties have no ball and no wicket transition,
+                # so they are team events rather than deliveries and stay out of
+                # every player's ledger.
+                "pre_penalty_runs": pre_penalty,
+                "post_penalty_runs": post_penalty,
+                "delivery_runs": innings_runs,
+                "super_over": is_super,
+                "forfeited": bool(inn.get("forfeited")),
+                "absent_hurt": bool(inn.get("absent_hurt")),
+                "miscounted_overs": len(inn.get("miscounted_overs") or {}),
+                "powerplay_balls": sum(hi - lo + 1 for lo, hi in powerplays),
+                "schema_warnings": "|".join(sorted(set(schema_warnings))) or None,
             }
         )
         batting_lines.extend(bat_stats[pid] for pid in order)

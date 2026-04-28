@@ -11,7 +11,9 @@ import pandas as pd
 from cricwarehouse import MODEL_VERSION
 from cricwarehouse.competitions import T20_METRICS
 from cricwarehouse.paths import WAREHOUSE
+from cricwarehouse.app import advanced
 from cricwarehouse.app.db import write_parquet
+from cricwarehouse.app.resource import era_label
 
 PRESSURE_K = 1.0
 DLS_CONFIDENCE_THRESHOLD = 0.25
@@ -69,7 +71,11 @@ def rebuild_metrics() -> None:
     t20 = t20.sort_values("start_date")
     strength_rows = _elo(t20)
     write_parquet("team_strength", strength_rows)
+    # Two different questions. Elo tracks form going into a match and controls
+    # the runs-per-win fit; the Bradley-Terry tier is comparable across the whole
+    # fixture graph and is what the comparison baselines condition on.
     strength_asof = _strength_lookup(strength_rows)
+    strength_tier = _bradley_terry(t20)
 
     balls = con.execute(
         """
@@ -188,11 +194,99 @@ def rebuild_metrics() -> None:
     metrics = _aggregate(balls)
     rpw = _fit_runs_per_win(t20, balls)
     metrics = _apply_war(metrics, rpw)
+
+    # The resource-based engine. It supplies the published WAR; the descriptive
+    # layer above stays as the utility index the sliders drive.
+    _log("Building resource-based value model…")
+    adv = advanced.build_advanced(con, strength_asof, strength_tier)
+    metrics = _merge_advanced(metrics, adv)
+    _write_advanced_tables(adv)
+
     write_parquet("metrics_t20", metrics)
     perfs = _score_performances(balls, rpw)
     write_parquet("performances_t20", perfs)
-    _write_meta(rpw)
-    _log(f"metrics_t20 rows: {len(metrics):,}  performances: {len(perfs):,}  model_version={MODEL_VERSION}")
+    _write_meta(rpw, adv)
+    _log(
+        f"metrics_t20 rows: {len(metrics):,}  performances: {len(perfs):,}  "
+        f"model_version={MODEL_VERSION}"
+    )
+
+
+ADVANCED_FIELDS = (
+    "bf",
+    "lb",
+    "raa_bat",
+    "raa_bowl",
+    "raa_bat_neutral",
+    "raa100_bat",
+    "raa_over_bowl",
+    "vorp_bat",
+    "vorp_bowl",
+    "war_bat",
+    "war_bowl",
+    "war_total",
+    "runs_per_win_v2",
+    "tsr",
+    "te",
+    "twr_bat",
+    "twr_bowl",
+    "four_residual",
+    "six_residual",
+    "dot_residual_bat",
+    "dot_residual_team",
+    "xr_event",
+    "xr_runs",
+    "replacement_rate_bat",
+    "replacement_rate_bowl",
+    "bat_dismissals",
+    "bowl_wickets",
+)
+
+
+def _merge_advanced(metrics: list[dict], adv) -> list[dict]:
+    """Attach the resource-model numbers to each player-season row.
+
+    `war` becomes the resource-model figure so every existing leaderboard reads
+    from the same engine; the descriptive index keeps its own column so the two
+    stay comparable rather than silently replaced.
+    """
+    if not adv.players:
+        for row in metrics:
+            row["war_v1"] = row.get("war")
+            for field in ADVANCED_FIELDS:
+                row.setdefault(field, None)
+            row["war_label"] = "wins-equivalent"
+        return metrics
+    label = adv.meta.get("war_label", "WAR")
+    for row in metrics:
+        key = (str(row["person_id"]), row["competition"], str(row["season"]), row["gender"])
+        found = adv.players.get(key) or {}
+        row["war_v1"] = row.get("war")
+        for field in ADVANCED_FIELDS:
+            row[field] = found.get(field)
+        row["war"] = found.get("war_total")
+        row["war_label"] = label
+    return metrics
+
+
+def _write_advanced_tables(adv) -> None:
+    write_parquet("resource_grid", adv.resource_rows)
+    write_parquet("chase_grid", adv.chase_rows)
+    write_parquet("raa_slices_t20", adv.slices)
+    write_parquet("replacement_t20", adv.replacement)
+    write_parquet("pool_bridge_t20", adv.bridge)
+    write_parquet("runs_per_win_t20", adv.rpw)
+    write_parquet("match_value_t20", adv.match_values)
+    write_parquet("model_audit", adv.audit)
+    write_parquet("unscored_exposure", adv.exposure)
+    write_parquet("chase_distortion", adv.distortion)
+    failures = [c for c in adv.audit if c["status"] == "fail"]
+    if failures:
+        _log(f"  audit: {len(failures)} failing check(s) — see the Model page")
+        for c in failures[:8]:
+            _log(f"    fail · {c['check_name']} · {c['scope']} · {c['value']}")
+    else:
+        _log(f"  audit: {len(adv.audit)} checks pass")
 
 
 def _elo(t20) -> list[dict]:
@@ -216,7 +310,10 @@ def _elo(t20) -> list[dict]:
         rating[(away, g, family)] = ra + k * ((1 - score_h) - (1 - eh))
         last_date[(home, g, family)] = row.start_date
         last_date[(away, g, family)] = row.start_date
-        for team, val in ((home, rating[(home, g, family)]), (away, rating[(away, g, family)])):
+        for team, before, val in (
+            (home, rh, rating[(home, g, family)]),
+            (away, ra, rating[(away, g, family)]),
+        ):
             history.append(
                 {
                     "team": team,
@@ -225,9 +322,77 @@ def _elo(t20) -> list[dict]:
                     "as_of_date": row.start_date,
                     "batting_rating": float(val),
                     "bowling_rating": float(val),
+                    # The rating the side carried into this match. Anything that
+                    # conditions on strength has to use this one, or the match
+                    # result leaks into its own covariate.
+                    "pre_rating": float(before),
                 }
             )
     return history
+
+
+BT_RIDGE = 3.0
+BT_MIN_MATCHES = 60
+
+
+def _bradley_terry(t20) -> dict[tuple, float]:
+    """Team ratings on one comparable scale, solved globally per era.
+
+    Sequential Elo answers "how well has this side done against the sides it
+    happens to play", which is not the same question. Associate nations play
+    mostly each other, so their ratings drift on a scale that never meets the
+    full members': on this warehouse Elo puts Uganda above Australia. Solving
+    the whole fixture graph at once instead lets the handful of cross-tier games
+    anchor everyone, and the ridge penalty pulls thinly connected sides toward
+    the middle rather than letting them run away.
+
+    The result is a tier, not form, which is what a comparison baseline needs.
+
+    The fit pools every era. Cutting it by era would let a side's rating follow
+    its rise or decline, but it also thins the cross-tier fixtures that hold the
+    scale together, and the ordering collapses again: fitted per era, this data
+    puts Uganda above Australia. One rating per side, coarsely banded, is the
+    more robust read.
+    """
+    out: dict[tuple, float] = {}
+    played = t20[t20["winner"].notna() & (t20["result_method"] != "no_result")]
+    if played.empty:
+        return out
+    for pool, g in played.groupby(["competition", "gender"], sort=False):
+        if len(g) < BT_MIN_MATCHES:
+            continue
+        teams = pd.Index(sorted(set(g["team_home"]) | set(g["team_away"])))
+        pos = {t: i for i, t in enumerate(teams)}
+        X = np.zeros((len(g), len(teams) + 1))
+        X[:, 0] = 1.0
+        for row, (h, a) in enumerate(zip(g["team_home"], g["team_away"])):
+            X[row, 1 + pos[h]] += 1.0
+            X[row, 1 + pos[a]] -= 1.0
+        y = (g["winner"].to_numpy() == g["team_home"].to_numpy()).astype(float)
+        y[g["result_method"].to_numpy() == "tie"] = 0.5
+
+        penalty = np.eye(len(teams) + 1) * BT_RIDGE
+        # The intercept is home advantage and is not shrunk.
+        penalty[0, 0] = 0.0
+        beta = np.zeros(len(teams) + 1)
+        for _ in range(60):
+            p = 1.0 / (1.0 + np.exp(-(X @ beta)))
+            w = p * (1.0 - p) + 1e-9
+            hess = X.T @ (X * w[:, None]) + penalty
+            grad = X.T @ (y - p) - penalty @ beta
+            try:
+                step = np.linalg.solve(hess, grad)
+            except np.linalg.LinAlgError:
+                break
+            beta += step
+            if np.abs(step).max() < 1e-9:
+                break
+        # Back onto the familiar 1500-centred Elo scale so the two ratings read
+        # against each other.
+        comp, sex = pool
+        for team, val in zip(teams, beta[1:]):
+            out[(team, sex, comp)] = float(val * 400.0 / np.log(10.0) + 1500.0)
+    return out
 
 
 def _strength_lookup(rows: list[dict]) -> dict[tuple, float]:
@@ -241,7 +406,7 @@ def _strength_lookup(rows: list[dict]) -> dict[tuple, float]:
 
     cache: dict[tuple, float] = {}
     for r in rows:
-        cache[(r["team"], r["gender"], r["competition_family"], r["as_of_date"])] = r["bowling_rating"]
+        cache[(r["team"], r["gender"], r["competition_family"], r["as_of_date"])] = r["pre_rating"]
     return cache
 
 
@@ -801,7 +966,7 @@ def _merge_super_over(bat, bowl) -> list[dict]:
     return list(rows.values())
 
 
-def _write_meta(rpw: dict) -> None:
+def _write_meta(rpw: dict, adv=None) -> None:
     meta = {
         "model_version": MODEL_VERSION,
         "built_at": datetime.now(timezone.utc).isoformat(),
@@ -815,6 +980,7 @@ def _write_meta(rpw: dict) -> None:
             "t20i_trailing_balls": INTL_TRAIL_BALLS,
             "t20i_career_balls": INTL_CAREER_BALLS,
         },
+        "resource_model": (adv.meta if adv else {}),
     }
     write_parquet("model_meta", [meta])
     (WAREHOUSE / "model_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

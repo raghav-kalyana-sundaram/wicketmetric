@@ -1,0 +1,14 @@
+{
+  "match_id": "335985",
+  "innings": 1,
+  "note": "Section 18.11 of T20_Cricsheet_Advanced_Stats_Methodology_v2.md. Deterministic clocks only.",
+  "enter_over": {"valid_balls_before": 30, "wickets_used": 1, "retired_hurt": 1, "pre": [90, 9]},
+  "deliveries": [
+    {"over": 5, "ball": 1, "b_before": 90, "w_before": 9, "L": 1, "F": 1, "r_team": 1, "r_bat": 1, "d_team": 0, "d_bat": 0, "d_bowl": 0, "b_after": 89, "w_after": 9},
+    {"over": 5, "ball": 2, "b_before": 89, "w_before": 9, "L": 1, "F": 1, "r_team": 4, "r_bat": 4, "d_team": 0, "d_bat": 0, "d_bowl": 0, "b_after": 88, "w_after": 9},
+    {"over": 5, "ball": 3, "b_before": 88, "w_before": 9, "L": 1, "F": 1, "r_team": 0, "r_bat": 0, "d_team": 0, "d_bat": 0, "d_bowl": 0, "b_after": 87, "w_after": 9},
+    {"over": 5, "ball": 4, "b_before": 87, "w_before": 9, "L": 1, "F": 1, "r_team": 0, "r_bat": 0, "d_team": 1, "d_bat": 1, "d_bowl": 0, "b_after": 86, "w_after": 8, "kind": "run out"},
+    {"over": 5, "ball": 5, "b_before": 86, "w_before": 8, "L": 1, "F": 1, "r_team": 1, "r_bat": 1, "d_team": 0, "d_bat": 0, "d_bowl": 0, "b_after": 85, "w_after": 8},
+    {"over": 5, "ball": 6, "b_before": 85, "w_before": 8, "L": 1, "F": 1, "r_team": 0, "r_bat": 0, "d_team": 0, "d_bat": 0, "d_bowl": 0, "b_after": 84, "w_after": 8}
+  ]
+}
