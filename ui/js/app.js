@@ -2,8 +2,8 @@ import { highlightHTML, heuristic, upsertToken, trailingScore } from "./querybox
 import {
   initChrome, setDocTitle, favList, renderFavStar, trayAdd,
   formBlock, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
-  portrait, warmPortraits, ribbon, almanacBlock,
-  manhattan, progression, performerCards, statCards, recentList, recentPush,
+  portrait, warmPortraits, ribbon, almanacBlock, mixBars,
+  manhattan, progression, performerCards, statCards, recentList, recentPush, ledger,
 } from "./chrome.js";
 
 const $ = (id) => document.getElementById(id);
@@ -391,7 +391,7 @@ function tableHead(columns, { sortKey = "", sortDir = "desc" } = {}) {
 
 const TABLE_STORE = new Map();
 let tableSeq = 0;
-const HEAT_LOW = new Set(["econ", "bowl_avg"]);
+const HEAT_LOW = new Set(["econ", "bowl_avg", "te", "twr_bat"]);
 
 function table(columns, rows, opts = {}) {
   rows = Array.isArray(rows) ? rows : [];
@@ -690,7 +690,7 @@ function setHero(isHome) {
   const navAliases = {
     "#/compare": ["#/teams", "#/twin", "#/shift"],
     "#/grounds": ["#/venue"],
-    "#/stats": ["#/rankings", "#/metrics", "#/war"],
+    "#/stats": ["#/rankings", "#/metrics", "#/war", "#/model"],
     "#/standings": ["#/team"],
   };
   document.querySelectorAll(".util a").forEach((a) => {
@@ -920,6 +920,7 @@ const LEADERBOARD_PAGES = [
   ["rankings", "Rankings", "/rankings"],
   ["records", "Record book", "/records"],
   ["best", "Best T20", "/best"],
+  ["model", "Model", "/model"],
 ];
 
 function leaderboardNav(active) {
@@ -994,12 +995,14 @@ async function showMatch(id) {
     return;
   }
   main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
-  const [r, extrasRes] = await Promise.all([
+  const [r, extrasRes, valueRes] = await Promise.all([
     fetch(`/api/match/${encodeURIComponent(id)}`),
     fetch(`/api/match/${encodeURIComponent(id)}/extras`).catch(() => null),
+    fetch(`/api/match/${encodeURIComponent(id)}/value`).catch(() => null),
   ]);
   const d = await r.json().catch(() => ({}));
   const extras = extrasRes ? await extrasRes.json().catch(() => ({})) : {};
+  const value = valueRes ? await valueRes.json().catch(() => ({})) : {};
   const m = d.match;
   if (!r.ok || !m) {
     const msg = typeof d.detail === "string" ? d.detail : "Match not found";
@@ -1076,6 +1079,34 @@ async function showMatch(id) {
       : "";
   })();
   const performers = performerCards(extras.top_bat, extras.top_bowl);
+  // A chase that wins with overs to spare shows a one-run margin on the
+  // scoreboard. Valuing the balls and wickets left unused says how far apart the
+  // sides actually were.
+  const marginBlock = (() => {
+    const rows = value?.rows || [];
+    if (rows.length !== 2 || value.margin == null) return "";
+    const [first, second] = rows;
+    const lead = Number(value.margin) >= 0 ? first : second;
+    const gap = Math.abs(Number(value.margin));
+    return `<h2 class="section">Resource-adjusted margin</h2>
+      <p class="caption">Each innings is worth its runs plus the value of whatever balls and wickets it left unused. Unlike the scoreboard margin, this does not compress a
+      chase that finished early.</p>
+      ${ledger(
+        ["Innings", "Score", "Unused resources", "Innings value"],
+        rows.map((row) => {
+          const unused = Number(row.resource_value) - Number(row.runs);
+          return [
+            esc(row.batting_team),
+            `${row.runs}/${row.wickets_used} <span class="caption">${cricketOvers(row.legal_balls, bpo)} ov</span>`,
+            signed(unused, 1),
+            Number(row.resource_value).toFixed(1),
+          ];
+        }),
+      )}
+      <p class="caption">${esc(lead.batting_team)} ahead by ${gap.toFixed(1)} model runs.
+      ${gap > 0 ? `At the calibrated exchange rate that is the gap the batting and bowling sides created between them.` : ""}
+      <a href="#/model">How this is built</a>.</p>`;
+  })();
   const stageBits = [
     m.event_name || (m.competition || "").toUpperCase(),
     m.season || "",
@@ -1093,6 +1124,7 @@ async function showMatch(id) {
     <p class="meta-line"><a href="#/team?name=${encodeURIComponent(m.team_home)}">${esc(m.team_home)}</a> · <a href="#/team?name=${encodeURIComponent(m.team_away)}">${esc(m.team_away)}</a> team records</p>
     ${performers}
     ${progressionBlock}
+    ${marginBlock}
     ${xiHtml}
   `;
   for (const inn of d.innings || []) {
@@ -1290,15 +1322,19 @@ async function showPlayer(key) {
   const bowlerFirst = d.primary_role === "bowl";
   const val = d.value || {};
   const order = bowlerFirst
-    ? ["war", "war_per_game", "rae_bowl", "rae_bat", "wpa", "pressure"]
-    : ["war", "war_per_game", "rae_bat", "rae_bowl", "wpa", "pressure"];
+    ? ["war", "war_per_game", "raa_bowl", "te", "raa_bat", "tsr"]
+    : ["war", "war_per_game", "raa_bat", "tsr", "raa_bowl", "te"];
   const byKey = Object.fromEntries((val.metrics || []).map((m) => [m.key, m]));
   const fmtVal = (m) => {
     if (!m || m.value == null) return "–";
-    const dec = { war: 2, war_per_game: 3, rae_bat: 2, rae_bowl: 2, wpa: 3, pressure: 1 }[m.key] ?? 1;
+    const dec = {
+      war: 2, war_per_game: 3, war_bat: 2, war_bowl: 2,
+      raa_bat: 0, raa_bowl: 0, tsr: 2, te: 2, twr_bat: 2, twr_bowl: 2,
+    }[m.key] ?? 1;
     const n = Number(m.value);
     const s = n.toFixed(dec);
-    return (n > 0 && m.key !== "war_per_game" && m.key !== "war" ? "+" : "") + s;
+    const signedKeys = new Set(["raa_bat", "raa_bowl", "tsr", "te", "twr_bat", "twr_bowl"]);
+    return (n > 0 && signedKeys.has(m.key) ? "+" : "") + s;
   };
   const pools = (d.person?.gender === "female" || (d.summary || []).some((s) => s.competition === "wpl"))
     ? [["t20i_wpl", "T20I + WPL"], ["t20i", "T20I"], ["wpl", "WPL"], ["t20", "All T20"]]
@@ -1321,7 +1357,7 @@ async function showPlayer(key) {
           ${pctBar(m.rank, m.of)}
         </div>`;
       }).join("")}</div>
-      <p class="caption">Career totals — more games count. WAR / game is the same pile, divided by matches in this pool. In this warehouse, not an official rating.</p>`;
+      <p class="caption">Career totals — more games count. TSR and TE are strike rate and economy against the same situation, not the raw rates. In this warehouse, not an official rating.</p>`;
   } else {
     cards = `<p class="caption">${bowlerFirst ? "Bowler first — more balls bowled than faced in this warehouse." : "Ball-derived T20 metrics appear when T20I / IPL rows exist (see MODEL.md)."}</p>`;
   }
@@ -1493,6 +1529,7 @@ async function showPlayer(key) {
     <nav class="jump player-jump" aria-label="Player profile sections">
       <button type="button" class="btn-text active" data-jump="profile-almanac">Almanac</button>
       <button type="button" class="btn-text" data-jump="profile-value">Value</button>
+      <button type="button" class="btn-text" data-jump="profile-resource">Value model</button>
       <button type="button" class="btn-text" data-jump="profile-best">Best</button>
       <button type="button" class="btn-text" data-jump="profile-matchups">Matchups</button>
       <button type="button" class="btn-text" data-jump="profile-formats">By format</button>
@@ -1511,7 +1548,12 @@ async function showPlayer(key) {
       ${almanacBlock(almanac)}
     </section>
     <section class="profile-section profile-scope" id="profile-value">
+      <h2 class="section">Utility index</h2>
       ${cards}
+    </section>
+    <section class="profile-section" id="profile-resource">
+      <h2 class="section">Value model</h2>
+      <div id="rv-box"><p class="caption">Loading…</p></div>
     </section>
     <section class="profile-section" id="profile-best">
       <h2 class="section">Best T20 ${bowlerFirst ? "bowling" : "batting"}</h2>
@@ -1681,6 +1723,18 @@ async function showPlayer(key) {
     }</div>`;
   };
   paintH2h("all");
+  // The resource model is a second request so the profile paints immediately
+  // rather than waiting on the heavier slice aggregation.
+  (async () => {
+    const box = $("rv-box");
+    if (!box) return;
+    try {
+      const rv = await (await fetch(`/api/player/${encodeURIComponent(p.slug)}/resource`)).json();
+      box.innerHTML = resourcePanel(rv);
+    } catch {
+      box.innerHTML = `<p class="caption">Couldn’t load the value model.</p>`;
+    }
+  })();
   $("h2h-tabs")?.addEventListener("click", (e) => {
     const t = e.target.closest("[data-h2h]");
     if (!t) return;
@@ -1755,15 +1809,130 @@ async function showPlayer(key) {
   warmPortraits(main);
 }
 
+const SLICE_TITLES = {
+  phase: "By phase",
+  inn_type: "Setting a target or chasing",
+  entry_role: "By the state they walked into",
+  position_bucket: "By batting position",
+  press_band: "By target pressure",
+  set_state: "New at the crease or set",
+};
+
+// Runs above average, split by situation. A bar per slice, signed from a centre
+// line, because the question is always "better or worse than average here".
+function sliceBars(block) {
+  const rows = (block.rows || []).filter((r) => r.rate != null);
+  if (!rows.length) return "";
+  const span = Math.max(...rows.map((r) => Math.abs(Number(r.rate))), 0.5);
+  const bars = rows.map((r) => {
+    const v = Number(r.rate);
+    const width = (Math.abs(v) / span * 50).toFixed(1);
+    const good = v > 0;
+    return `<div class="slice-row">
+      <span class="slice-lab">${esc(titleCase(r.key))}</span>
+      <span class="slice-track">
+        <span class="slice-mid" aria-hidden="true"></span>
+        <span class="slice-fill ${good ? "pos" : "neg"}" style="${good ? "left:50%" : `right:50%`};width:${width}%"></span>
+      </span>
+      <span class="slice-val ${good ? "pos" : "neg"}">${signed(v, 2)}</span>
+      <span class="slice-exp">${Number(r.exposure).toLocaleString()}</span>
+    </div>`;
+  }).join("");
+  return `<article class="slice-block">
+    <h4 class="slice-title">${esc(SLICE_TITLES[block.kind] || titleCase(block.kind))}</h4>
+    <div class="slice-bars">${bars}</div>
+  </article>`;
+}
+
+function resourcePanel(d) {
+  if (!d?.ok || !d.panels?.length) {
+    return `<p class="caption">No resource-model value yet. It covers men's and women's T20 and IT20 — T20Is, the IPL, WPL, BBL and WBBL. Rebuild metrics if this looks wrong.</p>`;
+  }
+  const c = d.career;
+  const label = d.war_label === "WAR" ? "WAR" : "Wins-equivalent";
+  const fmt = (v, dec) => (v == null ? "–" : signed(Number(v), dec));
+  const panels = d.panels.map((p) => `
+    <article class="value-panel">
+      <header>
+        <h3>${esc(p.title)}</h3>
+        <span class="caption">${Number(p.exposure).toLocaleString()} ${esc(p.exposure_label)}</span>
+      </header>
+      <div class="value-grid">${p.items.map((i) => `
+        <div class="value-cell">
+          <div class="name">${esc(i.label)} <span class="info" tabindex="0">i<span class="pop">${esc(i.copy)}</span></span></div>
+          <div class="val ${Number(i.value) < 0 ? "neg" : ""}">${i.kind === "wins" ? Number(i.value ?? 0).toFixed(3) : fmt(i.value, i.kind === "runs" ? 0 : 2)}</div>
+        </div>`).join("")}</div>
+    </article>`).join("");
+  const skills = d.skills?.length
+    ? `<h3 class="section">Where the value comes from</h3>
+       <p class="caption">Each line is measured against what the same situation produces on average, so a low total is a real shortfall rather than a hard match.</p>
+       <div class="skill-list">${d.skills.map((s) => `
+         <div class="skill-row">
+           <span class="skill-lab">${esc(s.label)}</span>
+           <span class="skill-val ${s.good ? "pos" : "neg"}">${signed(Number(s.value), 2)}</span>
+           <span class="skill-unit">${esc(s.unit)}</span>
+           <span class="info" tabindex="0">i<span class="pop">${esc(s.copy)}</span></span>
+         </div>`).join("")}</div>`
+    : "";
+  const blocks = (d.slices || []);
+  const batBlocks = blocks.filter((b) => b.discipline === "bat").map(sliceBars).join("");
+  const bowlBlocks = blocks.filter((b) => b.discipline === "bowl").map(sliceBars).join("");
+  const sliceSection = (batBlocks || bowlBlocks)
+    ? `<h3 class="section">Runs above average by situation</h3>
+       <p class="caption">Batting is per 100 balls faced, bowling per over. The number on the right is the exposure behind each bar. Twenty-ball floor.</p>
+       ${batBlocks ? `<h4 class="slice-head">Batting</h4><div class="slice-grid">${batBlocks}</div>` : ""}
+       ${bowlBlocks ? `<h4 class="slice-head">Bowling</h4><div class="slice-grid">${bowlBlocks}</div>` : ""}`
+    : "";
+  const total = (c.war_bat ?? 0) + (c.war_bowl ?? 0);
+  const batMix = mixBars(d.dismissals?.bat);
+  const bowlMix = mixBars(d.dismissals?.bowl);
+  const phase = (d.phase_share || []).filter((r) => r.share > 0);
+  const phaseBlock = phase.length
+    ? `<article class="slice-block">
+        <h4 class="slice-title">Bowling workload, % of balls</h4>
+        ${mixBars(phase.map((r) => ({ label: titleCase(r.phase), n: Math.round(Number(r.share)) })))}
+        <p class="caption">${phase.map((r) => `${Number(r.exposure).toLocaleString()} ${r.phase}`).join(" · ")}</p>
+      </article>`
+    : "";
+  const mixSection = (batMix || bowlMix || phaseBlock)
+    ? `<h3 class="section">How they get out, and how they take wickets</h3>
+       <p class="caption">T20 only. Caught stays separate from caught-and-bowled. Counts, not rates.</p>
+       <div class="slice-grid">
+         ${batMix ? `<article class="slice-block"><h4 class="slice-title">Dismissed</h4>${batMix}</article>` : ""}
+         ${bowlMix ? `<article class="slice-block"><h4 class="slice-title">Wickets taken</h4>${bowlMix}</article>` : ""}
+         ${phaseBlock}
+       </div>`
+    : "";
+  return `
+    <p class="lede">${label} from the resource model: every ball is valued by what it did to the runs and wickets the side had left, then compared with an average player in the same position.</p>
+    ${ribbon([
+      [`${label}`, total.toFixed(2)],
+      ["Batting", (c.war_bat ?? 0).toFixed(2)],
+      ["Bowling", (c.war_bowl ?? 0).toFixed(2)],
+      ["Runs above average", signed((c.raa_bat ?? 0) + (c.raa_bowl ?? 0), 0)],
+      ["Balls faced", Number(c.bf || 0).toLocaleString()],
+      ["Balls bowled", Number(c.lb || 0).toLocaleString()],
+    ])}
+    <div class="value-panels">${panels}</div>
+    ${skills}
+    ${mixSection}
+    ${sliceSection}
+    <p class="caption">Runs above replacement subtracts what a fringe player in the same batting position or bowling phase would have produced, and wins divide that by the runs-per-win figure calibrated for this competition. <a href="#/model">How the model works</a>.</p>`;
+}
+
 // Rate stats (average, strike rate, economy) get the WTC-sides filter, because
 // associate-level T20Is otherwise fill the top of every rate table.
 const STAT_PRESETS = [
   { label: "T20 value", hint: "Career WAR across T20Is and the IPL", state: { comp: "t20i_ipl", role: "all", sort: "war", min_inns: 8, wtc: false } },
+  { label: "Batting value", hint: "Batting runs above average per 100 balls, Test nations", state: { comp: "t20i_ipl", role: "bat", sort: "raa100_bat", min_inns: 20, wtc: true } },
+  { label: "Bowling value", hint: "Bowling runs above average per over, Test nations", state: { comp: "t20i_ipl", role: "bowl", sort: "raa_over_bowl", min_inns: 20, wtc: true } },
   { label: "Run scorers", hint: "Most runs in T20Is and the IPL", state: { comp: "t20i_ipl", role: "bat", sort: "runs", min_inns: 20, wtc: false } },
   { label: "Wicket takers", hint: "Most wickets in T20Is and the IPL", state: { comp: "t20i_ipl", role: "bowl", sort: "wickets", min_inns: 20, wtc: false } },
   { label: "Best average", hint: "Batting average, Test nations, 40-innings floor", state: { comp: "t20i_ipl", role: "bat", sort: "avg", min_inns: 40, wtc: true } },
   { label: "Fastest scoring", hint: "Strike rate, Test nations, 40-innings floor", state: { comp: "t20i_ipl", role: "bat", sort: "sr", min_inns: 40, wtc: true } },
+  { label: "Scoring vs situation", hint: "True strike-rate residual, Test nations", state: { comp: "t20i_ipl", role: "bat", sort: "tsr", min_inns: 20, wtc: true } },
   { label: "Tightest bowling", hint: "Economy rate, Test nations, 40-wicket floor", state: { comp: "t20i_ipl", role: "bowl", sort: "econ", min_inns: 40, wtc: true } },
+  { label: "Bowling vs situation", hint: "True economy residual, Test nations", state: { comp: "t20i_ipl", role: "bowl", sort: "te", min_inns: 20, wtc: true } },
   { label: "Test batting", hint: "Test runs, 20-innings floor", state: { comp: "test", role: "bat", sort: "runs", min_inns: 20, wtc: false } },
   { label: "Test bowling", hint: "Test wickets, 20-wicket floor", state: { comp: "test", role: "bowl", sort: "wickets", min_inns: 20, wtc: false } },
 ];
@@ -1861,12 +2030,20 @@ async function showStats() {
       { key: "hs", label: "HS", align: "right", numeric: true, sortable: false, roleGroup: "bat", help: "Highest score" },
       { key: "avg", label: "Avg", align: "right", numeric: true, roleGroup: "bat", help: "Batting average: runs per dismissal" },
       { key: "sr", label: "SR", align: "right", numeric: true, roleGroup: "bat", help: "Batting strike rate: runs per 100 balls" },
+      { key: "tsr", label: "TSR", align: "right", numeric: true, digits: 2, roleGroup: "bat", help: "True strike-rate residual: runs per 100 balls above what the same situation usually yields. Needs 60 balls in this pool" },
       { key: "hundreds", label: "100s", align: "right", numeric: true, sortable: false, roleGroup: "bat", help: "Innings of 100 or more" },
+      { key: "raa_bat", label: "RAA", align: "right", numeric: true, digits: 0, roleGroup: "bat", help: "Runs above average with the bat, judged ball by ball against the same balls remaining, wickets in hand and target pressure" },
+      { key: "raa100_bat", label: "RAA/100", align: "right", numeric: true, digits: 2, roleGroup: "bat", help: "Batting runs above average per 100 balls faced. Needs 300 balls in this pool" },
+      { key: "war_bat", label: "bWAR", align: "right", numeric: true, digits: 2, roleGroup: "bat", help: "Batting wins above replacement from the resource model" },
     ];
     const bowlCols = [
       { key: "wickets", label: "W", align: "right", numeric: true, roleGroup: "bowl", help: "Career wickets" },
       { key: "bowl_avg", label: "BAvg", align: "right", numeric: true, roleGroup: "bowl", help: "Bowling average: runs conceded per wicket" },
       { key: "econ", label: "Econ", align: "right", numeric: true, roleGroup: "bowl", help: "Economy rate: runs conceded per six legal balls" },
+      { key: "te", label: "TE", align: "right", numeric: true, digits: 2, roleGroup: "bowl", help: "True economy residual: runs per over conceded above expectation. Negative is good. Needs 60 balls in this pool" },
+      { key: "raa_bowl", label: "RAA", align: "right", numeric: true, digits: 0, roleGroup: "bowl", help: "Runs above average with the ball, counting runs conceded and wickets taken against the same match state" },
+      { key: "raa_over_bowl", label: "RAA/ov", align: "right", numeric: true, digits: 2, roleGroup: "bowl", help: "Bowling runs above average per over. Needs 300 balls in this pool" },
+      { key: "war_bowl", label: "pWAR", align: "right", numeric: true, digits: 2, roleGroup: "bowl", help: "Bowling wins above replacement from the resource model" },
     ];
     const cols = [...coreCols];
     if (state.role !== "bowl") cols.push({ group: "Batting", cols: batCols });
@@ -1878,7 +2055,7 @@ async function showStats() {
       searchable: true,
       searchLabel: "Find a player in this table",
       onSort: (key) => {
-        if (key === "rank" || key === "player" || key === "primary_role" || key === "matches" || key === "hs" || key === "hundreds") return;
+        if (["rank", "player", "primary_role", "matches", "hs", "hundreds"].includes(key)) return;
         state.sort = key;
         paint();
       },
@@ -2554,9 +2731,13 @@ const RANK_METRICS = [
   ["wickets", "Most wickets"],
   ["avg", "Best batting average"],
   ["sr", "Best strike rate"],
+  ["tsr", "Best scoring vs situation"],
   ["econ", "Best economy"],
+  ["te", "Best bowling vs situation"],
   ["hundreds", "Most hundreds"],
   ["war", "Most WAR"],
+  ["raa_bat", "Most batting RAA"],
+  ["raa_bowl", "Most bowling RAA"],
 ];
 
 async function showRankings() {
@@ -2587,16 +2768,20 @@ async function showRankings() {
       hundreds: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "runs", label: "Runs", align: "right", numeric: true }],
       avg: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "runs", label: "Runs", align: "right", numeric: true }],
       sr: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "runs", label: "Runs", align: "right", numeric: true }],
+      tsr: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 }],
       wickets: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 }],
       econ: [{ key: "wickets", label: "W", align: "right", numeric: true }],
+      te: [{ key: "wickets", label: "W", align: "right", numeric: true }, { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 }],
       war: [{ key: "matches", label: "M", align: "right", numeric: true }],
+      raa_bat: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "tsr", label: "TSR", align: "right", numeric: true, digits: 2 }],
+      raa_bowl: [{ key: "wickets", label: "W", align: "right", numeric: true }, { key: "te", label: "TE", align: "right", numeric: true, digits: 2 }],
     }[state.metric] || [];
     const metricCol = {
       key: state.metric,
       label: (RANK_METRICS.find(([k]) => k === state.metric) || ["", state.metric])[1].replace(/^(Most|Best) /, ""),
       align: "right",
       numeric: true,
-      digits: ["avg", "sr"].includes(state.metric) ? 1 : ["econ"].includes(state.metric) ? 2 : ["war"].includes(state.metric) ? 2 : 0,
+      digits: ["avg", "sr"].includes(state.metric) ? 1 : ["econ", "tsr", "te", "war", "raa_bat", "raa_bowl"].includes(state.metric) ? 2 : 0,
     };
     $("rk-body").innerHTML = `
       <div class="record-tabs" role="group" aria-label="Metric">
@@ -2959,20 +3144,24 @@ async function showCompare() {
   const h = d.h2h || {};
   const showMinor = hashParam("minor") === "1";
   const disciplineFor = (key) => {
-    if (["wickets", "bowl_avg", "econ", "bowl_sr", "rae_bowl"].includes(key)) return "bowl";
-    if (["inns", "runs", "hs", "avg", "sr", "hundreds", "fifties", "rae_bat"].includes(key)) return "bat";
+    if (["wickets", "bowl_avg", "econ", "bowl_sr", "rae_bowl", "raa_bowl", "te", "war_bowl", "twr_bowl"].includes(key)) return "bowl";
+    if (["inns", "runs", "hs", "avg", "sr", "hundreds", "fifties", "rae_bat", "raa_bat", "tsr", "war_bat", "twr_bat"].includes(key)) return "bat";
     return null;
   };
   const valRow = (r, kind) => {
     const dec = r.digits != null
       ? r.digits
-      : ({ war: 2, war_per_game: 3, rae_bat: 2, rae_bowl: 2, wpa: 3, pressure: 1 }[r.key] ?? 1);
+      : ({
+        war: 2, war_per_game: 3, war_bat: 2, war_bowl: 2,
+        raa_bat: 1, raa_bowl: 1, tsr: 2, te: 2, twr_bat: 2, twr_bowl: 2,
+        rae_bat: 2, rae_bowl: 2, wpa: 3, pressure: 1,
+      }[r.key] ?? 1);
     const fmt = (v) => (v == null ? "–" : Number(v).toFixed(dec));
     const lower = !!r.lower;
     const discipline = disciplineFor(r.key);
     const bothRelevant = !discipline || (pa.primary_role === discipline && pb.primary_role === discipline);
     const classicRate = ["avg", "bowl_avg", "econ", "bowl_sr"].includes(r.key) || (r.key === "sr" && pool !== "test");
-    const valueRate = ["war", "war_per_game", "wpa", "pressure"].includes(r.key) || (discipline && bothRelevant);
+    const valueRate = ["war", "war_per_game", "raa_bat", "raa_bowl", "tsr", "te", "war_bat", "war_bowl", "twr_bat", "twr_bowl"].includes(r.key) || (discipline && bothRelevant);
     const colorable = kind === "value" ? valueRate : classicRate && bothRelevant;
     const aWin = colorable && r.a != null && r.b != null && (lower ? r.a < r.b : r.a > r.b);
     const bWin = colorable && r.a != null && r.b != null && (lower ? r.b < r.a : r.b > r.a);
@@ -3686,6 +3875,196 @@ async function showDocs(name = "model") {
   main.innerHTML = `<article class="docs-body">${d.html}</article>`;
 }
 
+// A resource surface as a grid of cells: balls remaining down, wickets in hand
+// across, shaded by expected runs. Reading a monotone surface is the fastest way
+// to see whether the fit is sane.
+function resourceHeat(grid, { title, sub, xLab, yLab, maxCells = 21 } = {}) {
+  if (!grid?.length) return "";
+  const balls = [...new Set(grid.map((r) => r.balls))].sort((a, b) => b - a);
+  const wickets = [...new Set(grid.map((r) => r.wickets))].sort((a, b) => a - b);
+  const step = Math.max(1, Math.ceil(balls.length / maxCells));
+  const rows = balls.filter((_, i) => i % step === 0 || i === balls.length - 1);
+  const lookup = new Map(grid.map((r) => [`${r.balls}:${r.wickets}`, r]));
+  const max = Math.max(...grid.map((r) => Number(r.value) || 0), 1);
+  const head = `<tr><th class="l">${esc(yLab)}</th>${wickets.map((w) => `<th class="n">${w}</th>`).join("")}</tr>`;
+  const body = rows.map((b) => `<tr><th class="l">${b}</th>${wickets.map((w) => {
+    const cell = lookup.get(`${b}:${w}`);
+    const v = cell ? Number(cell.value) : null;
+    if (v == null) return `<td class="n empty-cell"></td>`;
+    // Square-rooting the share spreads the low end, where a linear ramp leaves
+    // most of the surface reading as one flat dark block.
+    const share = Math.sqrt(Math.max(v, 0) / max);
+    const thin = cell.n != null && Number(cell.n) < 30;
+    return `<td class="n heat-cell${thin ? " thin" : ""}" style="--fill:${(share * 62).toFixed(1)}%"
+      title="${b} balls, ${w} wickets in hand → ${v.toFixed(1)} runs${cell.n != null ? ` · ${Number(cell.n).toLocaleString()} observations` : ""}">${v.toFixed(0)}</td>`;
+  }).join("")}</tr>`).join("");
+  return `<figure class="heatmap">
+    <figcaption><strong>${esc(title)}</strong><span class="caption">${esc(sub || "")}</span></figcaption>
+    <div class="heat-scroll"><table class="heat"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    <p class="caption heat-axis">Columns: ${esc(xLab)}. Faint cells rest on fewer than thirty observations and lean on the smoother.</p>
+  </figure>`;
+}
+
+async function showModel() {
+  setHero(false);
+  main.classList.add("wide");
+  setDocTitle("Model");
+  const state = { gender: hashParam("gender") || "male", need: Number(hashParam("need") || 60) };
+  const paint = async () => {
+    history.replaceState(null, "", `#/model?gender=${state.gender}&need=${state.need}`);
+    main.innerHTML = `<h1 class="page-title">Model</h1><p class="caption">Loading the value model…</p>`;
+    const d = await (await fetch(`/api/model?gender=${encodeURIComponent(state.gender)}`)).json();
+    if (!d.ok || !d.grid?.length) {
+      main.innerHTML = `<h1 class="page-title">Model</h1>
+        <div class="empty"><p>The value model has not been built yet.</p>
+        <p class="caption">Run a metrics rebuild from <a href="#/build">Build</a>.</p></div>`;
+      return;
+    }
+    const meta = d.meta?.resource_model || {};
+    const rpwRows = (d.rpw || []).filter((r) => r.gender === state.gender);
+    const separated = rpwRows.some((r) => r.match_separated);
+    const needs = [...new Set((d.chase || []).map((r) => Number(r.need)))].sort((a, b) => a - b);
+    const nearest = needs.reduce((best, n) => (Math.abs(n - state.need) < Math.abs(best - state.need) ? n : best), needs[0] ?? 60);
+    const chaseSlice = (d.chase || []).filter((r) => Number(r.need) === nearest);
+    const audit = d.audit || [];
+    const fails = audit.filter((a) => a.status !== "pass");
+    main.innerHTML = `
+      <h1 class="page-title">Model</h1>
+      <p class="lede">How a ball becomes a number. Every delivery is priced by what it did to the runs and wickets a side had left, and everything below is the machinery that makes that price.</p>
+      ${leaderboardNav("model")}
+      <div class="filters" aria-label="Model filters">
+        <label>Gender
+          <select id="mo-g">
+            <option value="male" ${state.gender === "male" ? "selected" : ""}>Men</option>
+            <option value="female" ${state.gender === "female" ? "selected" : ""}>Women</option>
+          </select>
+        </label>
+        <label>Runs required
+          <select id="mo-need">${needs.map((n) => `<option value="${n}" ${n === nearest ? "selected" : ""}>${n}</option>`).join("")}</select>
+        </label>
+        <span class="check-note">${d.audit_summary.pass} of ${d.audit_summary.total} checks pass</span>
+      </div>
+
+      <h2 class="section">Resource surfaces</h2>
+      <p class="caption">Left: runs a side still expects with those balls and wickets left, when there is no target. Right: the same question in a chase, where value is capped at the runs actually required.</p>
+      <div class="heat-pair">
+        ${resourceHeat(d.grid, {
+          title: "Expected remaining runs",
+          sub: "First innings · R(balls, wickets)",
+          xLab: "wickets in hand",
+          yLab: "Balls",
+        })}
+        ${resourceHeat(chaseSlice, {
+          title: `Chase value, ${nearest} to get`,
+          sub: "Second innings · R2(balls, wickets, runs required)",
+          xLab: "wickets in hand",
+          yLab: "Balls",
+        })}
+      </div>
+
+      <h2 class="section">Runs per win</h2>
+      <p class="caption">The exchange rate between runs and wins. Runs above replacement divided by this number is a player's wins above replacement.</p>
+      <div id="mo-rpw"></div>
+      ${separated ? `<div class="callout">
+        <h3>Why this is fitted on seasons, not matches</h3>
+        <p>The methodology asks for a match-level fit of the result on the resource-adjusted margin. Fitted that way here, the margin's sign agrees with the result on
+        ${(Math.max(...rpwRows.map((r) => Number(r.match_sign_agreement || 0))) * 100).toFixed(1)}% of matches — a completed pair of innings mechanically encodes who won, so the
+        slope measures that tautology rather than the value of a run, and it collapses to
+        ${rpwRows.map((r) => r.match_runs_per_win).filter((v) => v != null)[0] ?? "–"} runs per win.</p>
+        <p>The same regression one level up is well behaved: a side's realised margin across a season does not determine its win count. Both coefficients are in the table
+        above so the departure is visible rather than assumed.</p>
+      </div>` : ""}
+
+      <h2 class="section">Replacement level</h2>
+      <p class="caption">What a fringe player produces in the same role, in runs per ball. Value above replacement is measured from here, not from average.</p>
+      <div id="mo-rep"></div>
+
+      <h2 class="section">Validation</h2>
+      <p class="caption">${fails.length ? `${fails.length} check${fails.length === 1 ? "" : "s"} failing.` : "Every invariant holds on the current build."} These run on every rebuild against the full delivery table.</p>
+      <div id="mo-audit"></div>
+
+      <h2 class="section">What the model cannot see</h2>
+      <p class="caption">Play that carries no value, by season. Shortened and target-revised innings are excluded from fitting, and rather than drop them quietly the unvalued share is published.</p>
+      <div id="mo-exp"></div>
+
+      <h3 class="section">Chase distortion</h3>
+      <p class="caption">Chase deliveries valued against the target-aware surface, next to the same balls valued as if no target existed. The gap is what a target-neutral model would have got wrong.</p>
+      <div id="mo-dist"></div>
+
+      ${Object.keys(meta).length ? `<h2 class="section">Settings</h2>${ledger(["Setting", "Value"], Object.entries(meta)
+        .filter(([, v]) => v != null && typeof v !== "object")
+        .map(([k, v]) => [esc(titleCase(k)), esc(String(v))]))}` : ""}
+      <p class="caption">Full write-up in <a href="#/docs/model">MODEL.md</a>. Model version ${esc(String(d.meta?.model_version || ""))}.</p>`;
+
+    $("mo-rpw").innerHTML = table(
+      [
+        { key: "competition", label: "Competition", align: "left", badge: true },
+        { key: "runs_per_win", label: "Runs per win", align: "right", numeric: true, digits: 1, help: "Runs of aggregate margin worth one win" },
+        { key: "beta_margin", label: "Slope", align: "right", numeric: true, digits: 4, help: "Logistic coefficient on margin per match" },
+        { key: "beta_margin_no_strength", label: "Slope, no strength", align: "right", numeric: true, digits: 4, help: "The same fit without the team-strength covariate, to check attenuation" },
+        { key: "team_seasons", label: "Team seasons", align: "right", numeric: true },
+        { key: "matches", label: "Matches", align: "right", numeric: true },
+        { key: "match_runs_per_win", label: "Match-level", align: "right", numeric: true, digits: 2, help: "The methodology's match-level estimate, retained as a diagnostic" },
+        { key: "match_sign_agreement", label: "Sign agreement", align: "right", numeric: true, digits: 4, help: "Share of matches where the margin's sign matches the result. Near one means the match-level fit is separated" },
+        { key: "variant", label: "Source", align: "left" },
+      ],
+      rpwRows,
+      { sortKey: "runs_per_win", sortDir: "desc" },
+    );
+    $("mo-rep").innerHTML = table(
+      [
+        { key: "competition", label: "Competition", align: "left", badge: true },
+        { key: "discipline", label: "Side", align: "left" },
+        { key: "role", label: "Role", align: "left" },
+        { key: "rho", label: "Runs per ball", align: "right", numeric: true, digits: 4 },
+        { key: "pools", label: "Seasons", align: "right", numeric: true },
+        { key: "fallbacks", label: "On fallback", align: "right", numeric: true, help: "Seasons scored by the shrunk-percentile fallback because the marginal cohort was too thin or implausible" },
+      ],
+      d.replacement || [],
+      { searchable: true, searchLabel: "Find a role" },
+    );
+    $("mo-audit").innerHTML = table(
+      [
+        { key: "status", label: "Status", align: "left", status: true },
+        { key: "check_name", label: "Check", align: "left" },
+        { key: "scope", label: "Scope", align: "left" },
+        { key: "value", label: "Value", align: "right", numeric: true, digits: 4 },
+        { key: "note", label: "What it means", align: "left" },
+      ],
+      audit.map((a) => ({ ...a, status: a.status === "pass" ? "Pass" : "Fail" })),
+      { searchable: true, searchLabel: "Find a check" },
+    );
+    $("mo-exp").innerHTML = table(
+      [
+        { key: "competition", label: "Competition", align: "left", badge: true },
+        { key: "season", label: "Season", align: "left" },
+        { key: "deliveries", label: "Deliveries", align: "right", numeric: true },
+        { key: "unscored", label: "Unvalued", align: "right", numeric: true },
+        { key: "unscored_share", label: "Share", align: "right", numeric: true, digits: 3 },
+        { key: "top_reason", label: "Main reason", align: "left" },
+      ],
+      d.exposure || [],
+      { sortKey: "unscored_share", sortDir: "desc" },
+    );
+    $("mo-dist").innerHTML = table(
+      [
+        { key: "competition", label: "Competition", align: "left", badge: true },
+        { key: "entry_state", label: "Pressure", align: "left" },
+        { key: "opportunities", label: "Balls", align: "right", numeric: true },
+        { key: "raa_chase_table", label: "Target-aware", align: "right", numeric: true, digits: 0 },
+        { key: "raa_target_neutral", label: "Target-neutral", align: "right", numeric: true, digits: 0 },
+        { key: "gap_per_100", label: "Gap / 100 balls", align: "right", numeric: true, digits: 3 },
+      ],
+      d.distortion || [],
+      { sortKey: "gap_per_100", sortDir: "desc" },
+    );
+    bindTable("");
+    $("mo-g")?.addEventListener("change", (e) => { state.gender = e.target.value; paint(); });
+    $("mo-need")?.addEventListener("change", (e) => { state.need = Number(e.target.value); paint(); });
+  };
+  await paint();
+}
+
 async function route() {
   try {
     await routeInner();
@@ -3744,6 +4123,7 @@ async function routeInner() {
   if (head === "twin") return showTwin();
   if (head === "shift") return showShift();
   if (head === "metrics" || head === "war") return showMetrics();
+  if (head === "model") return showModel();
   if (head === "standings") return showStandings();
   if (head === "build") return showBuild();
   if (head === "sql") return showSQL();
