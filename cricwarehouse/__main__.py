@@ -17,6 +17,10 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("rebuild-metrics", help="Recompute T20 metrics from the warehouse")
     sub.add_parser("metrics", help="Alias of rebuild-metrics")
+    sub.add_parser(
+        "ingest-cricbase",
+        help="Append pre-2002 Test/ODI scorecards from cricbase.sqlite",
+    )
 
     p_serve = sub.add_parser("serve", help="Start the local UI")
     p_serve.add_argument("--host", default="127.0.0.1")
@@ -39,6 +43,12 @@ def main(argv: list[str] | None = None) -> int:
 
         metrics.rebuild_metrics()
         return 0
+    if args.cmd == "ingest-cricbase":
+        from cricwarehouse.app.cricbase import merge_historical
+
+        summary = merge_historical()
+        print(summary)
+        return 0 if summary.get("ok") else 1
     if args.cmd == "serve":
         from cricwarehouse.app.serve import serve
 

@@ -14,6 +14,7 @@ from cricwarehouse.app.pull import discover_local_dumps, iter_readme_rows, load_
 from cricwarehouse.app.db import write_parquet
 from cricwarehouse.app.standings import compute_standings
 from cricwarehouse.app import metrics as metrics_mod
+from cricwarehouse.app.cricbase import cricbase_available
 
 IN_SCOPE_README = {"Test", "ODI", "T20", "IT20", "IPL", "WPL", "BBL", "WBB"}
 TABLE_KEYS = (
@@ -141,6 +142,15 @@ def build(*, workers: int | None = None, with_metrics: bool = True) -> None:
         people_rows.append(merged)
         seen_ids.add(pid)
     buckets["people"] = people_rows
+
+    if cricbase_available():
+        from cricwarehouse.app.cricbase import ingest_into_build
+
+        hist = ingest_into_build(buckets)
+        _log(
+            f"Cricbase historical: {hist.get('matches', 0):,} Tests/ODIs "
+            f"({hist.get('batting_lines', 0):,} batting lines)"
+        )
 
     _log("Writing parquet…")
     for key in ("people", "matches", "xi", "innings", "batting_lines", "bowling_lines", "deliveries", "partnerships", "fielding_lines"):

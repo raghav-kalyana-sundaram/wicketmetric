@@ -87,14 +87,13 @@ def _powerplay_ranges(inn: dict, bpo: int) -> list[tuple[int, int]]:
     return out
 
 
-def _result_method(info: dict) -> str:
+def _result_method(info: dict, innings: list | None = None) -> str:
     outcome = info.get("outcome") or {}
     method = (outcome.get("method") or "").lower()
     if method in {"d/l", "dls", "duckworth/lewis"}:
         return "dls"
-    if outcome.get("eliminator") or any(
-        inn.get("super_over") for inn in []  # filled by caller
-    ):
+    innings = innings or []
+    if outcome.get("eliminator") or any(inn.get("super_over") for inn in innings):
         return "super_over"
     result = (outcome.get("result") or "").lower()
     if result in {"no result", "no_result"}:
@@ -213,6 +212,7 @@ def parse_match(
         "data_version": str(meta.get("data_version") or "") or None,
         "revision": _coerce_count(meta.get("revision")) or None,
         "source_created": str(meta.get("created") or "") or None,
+        "source": "cricsheet",
     }
 
     people: list[dict] = []

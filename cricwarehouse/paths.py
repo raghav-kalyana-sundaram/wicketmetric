@@ -10,6 +10,8 @@ PERSONAL = DATA / "personal"
 PORTRAITS = DATA / "portraits"
 USER_DATA = ROOT / "user_data"
 UI = ROOT / "ui"
+CRICBASE_DB = ROOT / "cricbase-download" / "data" / "db" / "cricbase.sqlite"
+CRICBASE_STATS_CACHE = ROOT / "cricbase-download" / "data" / "raw" / "statsguru"
 LOCAL_DUMPS = (
     ROOT / "ipl_json-1",
     ROOT / "ipl_json",

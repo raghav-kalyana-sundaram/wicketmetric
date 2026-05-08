@@ -1,8 +1,9 @@
 """Record books, ground pages, and team records — the browse-first cuts a fan asks for.
 
 Everything here reads the same Parquet lines the rest of the warehouse uses. Records are
-"in this warehouse": Cricsheet coverage is deep for internationals and the listed leagues
-and thin before the ball-by-ball era, so an all-time list is a list of what we hold.
+"in this warehouse": men's Tests from 1877 and ODIs from 1971 come from Cricinfo
+scorecards (no ball-by-ball before late 2001), and Cricsheet covers the ball-by-ball
+era plus the listed T20 leagues. Fastest fifties/hundreds still need deliveries.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from typing import Any
 from cricwarehouse.competitions import LABELS
 from cricwarehouse.teams import wtc_match_sql, wtc_params
 from cricwarehouse.app.db import connect, warehouse_ready
+from cricwarehouse.app.query import resolve_team
 
 RECORD_KINDS = (
     "high_scores",
@@ -24,7 +26,15 @@ RECORD_KINDS = (
     "fast_fifties",
     "big_wins",
     "carried_bat",
+    "ducks",
 )
+
+RECORD_ALIASES = {
+    "fastest_hundreds": "fast_hundreds",
+    "fastest_fifties": "fast_fifties",
+    "highest_sr": "carried_bat",
+    "strike_rates": "carried_bat",
+}
 
 RECORD_LABELS = {
     "high_scores": "Highest individual scores",
@@ -37,6 +47,7 @@ RECORD_LABELS = {
     "fast_fifties": "Fastest fifties",
     "big_wins": "Biggest winning margins",
     "carried_bat": "Highest strike rates",
+    "ducks": "Ducks, fewest balls first",
 }
 
 RECORD_BLURBS = {
@@ -50,6 +61,7 @@ RECORD_BLURBS = {
     "fast_fifties": "Balls faced when the fifty came up.",
     "big_wins": "Runs margin, or wickets in hand at the finish.",
     "carried_bat": "Strike rate in innings of at least 20 balls.",
+    "ducks": "Dismissed for 0, fewest balls first.",
 }
 
 
@@ -134,6 +146,7 @@ def records(
 ) -> dict[str, Any]:
     if not warehouse_ready():
         return {"rows": [], "kind": kind, "kinds": _kind_menu()}
+    kind = RECORD_ALIASES.get(kind, kind)
     kind = kind if kind in RECORD_KINDS else "high_scores"
     n = max(min(int(limit), 200), 1)
     con = connect()
@@ -263,7 +276,7 @@ def _q_low_totals(con, where, params, n):
                (i.legal_balls // 6) || '.' || (i.legal_balls % 6) AS overs
         FROM innings i
         JOIN matches m ON m.match_id = i.match_id
-        WHERE i.innings_kind = 'regular' AND i.all_out AND i.runs > 0 AND {where}
+        WHERE i.innings_kind = 'regular' AND i.all_out AND {where}
         ORDER BY i.runs ASC
         LIMIT ?
         """,
@@ -340,7 +353,8 @@ def _q_fast_fifties(con, where, params, n):
 
 
 def _q_big_wins(con, where, params, n):
-    return _rows(
+    half = max(n // 2, 1)
+    by_runs = _rows(
         con,
         f"""
         SELECT m.match_id, m.start_date, m.competition, m.venue, m.winner,
@@ -349,16 +363,40 @@ def _q_big_wins(con, where, params, n):
                CASE WHEN m.team_home = m.winner THEN m.team_away ELSE m.team_home END AS loser,
                COALESCE(m.win_by_runs, 0) AS margin_runs,
                COALESCE(m.win_by_wickets, 0) AS margin_wickets,
-               CASE WHEN m.win_by_runs IS NOT NULL THEN m.win_by_runs || ' runs'
-                    WHEN m.win_by_wickets IS NOT NULL THEN m.win_by_wickets || ' wickets'
-               END AS margin
+               m.win_by_runs || ' runs' AS margin
         FROM matches m
         WHERE m.winner IS NOT NULL AND m.win_by_runs IS NOT NULL AND {where}
         ORDER BY m.win_by_runs DESC
         LIMIT ?
         """,
-        [*params, n],
+        [*params, half],
     )
+    by_wkts = _rows(
+        con,
+        f"""
+        SELECT m.match_id, m.start_date, m.competition, m.venue, m.winner,
+               m.team_home, m.team_away, m.win_by_runs, m.win_by_wickets,
+               m.team_home || ' v ' || m.team_away AS fixture,
+               CASE WHEN m.team_home = m.winner THEN m.team_away ELSE m.team_home END AS loser,
+               COALESCE(m.win_by_runs, 0) AS margin_runs,
+               COALESCE(m.win_by_wickets, 0) AS margin_wickets,
+               m.win_by_wickets || ' wickets' AS margin
+        FROM matches m
+        WHERE m.winner IS NOT NULL AND m.win_by_wickets IS NOT NULL AND {where}
+        ORDER BY m.win_by_wickets DESC
+        LIMIT ?
+        """,
+        [*params, n - half],
+    )
+    seen = set()
+    out = []
+    for row in by_runs + by_wkts:
+        mid = row.get("match_id")
+        if mid in seen:
+            continue
+        seen.add(mid)
+        out.append(row)
+    return out[:n]
 
 
 def _q_carried_bat(con, where, params, n):
@@ -381,6 +419,26 @@ def _q_carried_bat(con, where, params, n):
     )
 
 
+def _q_ducks(con, where, params, n):
+    return _rows(
+        con,
+        f"""
+        SELECT b.runs, b.balls, b.not_out, b.fours, b.sixes, b.match_id, b.team,
+               p.display_name, p.slug, m.start_date, m.competition, m.venue,
+               CASE WHEN b.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+               '0' AS runs_display,
+               CASE WHEN b.balls > 0 THEN ROUND(b.runs * 100.0 / b.balls, 1) END AS sr
+        FROM batting_lines b
+        JOIN matches m ON m.match_id = b.match_id
+        JOIN people p ON p.person_id = b.person_id
+        WHERE b.innings_kind = 'regular' AND b.runs = 0 AND NOT b.not_out AND {where}
+        ORDER BY b.balls ASC, m.start_date DESC
+        LIMIT ?
+        """,
+        [*params, n],
+    )
+
+
 _RECORD_QUERIES = {
     "high_scores": _q_high_scores,
     "best_bowling": _q_best_bowling,
@@ -392,6 +450,7 @@ _RECORD_QUERIES = {
     "fast_fifties": _q_fast_fifties,
     "big_wins": _q_big_wins,
     "carried_bat": _q_carried_bat,
+    "ducks": _q_ducks,
 }
 
 
@@ -591,20 +650,9 @@ def team(*, name: str, comp: str | None = None, gender: str | None = None) -> di
         return {"ok": False, "error": "Warehouse not built yet."}
     con = connect()
     try:
-        resolved = con.execute(
-            """
-            SELECT team, COUNT(*) AS n FROM (
-              SELECT team_home AS team FROM matches
-              UNION ALL SELECT team_away AS team FROM matches
-            )
-            WHERE lower(team) = lower(?) OR lower(team) LIKE lower(?)
-            GROUP BY 1 ORDER BY n DESC LIMIT 1
-            """,
-            [name, f"%{name}%"],
-        ).fetchone()
-        if not resolved:
+        side = resolve_team(con, name)
+        if not side:
             return {"ok": False, "error": f"No side matching “{name}”."}
-        side = resolved[0]
         where, params = _gate(con, comp=comp, gender=gender, wtc=False)
         base = f"(m.team_home = ? OR m.team_away = ?) AND {where}"
         args = [side, side, *params]
