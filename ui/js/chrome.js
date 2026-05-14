@@ -10,6 +10,10 @@ export const GLOSSARY = [
   { id: "wowy", term: "WOWY", body: "With or without you. Team results only from the player’s first XI for that side — matches before they existed don’t count as “without.”" },
   { id: "pressure", term: "Pressure", body: "0–1: required rate vs expected remaining rate in chases, and overs 16+ in the first innings. Impact = RAE × (1 + pressure)." },
   { id: "pct", term: "Percentile", body: "Share of the filtered set you sit above. A 92 vs 98 still means something — fat-tail innings are not pinned at 99." },
+  { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 are Cricinfo scorecards; ball-by-ball (and fastest fifties/hundreds) starts in late 2001 with Cricsheet." },
+  { id: "manhattan", term: "Manhattan", body: "One bar per over, height is runs off that over. A dot above the bar marks a wicket in it. Useful for finding where an innings turned." },
+  { id: "chase_pct", term: "Chase %", body: "Share of decided matches at a ground won by the side batting second. Above 55% and the toss is worth having." },
+  { id: "balls_to", term: "Balls to 50 / 100", body: "Balls the batter had faced when the milestone came up, counted from the ball-by-ball rows. No-balls faced count as balls." },
 ];
 
 export const KEYS = [
@@ -21,6 +25,10 @@ export const KEYS = [
   ["C", "Add hovered player to compare"],
   ["*", "Favourite this player"],
   ["W / E", "Comfortable / compact rows"],
+  ["R", "Records"],
+  ["S", "Stats"],
+  ["H", "Home"],
+  ["Y", "Copy a link to this view"],
   ["?", "This list"],
   ["Esc", "Close overlays"],
 ];
@@ -141,7 +149,8 @@ export function scoreBeads(rows, n = 10) {
     const r = Number(i.runs || 0);
     const star = i.not_out ? "*" : "";
     const cls = r >= 100 ? "ton" : r >= 50 ? "fifty" : r === 0 && !i.not_out ? "duck" : "";
-    const inner = `<span class="sbead ${cls}" title="${r}${star} v ${i.opposition || ""}">${r}${star}</span>`;
+    const label = cls === "duck" ? `Duck · ${i.opposition || ""}` : `${r}${star} v ${i.opposition || ""}`;
+    const inner = `<span class="sbead ${cls}" title="${esc(label)}">${r}${star}</span>`;
     return i.match_id ? `<a class="sbead-link" href="#/match/${esc(i.match_id)}">${inner}</a>` : inner;
   }).join("")}</div>`;
 }
@@ -149,12 +158,6 @@ export function scoreBeads(rows, n = 10) {
 function yrLabel(y) {
   const s = String(y ?? "");
   return s.length === 4 ? `’${s.slice(2)}` : s;
-}
-
-function splitLine(r) {
-  if (!r) return "–";
-  const avg = r.avg != null ? r.avg : "–";
-  return `${r.inns} inns · ${Number(r.runs || 0).toLocaleString()} · ${avg} avg`;
 }
 
 function spanLink(r, prefix) {
@@ -169,24 +172,26 @@ export function almanacBlock(a) {
   const roles = a.roles || {};
   const debut = a.debut;
   const latest = a.latest;
-  const yearMax = Math.max(0, ...(a.years || []).map((y) => Number(y.runs) || 0));
   const yearSlice = (a.years || []).slice(-12);
-  const years = yearSlice.map((y) => {
-    const h = yearMax ? (Number(y.runs) / yearMax * 100) : 0;
-    return `<span class="yr" title="${y.year}: ${Number(y.runs || 0).toLocaleString()} runs, ${y.avg ?? "–"} avg"><i style="height:${Math.max(h, 3)}%"></i><em>${yrLabel(y.year)}</em></span>`;
-  }).join("");
   const pos = (a.positions || []).map((p) => ({ label: `#${p.position}`, n: p.n }));
-  const dis = (a.dismissals || []).map((d) => ({ label: d.label, n: d.n }));
+  const notOuts = (a.dismissals || []).find((d) => String(d.label).toLowerCase() === "not out");
+  const dis = (a.dismissals || [])
+    .filter((d) => String(d.label).toLowerCase() !== "not out")
+    .map((d) => ({ label: d.label, n: d.n }));
   const ha = a.home_away || [];
   const ch = a.chase || [];
   const fmts = (a.formats || []).map((r) => ({ label: r.label, n: r.matches }));
-  const yearRows = yearSlice.map((y) => [
-    yrLabel(y.year),
-    y.inns ?? "–",
-    Number(y.runs || 0).toLocaleString(),
-    y.avg ?? "–",
-    y.hundreds ?? 0,
-  ]);
+  const visibleYearMax = Math.max(1, ...yearSlice.map((y) => Number(y.runs) || 0));
+  const yearRows = yearSlice.map((y) => {
+    const runs = Number(y.runs || 0);
+    return [
+      yrLabel(y.year),
+      y.inns ?? "–",
+      `<span class="year-run"><span>${runs.toLocaleString()}</span><i><b style="width:${(runs / visibleYearMax * 100).toFixed(1)}%"></b></i></span>`,
+      y.avg ?? "–",
+      y.hundreds ?? 0,
+    ];
+  });
   const vsRows = (a.vs || []).map((r) => [
     esc(r.opposition),
     r.inns ?? "–",
@@ -235,14 +240,14 @@ export function almanacBlock(a) {
         <div><div class="conv-k">Ducks</div><div class="conv-n">${conv.ducks ?? "–"}</div></div>
         <div><div class="conv-k">Boundary %</div><div class="conv-n">${conv.boundary_pct ?? "–"}</div></div>
       </div>` : ""}
-      ${years ? `<div class="almanac-row"><h3>Runs by year</h3><div class="yr-chart">${years}</div>${ledger(["Year", "Inns", "Runs", "Avg", "100"], yearRows)}</div>` : ""}
+      ${yearSlice.length ? `<div class="almanac-row"><h3>Runs by year</h3>${ledger(["Year", "Inns", "Runs", "Avg", "100"], yearRows)}</div>` : ""}
       ${bowlChart ? `<div class="almanac-row"><h3>Wickets by year</h3><div class="yr-chart">${bowlChart}</div></div>` : ""}
       <div class="almanac-grid">
-        ${dis.length ? `<div><h3>How out</h3>${mixBars(dis)}</div>` : ""}
+        ${dis.length ? `<div><h3>Dismissals</h3>${mixBars(dis)}${notOuts ? `<p class="not-out-count"><span>Not out</span><strong>${notOuts.n}</strong></p>` : ""}</div>` : ""}
         ${pos.length ? `<div><h3>Batting order</h3>${mixBars(pos)}</div>` : ""}
         ${fmts.length ? `<div><h3>Formats</h3>${mixBars(fmts)}</div>` : ""}
-        ${ha.length ? `<div><h3>Home / away</h3>${ha.map((r) => `<p class="xi-line"><strong>${esc(r.split)}</strong> · ${splitLine(r)}</p>`).join("")}</div>` : ""}
-        ${ch.length ? `<div><h3>Set / chase</h3>${ch.map((r) => `<p class="xi-line"><strong>${esc(r.split)}</strong> · ${splitLine(r)}</p>`).join("")}</div>` : ""}
+        ${ha.length ? `<div><h3>Home / away</h3>${ledger(["", "Inns", "Runs", "Avg"], ha.map((r) => [esc(r.split), r.inns, Number(r.runs || 0).toLocaleString(), r.avg ?? "–"]))}</div>` : ""}
+        ${ch.length ? `<div><h3>Set / chase</h3>${ledger(["", "Inns", "Runs", "Avg"], ch.map((r) => [esc(r.split), r.inns, Number(r.runs || 0).toLocaleString(), r.avg ?? "–"]))}</div>` : ""}
         ${wlRows.length ? `<div><h3>In wins and losses</h3>${ledger(["", "Inns", "Runs", "Avg"], wlRows)}</div>` : ""}
         ${phaseRows.length ? `<div><h3>Career phases</h3>${ledger(["", "Inns", "Runs", "Avg"], phaseRows)}</div>` : ""}
         ${vsRows.length ? `<div class="span-2"><h3>Vs opposition</h3>${ledger(["Opp", "Inns", "Runs", "Avg", "100"], vsRows)}</div>` : ""}
@@ -254,7 +259,12 @@ export function almanacBlock(a) {
 
 function fmtDateAlmanac(iso) {
   if (!iso) return "—";
-  const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  }
+  const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
@@ -287,8 +297,14 @@ export function favToggle(slug, name) {
 }
 
 export function sparkline(values, { width = 168, height = 36 } = {}) {
-  const nums = (values || []).map(Number).filter((n) => Number.isFinite(n));
-  if (nums.length < 2) return "";
+  const points = (values || []).map((value) => {
+    if (typeof value === "object" && value !== null) {
+      return { n: Number(value.runs), label: `${value.runs}${value.not_out ? "*" : ""} v ${value.opposition || "—"} · ${fmtDateAlmanac(value.start_date)}` };
+    }
+    return { n: Number(value), label: String(value) };
+  }).filter((p) => Number.isFinite(p.n));
+  if (points.length < 2) return "";
+  const nums = points.map((p) => p.n);
   const max = Math.max(...nums, 1);
   const min = Math.min(...nums, 0);
   const span = Math.max(max - min, 1);
@@ -298,12 +314,14 @@ export function sparkline(values, { width = 168, height = 36 } = {}) {
     const y = height - 2 - ((n - min) / span) * (height - 4);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-  const last = nums[nums.length - 1];
-  const lx = (nums.length - 1) * step;
-  const ly = height - 2 - ((last - min) / span) * (height - 4);
-  return `<svg class="spark" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" aria-hidden="true">
+  const dots = points.map((p, i) => {
+    const x = i * step;
+    const y = height - 2 - ((p.n - min) / span) * (height - 4);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4"><title>${esc(p.label)}</title></circle>`;
+  }).join("");
+  return `<svg class="spark" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Scores from the last ${points.length} innings">
     <polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${pts.join(" ")}"/>
-    <circle cx="${lx}" cy="${ly}" r="2.2" fill="currentColor"/>
+    ${dots}
   </svg>`;
 }
 
@@ -313,7 +331,7 @@ export function formBlock(innings, { n = 10, careerAvg = null } = {}) {
   const runs = last.reduce((s, i) => s + Number(i.runs || 0), 0);
   const outs = last.filter((i) => !i.not_out).length;
   const avg = outs ? (runs / outs) : null;
-  const values = last.slice().reverse().map((i) => Number(i.runs || 0));
+  const values = last.slice().reverse();
   const avgBit = avg == null ? "not out through the lot" : avg.toFixed(1);
   const vs = careerAvg != null && avg != null
     ? (avg >= careerAvg ? ` ahead of career ${Number(careerAvg).toFixed(1)}` : ` behind career ${Number(careerAvg).toFixed(1)}`)
@@ -370,7 +388,7 @@ export function scatterSVG(rows, { xKey = "sr", yKey = "war", xLab = "Strike rat
   };
   const mx = mid(xs), my = mid(ys);
   const dots = pts.map((p) =>
-    `<a href="#/player/${encodeURIComponent(p.slug)}"><circle class="sc-dot" cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.2"><title>${p.name} · ${xLab} ${p.x} · ${yLab} ${p.y}</title></circle></a>`
+    `<a href="#/player/${encodeURIComponent(p.slug)}"><circle class="sc-dot" cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.2"><title>${esc(p.name)} · ${esc(xLab)} ${p.x} · ${esc(yLab)} ${p.y}</title></circle></a>`
   ).join("");
   return `<svg class="scatter" viewBox="0 0 ${w} ${h}" role="img" aria-label="${yLab} against ${xLab}">
     <text x="${pad.l}" y="12" class="sc-axis">${yLab}</text>
@@ -384,14 +402,159 @@ export function scatterSVG(rows, { xKey = "sr", yKey = "war", xLab = "Strike rat
   <p class="caption">Each dot is a player in this sort (first ${pts.length} with both axes). Crosshairs are the median ${xLab.toLowerCase()} and ${yLab}. Click a dot or a name.</p>`;
 }
 
-export function fowBeads(parts) {
-  const falls = (parts || []).filter((p) => p.end_reason && p.end_reason !== "end_of_innings");
+export function fowBeads(falls, maxOvers = 20) {
+  falls = falls || [];
   if (!falls.length) return "";
-  const max = Math.max(...falls.map((p) => Number(p.runs) || 0), 1);
-  return `<div class="fow-beads" aria-label="Fall of wickets">${falls.map((p) => {
-    const left = Math.min(96, (Number(p.runs) / max) * 96);
-    return `<span class="bead" style="left:${left}%" title="${p.wicket_number}–${p.runs}">${p.wicket_number}</span>`;
-  }).join("")}</div>`;
+  const overs = Math.max(Number(maxOvers) || 20, 1);
+  const step = overs <= 10 ? 2 : overs <= 20 ? 5 : Math.ceil(overs / 5);
+  const ticks = [];
+  for (let over = 0; over <= overs; over += step) ticks.push(over);
+  if (ticks.at(-1) !== overs) ticks.push(overs);
+  return `<div class="fow-chart" aria-label="Wicket timeline by over">
+    <div class="fow-beads">${falls.map((p, i) => {
+      const at = Number(p.over || 0) + Number(p.ball_in_over || 0) / 6;
+      const left = Math.max(1, Math.min(99, at / overs * 100));
+      const detail = `${p.wicket_number}–${p.runs} · ${p.batter || "Wicket"} · ${p.over}.${p.ball_in_over}`;
+      return `<span class="bead lane-${i % 2}" style="left:${left}%" title="${esc(detail)}">${p.wicket_number}</span>`;
+    }).join("")}</div>
+    <div class="fow-axis">${ticks.map((over) => `<span style="left:${over / overs * 100}%">${over}</span>`).join("")}</div>
+  </div>`;
+}
+
+export function manhattan(overs, { maxOvers = 0, label = "" } = {}) {
+  const rows = (overs || []).map((o) => ({
+    over: Number(o.over) || 0,
+    runs: Number(o.runs) || 0,
+    wickets: Number(o.wickets) || 0,
+  }));
+  if (rows.length < 3) return "";
+  const span = Math.max(maxOvers || 0, ...rows.map((r) => r.over + 1));
+  const max = Math.max(...rows.map((r) => r.runs), 6);
+  const byOver = new Map(rows.map((r) => [r.over, r]));
+  const bars = [];
+  for (let i = 0; i < span; i += 1) {
+    const r = byOver.get(i);
+    const runs = r ? r.runs : 0;
+    const wk = r ? r.wickets : 0;
+    const h = max ? (runs / max) * 100 : 0;
+    const tip = r
+      ? `Over ${i + 1}: ${runs} run${runs === 1 ? "" : "s"}${wk ? `, ${wk} wicket${wk === 1 ? "" : "s"}` : ""}`
+      : `Over ${i + 1}: not bowled`;
+    // A maiden still needs a visible stub, or the chart reads as missing overs.
+    const height = r ? Math.max(h, runs ? 4 : 2) : 0;
+    bars.push(`<span class="mh-bar${wk ? " has-wkt" : ""}${r ? "" : " empty"}" title="${esc(tip)}">
+      <i style="height:${height.toFixed(1)}%"></i>
+      ${wk ? `<em class="mh-wkt" aria-hidden="true">${wk > 1 ? wk : ""}</em>` : ""}
+    </span>`);
+  }
+  const ticks = [];
+  const step = span <= 20 ? 5 : span <= 50 ? 10 : 20;
+  for (let o = step; o <= span; o += step) ticks.push(o);
+  const wktOvers = rows.filter((r) => r.wickets).length;
+  return `<figure class="manhattan" aria-label="Runs per over${label ? ` — ${esc(label)}` : ""}">
+    <figcaption class="mh-cap">${label ? `${esc(label)} · ` : ""}runs per over<span class="mh-key"><i class="mh-swatch"></i>runs<i class="mh-swatch wkt"></i>wicket fell</span></figcaption>
+    <div class="mh-plot" style="--mh-max:${max}">${bars.join("")}</div>
+    <div class="mh-axis">${ticks.map((o) => `<span style="left:${(o / span) * 100}%">${o}</span>`).join("")}</div>
+    <p class="caption">One bar per over, tallest is ${max} run${max === 1 ? "" : "s"}. ${
+      wktOvers
+        ? `Red bars and the dot above them are the ${wktOvers} over${wktOvers === 1 ? "" : "s"} that brought a wicket.`
+        : "No wicket fell in this innings."
+    } Hover a bar for the over.</p>
+  </figure>`;
+}
+
+export function progression(series, { target = null } = {}) {
+  const lanes = (series || []).filter((s) => (s.points || []).length > 2);
+  if (!lanes.length) return "";
+  const w = 640;
+  const h = 220;
+  const pad = { l: 46, r: 14, t: 12, b: 30 };
+  const maxOver = Math.max(...lanes.flatMap((s) => s.points.map((p) => p.over)), 1);
+  const maxRuns = Math.max(...lanes.flatMap((s) => s.points.map((p) => p.runs)), Number(target) || 0, 10);
+  const X = (o) => pad.l + (o / maxOver) * (w - pad.l - pad.r);
+  const Y = (r) => h - pad.b - (r / maxRuns) * (h - pad.t - pad.b);
+  const paths = lanes.map((s, i) => {
+    const pts = s.points.map((p) => `${X(p.over).toFixed(1)},${Y(p.runs).toFixed(1)}`).join(" ");
+    const dots = s.points
+      .filter((p) => p.wickets)
+      .map((p) => `<circle class="pg-wkt" cx="${X(p.over).toFixed(1)}" cy="${Y(p.runs).toFixed(1)}" r="2.8"><title>${esc(s.team)} ${p.runs} after ${p.over} — wicket</title></circle>`)
+      .join("");
+    return `<polyline class="pg-line pg-${i}" fill="none" points="${pts}"/>${dots}`;
+  }).join("");
+  const targetLine = Number(target) > 0
+    ? `<line class="pg-target" x1="${pad.l}" y1="${Y(target).toFixed(1)}" x2="${w - pad.r}" y2="${Y(target).toFixed(1)}"/>
+       <text class="pg-axis" x="${w - pad.r}" y="${(Y(target) - 5).toFixed(1)}" text-anchor="end">target ${target}</text>`
+    : "";
+  const yTicks = [0, Math.round(maxRuns / 2), maxRuns];
+  const xStep = maxOver <= 20 ? 5 : maxOver <= 50 ? 10 : 20;
+  const xTicks = [];
+  for (let o = xStep; o <= maxOver; o += xStep) xTicks.push(o);
+  return `<figure class="progression">
+    <figcaption class="mh-cap">Runs against overs${lanes.map((s, i) => `<span class="pg-key pg-${i}"><i></i>${esc(s.team)}</span>`).join("")}</figcaption>
+    <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Cumulative runs by over for each innings">
+      ${yTicks.map((t) => `<line class="pg-grid" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>
+        <text class="pg-axis" x="${pad.l - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${t}</text>`).join("")}
+      ${xTicks.map((o) => `<text class="pg-axis" x="${X(o).toFixed(1)}" y="${h - 14}" text-anchor="middle">${o}</text>`).join("")}
+      ${targetLine}
+      ${paths}
+      <text class="pg-axis" x="${w - pad.r}" y="${h - 2}" text-anchor="end">overs</text>
+    </svg>
+    <p class="caption">Each line is one innings, read left to right as the overs go by. Dots mark the overs where a wicket fell.</p>
+  </figure>`;
+}
+
+export function performerCards(topBat, topBowl) {
+  const bat = (topBat || [])[0];
+  const bowl = (topBowl || [])[0];
+  if (!bat && !bowl) return "";
+  const card = (r, kind) => {
+    if (!r) return "";
+    const line = kind === "bat"
+      ? `${r.line} off ${r.balls ?? "–"}`
+      : `${r.line} in ${r.overs ?? "–"}`;
+    const foot = kind === "bat"
+      ? [r.sr != null ? `${r.sr} SR` : null, r.fours ? `${r.fours}×4` : null, r.sixes ? `${r.sixes}×6` : null]
+      : [r.econ != null ? `${r.econ} econ` : null];
+    return `<article class="performer">
+      <div class="performer-kicker">${kind === "bat" ? "Top score" : "Best spell"}</div>
+      <h3>${portrait(r.slug, r.player, "sm")}<a href="#/player/${esc(r.slug)}">${esc(r.player)}</a></h3>
+      <div class="performer-line">${esc(line)}</div>
+      <p class="caption">${esc(r.team || "")}${foot.filter(Boolean).length ? ` · ${foot.filter(Boolean).join(" · ")}` : ""}</p>
+    </article>`;
+  };
+  return `<div class="performers">${card(bat, "bat")}${card(bowl, "bowl")}</div>`;
+}
+
+export function statCards(items) {
+  const list = (items || []).filter(Boolean);
+  if (!list.length) return "";
+  return `<div class="stat-cards">${list.map((c) => `
+    <article class="stat-card">
+      <div class="sc-kicker">${esc(c.kicker || "")}</div>
+      <div class="sc-figure">${c.value == null || c.value === "" ? "–" : c.value}</div>
+      ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
+      ${c.href ? `<a class="sc-link" href="${c.href}">${esc(c.linkLabel || "Open")}</a>` : ""}
+    </article>`).join("")}</div>`;
+}
+
+const RECENT_KEY = "wm-recent";
+
+export function recentList() {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export function recentPush(slug, name) {
+  if (!slug) return;
+  const list = recentList().filter((r) => r.slug !== slug);
+  list.unshift({ slug, name: name || slug });
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 12)));
+  } catch { /* storage full or blocked */ }
 }
 
 export function pctBar(rank, of) {
@@ -535,21 +698,27 @@ export async function openPalette() {
   const input = $("palette-input");
   const list = $("palette-list");
   input.value = "";
-  list.innerHTML = `<button type="button" data-hash="#/stats">Stats</button>
+  const recents = recentList().slice(0, 4);
+  const defaults = `
+    ${recents.length ? `<h4>Recently viewed</h4>${recents.map((r) => `<button type="button" data-hash="#/player/${esc(r.slug)}">${portrait(r.slug, r.name, "xs")}<span>${esc(r.name)}</span></button>`).join("")}<h4>Pages</h4>` : ""}
+    <button type="button" data-hash="#/stats">Stats</button>
+    <button type="button" data-hash="#/records">Record book</button>
+    <button type="button" data-hash="#/rankings">Rankings</button>
+    <button type="button" data-hash="#/standings">Standings</button>
+    <button type="button" data-hash="#/grounds">Grounds</button>
     <button type="button" data-hash="#/wowy">WOWY</button>
     <button type="button" data-hash="#/best">Best T20</button>
     <button type="button" data-hash="#/compare">Compare</button>`;
+  list.innerHTML = defaults;
   bindPaletteButtons(list);
   warmPortraits(list);
   requestAnimationFrame(() => input.focus());
   input.oninput = async () => {
     const q = input.value.trim();
     if (q.length < 2) {
-      list.innerHTML = `<button type="button" data-hash="#/stats">Stats</button>
-        <button type="button" data-hash="#/wowy">WOWY</button>
-        <button type="button" data-hash="#/best">Best T20</button>
-        <button type="button" data-hash="#/compare">Compare</button>`;
+      list.innerHTML = defaults;
       bindPaletteButtons(list);
+      warmPortraits(list);
       return;
     }
     const innings = !/:\S/.test(q) && /[a-z]/i.test(q) ? q.match(/^(.*\S)\s+(\d{1,3})$/) : null;
@@ -564,7 +733,7 @@ export async function openPalette() {
     });
     (s.teams || []).slice(0, 4).forEach((t) => {
       const name = t.team || t;
-      html += `<button type="button" data-hash="#/wowy?team=${encodeURIComponent(name)}">${esc(name)} <span class="hint">WOWY</span></button>`;
+      html += `<button type="button" data-hash="#/team?name=${encodeURIComponent(name)}">${esc(name)} <span class="hint">team record</span></button>`;
     });
     (s.destinations || []).slice(0, 4).forEach((d) => {
       html += `<button type="button" data-hash="#/${esc(d.id)}">${esc(d.label)} <span class="hint">${esc(d.hint)}</span></button>`;
@@ -635,6 +804,16 @@ function esc(s) {
 
 let hooks = {};
 
+// The topbar wraps to two rows at some widths, so sticky sub-navs and anchor
+// targets have to follow its measured height rather than a fixed guess.
+function measureTopbar() {
+  const bar = document.querySelector(".topbar");
+  if (!bar) return;
+  const open = document.body.classList.contains("nav-open");
+  const h = open ? 3.5 * 16 : bar.getBoundingClientRect().height;
+  document.documentElement.style.setProperty("--topbar-h", `${Math.round(h)}px`);
+}
+
 export function initChrome(h) {
   hooks = h || {};
   ensureOverlay();
@@ -642,6 +821,24 @@ export function initChrome(h) {
   restoreTray();
   renderTray();
   $("keys-toggle")?.addEventListener("click", openKeys);
+  const navToggle = $("nav-toggle");
+  navToggle?.addEventListener("click", () => {
+    const open = document.body.classList.toggle("nav-open");
+    navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    measureTopbar();
+  });
+  window.addEventListener("hashchange", () => {
+    document.body.classList.remove("nav-open");
+    navToggle?.setAttribute("aria-expanded", "false");
+    measureTopbar();
+  });
+  measureTopbar();
+  if (typeof ResizeObserver === "function") {
+    const bar = document.querySelector(".topbar");
+    if (bar) new ResizeObserver(measureTopbar).observe(bar);
+  } else {
+    window.addEventListener("resize", measureTopbar);
+  }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (document.body.classList.contains("overlay-open")) {
@@ -665,6 +862,10 @@ export function initChrome(h) {
     if (typing()) return;
     if (e.key === "?") { e.preventDefault(); openKeys(); }
     else if (e.key === "g" || e.key === "G") { e.preventDefault(); openGlossary(); }
+    else if (e.key === "r" || e.key === "R") { e.preventDefault(); location.hash = "#/records"; }
+    else if (e.key === "s" || e.key === "S") { e.preventDefault(); location.hash = "#/stats"; }
+    else if (e.key === "h" || e.key === "H") { e.preventDefault(); location.hash = "#/"; }
+    else if (e.key === "y" || e.key === "Y") { e.preventDefault(); copyText(location.href); }
     else if (e.key === "t" || e.key === "T") { e.preventDefault(); toggleFullscreen(); }
     else if (e.key === "f" || e.key === "F") {
       e.preventDefault();

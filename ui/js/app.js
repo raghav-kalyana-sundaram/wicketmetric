@@ -113,7 +113,7 @@ $("fmt-row")?.addEventListener("click", (e) => {
   const fmt = btn.dataset.fmt;
   let q = currentQuery();
   q = upsertToken(q, "format", fmt || "");
-  setQuery(q);
+  setQuery(q, { run: Boolean(q) });
 });
 
 $("theme-toggle")?.addEventListener("click", () => {
@@ -126,6 +126,7 @@ searchToggle?.addEventListener("click", () => {
 });
 searchScrim?.addEventListener("click", closeSearch);
 
+let suggestReq = 0;
 input.addEventListener("input", async () => {
   syncHighlight();
   const v = input.value;
@@ -140,7 +141,9 @@ input.addEventListener("input", async () => {
     return;
   }
   if (word.endsWith(":") || word.length >= 2) {
-    const s = await (await fetch(`/api/suggest?q=${encodeURIComponent(word)}`)).json();
+    const current = ++suggestReq;
+    const s = await fetch(`/api/suggest?q=${encodeURIComponent(word)}`).then((r) => r.json()).catch(() => ({}));
+    if (current !== suggestReq) return;
     renderAC(s);
   } else {
     ac.classList.remove("open");
@@ -193,6 +196,13 @@ function renderAC(s) {
       const name = t.team || t;
       acItems.push({ kind: "team", team: name });
       html += `<button type="button" data-i="${acItems.length - 1}">${esc(name)} <span class="hint">WOWY</span></button>`;
+    });
+  }
+  if (s.tokens?.length) {
+    html += `<h4>Tokens</h4>`;
+    s.tokens.forEach((t) => {
+      acItems.push({ kind: "token", key: t.key });
+      html += `<button type="button" data-i="${acItems.length - 1}">${esc(t.key)}: <span class="hint">${esc(t.hint || "")}</span></button>`;
     });
   }
   if (s.destinations?.length) {
@@ -329,7 +339,12 @@ function esc(s) {
 
 function fmtDate(iso) {
   if (!iso) return "—";
-  const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  }
+  const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
@@ -690,8 +705,8 @@ function setHero(isHome) {
   const navAliases = {
     "#/compare": ["#/teams", "#/twin", "#/shift"],
     "#/grounds": ["#/venue"],
-    "#/stats": ["#/rankings", "#/metrics", "#/war", "#/model"],
-    "#/standings": ["#/team"],
+    "#/stats": ["#/metrics", "#/war"],
+    "#/resources": ["#/docs", "#/model"],
   };
   document.querySelectorAll(".util a").forEach((a) => {
     const href = a.getAttribute("href");
@@ -734,6 +749,7 @@ function personRail(title, items, hint = "") {
 }
 
 async function showHomeSnapshot() {
+  const gen = routeGen;
   setDocTitle("");
   let tier = "top";
   try { tier = localStorage.getItem(PULSE_TIER_KEY) || "top"; } catch { /* blocked */ }
@@ -743,6 +759,7 @@ async function showHomeSnapshot() {
     fetch("/api/snapshot").then((r) => r.json()).catch(() => ({ rows: [] })),
     fetch("/api/onthisday?limit=5").then((r) => r.json()).catch(() => ({ matches: [], innings: [] })),
   ]);
+  if (gen !== routeGen) return;
   if (!snap.rows?.length) {
     main.innerHTML = `<div class="error">Warehouse not built yet. Run: <code class="cmd">python -m cricwarehouse pull && python -m cricwarehouse build</code> — or open the <a href="#/build">Build</a> page.</div>`;
     return;
@@ -849,11 +866,13 @@ async function showHomeSnapshot() {
 }
 
 async function showResults(q) {
+  const gen = routeGen;
   setHero(false);
   main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
   let res;
   try {
     const r = await fetch(`/api/query?q=${encodeURIComponent(q)}`);
+    if (gen !== routeGen) return;
     res = await r.json();
     if (!r.ok && res.ok !== false) {
       const detail = res.detail;
@@ -995,11 +1014,13 @@ async function showMatch(id) {
     return;
   }
   main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+  const gen = routeGen;
   const [r, extrasRes, valueRes] = await Promise.all([
     fetch(`/api/match/${encodeURIComponent(id)}`),
     fetch(`/api/match/${encodeURIComponent(id)}/extras`).catch(() => null),
     fetch(`/api/match/${encodeURIComponent(id)}/value`).catch(() => null),
   ]);
+  if (gen !== routeGen) return;
   const d = await r.json().catch(() => ({}));
   const extras = extrasRes ? await extrasRes.json().catch(() => ({})) : {};
   const value = valueRes ? await valueRes.json().catch(() => ({})) : {};
@@ -1016,8 +1037,17 @@ async function showMatch(id) {
   if (m.result_method === "super_over") badges.push("Super Over");
   if (m.result_method === "no_result") badges.push("No result");
   if (m.result_method === "tie") badges.push("Tie");
+  if (m.source === "cricinfo") badges.push("Scorecard");
   const result = m.winner
-    ? `${m.winner} won` + (m.win_by_runs ? ` by ${m.win_by_runs} runs` : m.win_by_wickets ? ` by ${m.win_by_wickets} wickets` : "")
+    ? `${m.winner} won` + (
+        m.win_by_innings
+          ? ` by an innings${m.win_by_runs ? ` and ${m.win_by_runs} runs` : ""}`
+          : m.win_by_runs
+            ? ` by ${m.win_by_runs} runs`
+            : m.win_by_wickets
+              ? ` by ${m.win_by_wickets} wickets`
+              : ""
+      )
     : (m.result || "No result");
   const scoreLine = (d.innings || [])
     .filter((inn) => inn.innings_kind !== "super_over")
@@ -1121,6 +1151,7 @@ async function showMatch(id) {
     <p class="match-result">${esc(result)}</p>
     <p class="meta-line">${fmtDate(m.start_date)} · <a href="#/venue?name=${encodeURIComponent(m.venue || "")}">${esc(m.venue || "")}</a> · ${esc(stageBits)}${m.toss_winner ? ` · Toss: ${esc(m.toss_winner)} ${esc(m.toss_decision || "")}` : ""}
       ${badges.map((b) => `<span class="badge">${b}</span>`).join(" ")}</p>
+    ${m.source === "cricinfo" ? `<p class="caption">Cricinfo scorecard — no ball-by-ball for this match. Deliveries start in late 2001.</p>` : ""}
     <p class="meta-line"><a href="#/team?name=${encodeURIComponent(m.team_home)}">${esc(m.team_home)}</a> · <a href="#/team?name=${encodeURIComponent(m.team_away)}">${esc(m.team_away)}</a> team records</p>
     ${performers}
     ${progressionBlock}
@@ -1278,6 +1309,7 @@ async function showMatch(id) {
 }
 
 async function showPlayer(key) {
+  const gen = routeGen;
   setHero(false);
   main._profileObserver?.disconnect();
   if (!key) {
@@ -1286,6 +1318,7 @@ async function showPlayer(key) {
     return;
   }
   const res = await fetch(`/api/player/${encodeURIComponent(key)}`);
+  if (gen !== routeGen) return;
   const d = await res.json();
   if (!res.ok || d.detail) {
     const s = await (await fetch(`/api/suggest?q=${encodeURIComponent(key)}`)).json();
@@ -2156,7 +2189,13 @@ async function showBest() {
   setHero(false);
   main.classList.add("wide");
   setDocTitle("Best T20");
-  const state = { mode: "composite", disc: "bowl", comp: "t20i_ipl", gender: "male", wtc: true };
+  const state = {
+    mode: hashParam("mode") || "composite",
+    disc: hashParam("discipline") || "bowl",
+    comp: hashParam("comp") || "t20i_ipl",
+    gender: hashParam("gender") || "male",
+    wtc: hashParam("wtc") === "true",
+  };
   const paint = async () => {
     if (state.gender === "female" && (state.comp === "t20i_ipl" || state.comp === "ipl")) state.comp = "t20i_wpl";
     if (state.gender === "male" && (state.comp === "t20i_wpl" || state.comp === "wpl")) state.comp = "t20i_ipl";
@@ -2367,6 +2406,15 @@ const RECORD_COLUMNS = {
     { key: "start_date", label: "Date", align: "left", link: "match" },
     { key: "venue", label: "Ground", align: "left", link: "venue" },
   ],
+  ducks: [
+    { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
+    { key: "player", label: "Player", align: "left", link: "player" },
+    { key: "balls", label: "B", align: "right", numeric: true },
+    { key: "opposition", label: "Opp", align: "left" },
+    { key: "comp", label: "Comp", align: "left", badge: true },
+    { key: "start_date", label: "Date", align: "left", link: "match" },
+    { key: "venue", label: "Ground", align: "left", link: "venue" },
+  ],
   carried_bat: [
     { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
     { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 },
@@ -2398,7 +2446,7 @@ async function showRecords() {
     history.replaceState(null, "", `#/records?${qs}`);
     main.innerHTML = `
       <h1 class="page-title">Record book</h1>
-      <p class="lede">The extremes this warehouse holds. Cricsheet is deep on internationals and the listed leagues — read these as records in this warehouse, not the game’s.</p>
+      <p class="lede">The extremes this warehouse holds. Tests from 1877 and ODIs from 1971 are on the card; fastest fifties and hundreds still need the ball-by-ball era.</p>
       ${leaderboardNav("records")}
       <div id="rec-body"><div class="skel"></div><div class="skel"></div></div>`;
     const d = await fetch(`/api/records?${qs}`).then((r) => r.json()).catch(() => ({ rows: [], kinds: [] }));
@@ -2835,10 +2883,12 @@ async function showStandings() {
   const state = {
     comp: hashParam("comp") || "ipl",
     season: hashParam("season") || "",
+    gender: hashParam("gender") || (hashParam("comp") === "t20i" ? "male" : ""),
   };
   const paint = async () => {
     const qs = new URLSearchParams({ comp: state.comp });
     if (state.season) qs.set("season", state.season);
+    if (state.gender) qs.set("gender", state.gender);
     main.innerHTML = `
       <h1 class="page-title">Standings</h1>
       <p class="lede">Points tables and the knockouts that followed, season by season.</p>
@@ -2987,6 +3037,8 @@ function matchupStage(pa, pb, h, poolLabel, pool) {
 }
 
 function xiImpactCards(pa, pb, pool) {
+  const bothAdj = pa.xi?.pitch?.ok_adj && pb.xi?.pitch?.ok_adj;
+  const fig = (v, d) => (v == null ? "–" : signed(v, d));
   const card = (person) => {
     const xi = person.xi;
     if (!xi?.ok) {
@@ -2996,32 +3048,69 @@ function xiImpactCards(pa, pb, pool) {
       </div>`;
     }
     const bat = xi.bat || {}, bowl = xi.bowl || {};
+    const pitch = xi.pitch || {};
     const bowlFirst = xi.primary_role === "bowl";
-    const hero = xi.schedule_mix ? null : (bowlFirst ? bowl.econ_delta : bat.avg_delta);
-    const heroLabel = xi.schedule_mix
-      ? "schedule mix — not a teammate effect"
-      : (bowlFirst ? "econ Δ with them in" : "avg Δ with them in");
-    const digits = bowlFirst ? 2 : 1;
+    const residOnly = Boolean(pitch.ok_with) && (xi.matches_wo || 0) < 8;
+    const useAdj = Boolean(pitch.ok_adj) && (xi.matches_with || 0) >= 8 && (xi.matches_wo || 0) >= 8;
+    let hero;
+    let heroLabel;
+    let digits = bowlFirst ? 2 : 1;
+    if (residOnly) {
+      hero = bowlFirst ? bowl.econ_resid_with : bat.sr_resid_with;
+      heroLabel = bowlFirst ? "econ vs pitch par" : "SR vs pitch par";
+    } else if (useAdj) {
+      hero = bowlFirst ? bowl.econ_delta_adj : bat.sr_delta_adj;
+      heroLabel = bowlFirst ? "econ Δ adj" : "SR Δ adj";
+    } else if (xi.schedule_mix) {
+      hero = null;
+      heroLabel = "schedule mix — not a teammate effect";
+    } else {
+      hero = bowlFirst ? bowl.econ_delta : bat.avg_delta;
+      heroLabel = bowlFirst ? "econ Δ with them in" : "avg Δ with them in";
+    }
     const better = hero == null ? null : (bowlFirst ? hero < 0 : hero > 0);
-    const hcls = hero == null || hero === 0 ? "" : better ? "pos" : "neg";
-    const ahead = xi.lift > 0;
+    const dead = bowlFirst ? 0.08 : 1.5;
+    const hcls = hero == null || Math.abs(hero) < dead ? "" : better ? "pos" : "neg";
+    const ahead = bothAdj && xi.lift > 0;
+    const mixWarn = xi.schedule_mix && !useAdj && !residOnly;
+    const n1 = (v) => (v == null || v === "" ? "–" : Number(v).toFixed(1));
+    const n2 = (v) => (v == null || v === "" ? "–" : Number(v).toFixed(2));
+    const wo = (xi.matches_wo || 0) > 0;
+    const batRaw = wo
+      ? `Batters ${n1(bat.avg_with)} avg · ${n1(bat.sr_with)} SR → ${n1(bat.avg_wo)} · ${n1(bat.sr_wo)} raw`
+      : `Batters ${n1(bat.avg_with)} avg · ${n1(bat.sr_with)} SR`;
+    const bowlRaw = wo
+      ? `Bowlers ${n2(bowl.econ_with)} econ · ${n1(bowl.avg_with)} avg → ${n2(bowl.econ_wo)} · ${n1(bowl.avg_wo)} raw`
+      : `Bowlers ${n2(bowl.econ_with)} econ · ${n1(bowl.avg_with)} avg`;
+    const batExp = bat.sr_exp_with != null
+      ? `<p class="xi-line exp">exp ${n1(bat.avg_exp_with)} · ${n1(bat.sr_exp_with)}<span class="xi-pipe">|</span>Δ ${fig(bat.avg_resid_with, 1)} avg · ${fig(bat.sr_resid_with, 1)} SR</p>`
+      : "";
+    const bowlExp = bowl.econ_exp_with != null
+      ? `<p class="xi-line exp">exp ${n2(bowl.econ_exp_with)} · ${n1(bowl.avg_exp_with)}<span class="xi-pipe">|</span>Δ ${fig(bowl.econ_resid_with, 2)} econ</p>`
+      : (pitch.reason ? `<p class="xi-line exp">${esc(pitch.reason)}</p>` : "");
+    const batSupport = bat.balls_with
+      ? `<p class="xi-support">${Number(bat.balls_with).toLocaleString("en-US")} balls · ${Number(bat.outs_with || 0).toLocaleString("en-US")} dismissals with them</p>`
+      : "";
     return `
       <div class="duel-card${ahead ? " ahead" : ""}">
         <h2>${portrait(person.slug, person.display_name, "sm")}<a href="#/player/${esc(person.slug)}">${esc(person.display_name)}</a></h2>
         <p class="caption">${esc(xi.team || "")} · ${xi.matches_with || 0} XI · ${xi.matches_wo || 0} without</p>
-        <p class="team-avg-line"><span class="fig ${hcls}${xi.schedule_mix ? " mix-warning" : ""}">${hero == null ? (xi.schedule_mix ? "schedule mix" : "–") : signed(hero, digits)}</span> <span class="caption">${heroLabel}</span></p>
-        <p class="xi-line">Batters ${bat.avg_with ?? "–"} avg · ${bat.sr_with ?? "–"} SR → ${bat.avg_wo ?? "–"} · ${bat.sr_wo ?? "–"}</p>
-        <p class="xi-line">Bowlers ${bowl.econ_with ?? "–"} econ · ${bowl.avg_with ?? "–"} avg → ${bowl.econ_wo ?? "–"} · ${bowl.avg_wo ?? "–"}</p>
+        <p class="team-avg-line"><span class="fig ${hcls}${mixWarn ? " mix-warning" : ""}">${hero == null ? (mixWarn ? "schedule mix" : "–") : signed(hero, digits)}</span> <span class="caption">${heroLabel}</span></p>
+        <p class="xi-line">${batRaw}</p>
+        ${batExp}
+        <p class="xi-line">${bowlRaw}</p>
+        ${bowlExp}
+        ${batSupport}
         <p class="xi-verdict">${esc(xi.verdict || "")}</p>
         <p class="caption"><a href="#/shift?player=${encodeURIComponent(person.slug)}&amp;team=${encodeURIComponent(xi.team || "")}&amp;comp=${encodeURIComponent(pool)}">Full teammate lines</a></p>
       </div>`;
   };
   return `
     <h2 class="section">Teammates in the XI</h2>
-    <p class="caption">How the rest of the side bats and bowls with each of them vs without — same format, main team. Home and away are split by ground, not the raw mix of tours and home Tests.</p>
+    <p class="caption">Green/red is residual vs pitch par, not raw with minus without. Each card is judged on its own schedule first; a head-to-head only when both have a without-sample. Home and away are still split by ground.</p>
     <div class="duel">
       ${card(pa)}
-      <div class="duel-mid caption">with<br>vs without</div>
+      <div class="duel-mid caption">vs<br>pitch par</div>
       ${card(pb)}
     </div>`;
 }
@@ -3065,6 +3154,31 @@ const CLASSIC_DUELS = [
   { a: "ra-jadeja", b: "r-ashwin", comp: "test", label: "Jadeja v Ashwin", note: "The spin twins, split apart" },
   { a: "ch-gayle", b: "ab-de-villiers", comp: "ipl", label: "Gayle v de Villiers", note: "Chinnaswamy, two ways" },
 ];
+
+const COMPARE_METRIC_HELP = {
+  war: "Wins above a replacement player. Career total — more games count for more.",
+  war_per_game: "Career WAR divided by matches in this pool (20-game floor).",
+  raa_bat: "Runs above average with the bat, judged ball by ball against the same balls remaining, wickets in hand and target pressure.",
+  raa_bowl: "Runs above average with the ball, counting runs conceded and wickets taken against the same situation.",
+  tsr: "True strike-rate residual: runs per 100 balls above what the same situation usually yields. Scoring only — dismissals sit in TWR.",
+  te: "True economy residual: runs per over conceded above expectation. Negative is good.",
+  war_bat: "Batting wins above replacement from the resource model.",
+  war_bowl: "Bowling wins above replacement, on the same run scale as batting.",
+  twr_bat: "True wicket-rate residual: dismissals per 100 balls above expectation. Negative means harder to get out than the situation implies.",
+  twr_bowl: "True wicket-rate residual: wickets per 100 balls above expectation. Positive is good.",
+  matches: "Matches played in this format in this warehouse.",
+  inns: "Innings batted.",
+  runs: "Career runs.",
+  hs: "Highest score.",
+  avg: "Batting average: runs per dismissal.",
+  sr: "Strike rate: runs per 100 balls faced.",
+  hundreds: "Innings of 100 or more.",
+  fifties: "Innings of 50 or more that were not hundreds.",
+  wickets: "Career wickets.",
+  bowl_avg: "Bowling average: runs conceded per wicket. Lower is better.",
+  econ: "Economy: runs conceded per six legal balls. Lower is better.",
+  bowl_sr: "Bowling strike rate: balls per wicket. Lower is better.",
+};
 
 async function showCompare() {
   setHero(false);
@@ -3170,13 +3284,17 @@ async function showCompare() {
       return `<td class="num${win ? " win" : ""}${minor ? " minor" : ""}">${fmt(v)}${margin}${rank ? `<div class="sc">#${rank}</div>` : ""}</td>`;
     };
     const rowClass = pool === "test" && r.key === "avg" ? "key-row" : pool === "test" && r.key === "sr" ? "quiet-row" : "";
-    const explanation = pool === "test" && r.key === "avg"
-      ? ' title="Emphasized because batting average is the primary Test batting rate."'
-      : pool === "test" && r.key === "sr"
-        ? ' title="Test strike rate is shown for context and is not scored as an advantage."'
-        : "";
-    return `<tr class="${rowClass}"${explanation}>
-      <td class="stat">${esc(r.label)}</td>
+    let help = r.copy || COMPARE_METRIC_HELP[r.key] || "";
+    if (pool === "test" && r.key === "avg") {
+      help = (help ? `${help} ` : "") + "Emphasized here because batting average is the primary Test batting rate.";
+    } else if (pool === "test" && r.key === "sr") {
+      help = (help ? `${help} ` : "") + "Shown for context and not scored as an advantage.";
+    }
+    const hint = help
+      ? `<span class="hint" tabindex="0" aria-label="About ${esc(r.label)}">${esc(r.label)}<span class="pop">${esc(help)}</span></span>`
+      : esc(r.label);
+    return `<tr class="${rowClass}">
+      <td class="stat">${hint}</td>
       ${cell(r.a, r.b, r.a_rank, aWin, !showMinor && discipline && pa.primary_role !== discipline)}
       ${cell(r.b, r.a, r.b_rank, bWin, !showMinor && discipline && pb.primary_role !== discipline)}
     </tr>`;
@@ -3807,6 +3925,7 @@ async function showBuild() {
     )}
     <h2 class="section">Actions</h2>
     <button class="btn primary" id="do-pull">Pull updates</button>
+    <button class="btn primary" id="do-build">Build warehouse</button>
     <button class="btn primary" id="do-metrics">Rebuild metrics</button>
     <div class="log" id="job-log"></div>
   `;
@@ -3828,6 +3947,7 @@ async function showBuild() {
     es.onerror = () => { es.close(); btn.disabled = false; };
   };
   $("do-pull").addEventListener("click", (e) => run("pull", e.target));
+  $("do-build").addEventListener("click", (e) => run("build", e.target));
   $("do-metrics").addEventListener("click", (e) => run("metrics", e.target));
 }
 
@@ -4065,15 +4185,19 @@ async function showModel() {
   await paint();
 }
 
+let routeGen = 0;
+
 async function route() {
+  const gen = ++routeGen;
   try {
-    await routeInner();
+    await routeInner(gen);
   } catch (err) {
+    if (gen !== routeGen) return;
     main.innerHTML = `<div class="empty"><p>Couldn’t open this page.</p><p class="caption">${esc(err.message || err)}</p></div>`;
   }
 }
 
-async function routeInner() {
+async function routeInner(gen = routeGen) {
   if (main._profileScroll) {
     window.removeEventListener("scroll", main._profileScroll);
     main._profileScroll = null;
@@ -4128,8 +4252,10 @@ async function routeInner() {
   if (head === "build") return showBuild();
   if (head === "sql") return showSQL();
   if (head === "docs" || head === "resources") return showDocs(parts[1] || "model");
-  setHero(true);
-  await showHomeSnapshot();
+  if (gen !== routeGen) return;
+  setHero(false);
+  setDocTitle("Not found");
+  main.innerHTML = `<div class="empty"><p>No page at #/${esc(head)}.</p><a class="chip" href="#/">Home</a></div>`;
 }
 
 let lastRoutePath = null;
