@@ -11,7 +11,9 @@ from cricwarehouse.app.catalog import (
     career_value,
     matchups,
 )
+from cricwarehouse.app.query import pick_person  # shared clear-lead resolver
 from cricwarehouse.app.db import connect, warehouse_ready
+from cricwarehouse.app import park
 from cricwarehouse.teams import POOL_LABELS, default_pool, parse_comps, wtc_match_sql
 from cricwarehouse.competitions import LABELS, T20_METRICS
 
@@ -87,11 +89,9 @@ def resolve_person(con, needle: str) -> dict | None:
     people = _people_match(con, needle)
     if not people:
         return None
-    if len(people) == 1:
-        return people[0]
-    top, nxt = people[0], people[1] if len(people) > 1 else None
-    if int(top.get("apps") or 0) >= 15 and int(top.get("apps") or 0) >= 3 * max(int((nxt or {}).get("apps") or 0), 1):
-        return top
+    picked = pick_person(people, needle)
+    if picked:
+        return picked
     return {"pick": people}
 
 
@@ -337,6 +337,10 @@ def _xi_rates(con, pid: str, team: str, match_ids: list[str], with_ids: set[str]
     ru_w, ou_w, ba_w, ru_o, ou_o, ba_o, m_w, m_o = [_n(x) for x in (bat or (0,) * 8)]
     wk_w, br_w, bb_w, wk_o, br_o, bb_o = [_n(x) for x in (bowl or (0,) * 6)]
     bat_avg_w, bat_avg_o = rate(ru_w, ou_w, 1), rate(ru_o, ou_o, 1)
+    sr_w = round(ru_w * 100 / ba_w, 1) if ba_w else None
+    sr_o = round(ru_o * 100 / ba_o, 1) if ba_o else None
+    econ_w = round(br_w * 6 / bb_w, 2) if bb_w else None
+    econ_o = round(br_o * 6 / bb_o, 2) if bb_o else None
     return {
         "matches_with": m_w,
         "matches_wo": m_o,
@@ -344,19 +348,29 @@ def _xi_rates(con, pid: str, team: str, match_ids: list[str], with_ids: set[str]
             "avg_with": bat_avg_w,
             "avg_wo": bat_avg_o,
             "avg_delta": dlt(bat_avg_w, bat_avg_o, 1),
-            "sr_with": round(ru_w * 100 / ba_w, 1) if ba_w else None,
-            "sr_wo": round(ru_o * 100 / ba_o, 1) if ba_o else None,
+            "sr_with": sr_w,
+            "sr_wo": sr_o,
+            "sr_delta": dlt(sr_w, sr_o, 1),
+            "balls_with": ba_w,
+            "balls_wo": ba_o,
+            "outs_with": ou_w,
+            "outs_wo": ou_o,
+            "runs_with": ru_w,
+            "runs_wo": ru_o,
         },
         "bowl": {
-            "econ_with": round(br_w * 6 / bb_w, 2) if bb_w else None,
-            "econ_wo": round(br_o * 6 / bb_o, 2) if bb_o else None,
-            "econ_delta": dlt(
-                round(br_w * 6 / bb_w, 2) if bb_w else None,
-                round(br_o * 6 / bb_o, 2) if bb_o else None,
-                2,
-            ),
+            "econ_with": econ_w,
+            "econ_wo": econ_o,
+            "econ_delta": dlt(econ_w, econ_o, 2),
             "avg_with": rate(br_w, wk_w, 1),
             "avg_wo": rate(br_o, wk_o, 1),
+            "avg_delta": dlt(rate(br_w, wk_w, 1), rate(br_o, wk_o, 1), 1),
+            "balls_with": bb_w,
+            "balls_wo": bb_o,
+            "wk_with": wk_w,
+            "wk_wo": wk_o,
+            "runs_with": br_w,
+            "runs_wo": br_o,
         },
     }
 
@@ -424,6 +438,18 @@ def _xi_impact(con, pid: str, *, comps: list[str] | None = None) -> dict[str, An
                 away_ids.append(mid)
     home = _xi_rates(con, pid, team, home_ids, with_ids)
     away = _xi_rates(con, pid, team, away_ids, with_ids)
+    gender_row = con.execute("SELECT gender FROM people WHERE person_id = ?", [pid]).fetchone()
+    gender = gender_row[0] if gender_row else None
+    try:
+        env = park.load_environment(con, comps, gender)
+        bat_lines, bowl_lines = park.load_teammate_lines(con, pid, team, all_ids)
+        park.attach_pitch(pooled, bat_lines, bowl_lines, with_ids, all_ids, env)
+        if home:
+            park.attach_pitch(home, bat_lines, bowl_lines, with_ids, home_ids, env)
+        if away:
+            park.attach_pitch(away, bat_lines, bowl_lines, with_ids, away_ids, env)
+    except Exception:
+        pooled.setdefault("pitch", {"ok_with": False, "ok_wo": False, "ok_adj": False})
     vol = con.execute(
         f"""
         SELECT
@@ -451,43 +477,94 @@ def _xi_impact(con, pid: str, *, comps: list[str] | None = None) -> dict[str, An
     m_w, m_o = pooled["matches_with"], pooled["matches_wo"]
     bat_balls, bowl_balls = _n(vol[0] if vol else 0), _n(vol[1] if vol else 0)
     role = "bowl" if bowl_balls > bat_balls else "bat"
-    ad, ed = bat_pack.get("avg_delta"), bowl_pack.get("econ_delta")
+    pitch = pooled.get("pitch") or {}
+    if m_w < 8 or m_o < 8:
+        pitch["ok_adj"] = False
+        bat_pack["sr_delta_adj"] = None
+        bat_pack["avg_delta_adj"] = None
+        bowl_pack["econ_delta_adj"] = None
+        bowl_pack["avg_delta_adj"] = None
+    adj = bool(pitch.get("ok_adj"))
+    pitch_with = bool(pitch.get("ok_with"))
+    sr_adj, econ_adj = bat_pack.get("sr_delta_adj"), bowl_pack.get("econ_delta_adj")
+    sr_res, econ_res = bat_pack.get("sr_resid_with"), bowl_pack.get("econ_resid_with")
+    ad = sr_adj if adj else bat_pack.get("avg_delta")
+    ed = econ_adj if adj else bowl_pack.get("econ_delta")
     schedule_mix = False
-    hd = (home or {}).get("bat", {}).get("avg_delta") if home else None
-    ad_away = (away or {}).get("bat", {}).get("avg_delta") if away else None
     home_ok = home and home["matches_with"] >= 6 and home["matches_wo"] >= 6
     away_ok = away and away["matches_with"] >= 6 and away["matches_wo"] >= 6
-    if home_ok and away_ok and hd is not None and ad_away is not None:
-        if (hd >= 2 and ad_away <= -1) or (hd <= -2 and ad_away >= 1) or (abs(hd - ad_away) >= 8):
-            schedule_mix = True
-            ad = None
-            bat_pack = {**bat_pack, "avg_delta": None}
-    parts = []
-    if not schedule_mix:
-        if ad is not None:
-            if ad >= 2:
-                parts.append("batters average more with them")
-            elif ad <= -2:
-                parts.append("batters average less with them")
-        if ed is not None:
-            if ed <= -0.2:
-                parts.append("bowlers go at less with them")
-            elif ed >= 0.2:
-                parts.append("bowlers go at more with them")
-    if m_w < 8 or m_o < 8:
+    if home_ok and away_ok:
+        if adj:
+            hd = (home.get("bat") or {}).get("sr_delta_adj")
+            ad_away = (away.get("bat") or {}).get("sr_delta_adj")
+            thresh = 8
+        else:
+            hd = (home.get("bat") or {}).get("avg_delta")
+            ad_away = (away.get("bat") or {}).get("avg_delta")
+            thresh = 8
+        if hd is not None and ad_away is not None:
+            if (hd >= 2 and ad_away <= -1) or (hd <= -2 and ad_away >= 1) or (abs(hd - ad_away) >= thresh):
+                schedule_mix = True
+                if not adj:
+                    ad = None
+                    bat_pack = {**bat_pack, "avg_delta": None}
+
+    def _parts(sr_d, econ_d, *, residual: bool) -> list[str]:
+        out = []
+        if sr_d is not None:
+            if sr_d >= 4:
+                out.append("batters score faster than the pitches explain" if residual else "batters score faster with them")
+            elif sr_d <= -4:
+                out.append("batters score slower than the pitches explain" if residual else "batters score slower with them")
+        if econ_d is not None:
+            if econ_d <= -0.2:
+                out.append("bowlers go at less than the pitches explain" if residual else "bowlers go at less with them")
+            elif econ_d >= 0.2:
+                out.append("bowlers go at more than the pitches explain" if residual else "bowlers go at more with them")
+        return out
+
+    if m_w < 8:
         verdict = "Too few matches in this format to call it."
         lift = None
-    elif schedule_mix:
+    elif m_o < 8:
+        if pitch_with:
+            parts = _parts(sr_res, econ_res, residual=True)
+            if parts:
+                verdict = (
+                    parts[0][0].upper()
+                    + parts[0][1:]
+                    + ("." if len(parts) == 1 else "; " + parts[1] + ".")
+                    + " Too few matches without them to call a teammate effect."
+                )
+            else:
+                verdict = "Too few matches without them to call a teammate effect. The line is versus pitch par on the nights they played."
+        else:
+            verdict = "Too few matches without them to call a teammate effect."
+        lift = None
+    elif schedule_mix and not adj:
         verdict = "Home and away don't agree. That's mostly where they played, not a teammate effect."
         lift = 0
-    elif not parts:
-        verdict = "Teammates look about the same with or without them."
-        lift = 0
     else:
-        verdict = parts[0][0].upper() + parts[0][1:] + ("." if len(parts) == 1 else "; " + parts[1] + ".")
-        lift = (1 if ad is not None and ad >= 2 else -1 if ad is not None and ad <= -2 else 0) + (
-            1 if ed is not None and ed <= -0.2 else -1 if ed is not None and ed >= 0.2 else 0
-        )
+        parts = _parts(ad, ed, residual=adj)
+        if schedule_mix and adj:
+            extra = " Home and away still disagree after the park adjustment — that is selection, not the surface."
+        else:
+            extra = ""
+        if not parts:
+            verdict = (
+                "After putting both samples on the same pitch scale, teammates look about the same."
+                if adj
+                else "Teammates look about the same with or without them."
+            ) + extra
+            lift = 0
+        else:
+            lead = "After pitch adjustment, " if adj else ""
+            body = parts[0] + ("." if len(parts) == 1 else "; " + parts[1] + ".")
+            verdict = lead + body[0].lower() + body[1:] if lead else body[0].upper() + body[1:]
+            verdict += extra
+            lift = (1 if ad is not None and ad >= 4 else -1 if ad is not None and ad <= -4 else 0) + (
+                1 if ed is not None and ed <= -0.2 else -1 if ed is not None and ed >= 0.2 else 0
+            )
     return {
         "ok": True,
         "team": team,
@@ -500,6 +577,7 @@ def _xi_impact(con, pid: str, *, comps: list[str] | None = None) -> dict[str, An
         "home": home,
         "away": away,
         "schedule_mix": schedule_mix,
+        "pitch": pitch,
         "verdict": verdict,
         "lift": lift,
     }
@@ -668,6 +746,22 @@ def _format_line(con, pid: str, comps: list[str] | None) -> dict[str, Any]:
     }
 
 
+_CLASSIC_COPY = {
+    "matches": "Matches played in this format in this warehouse.",
+    "inns": "Innings batted.",
+    "runs": "Career runs.",
+    "hs": "Highest score.",
+    "avg": "Batting average: runs per dismissal.",
+    "sr": "Strike rate: runs per 100 balls faced.",
+    "hundreds": "Innings of 100 or more.",
+    "fifties": "Innings of 50 or more that were not hundreds.",
+    "wickets": "Career wickets.",
+    "bowl_avg": "Bowling average: runs conceded per wicket. Lower is better.",
+    "econ": "Economy: runs conceded per six legal balls. Lower is better.",
+    "bowl_sr": "Bowling strike rate: balls per wicket. Lower is better.",
+}
+
+
 def _classic_rows(sa: dict, sb: dict) -> list[dict]:
     specs = [
         ("matches", "Matches", 0, False),
@@ -695,7 +789,15 @@ def _classic_rows(sa: dict, sb: dict) -> list[dict]:
         av, bv = sa.get(key), sb.get(key)
         if av is None and bv is None:
             continue
-        rows.append({"key": key, "label": label, "a": av, "b": bv, "digits": digits, "lower": lower})
+        rows.append({
+            "key": key,
+            "label": label,
+            "a": av,
+            "b": bv,
+            "digits": digits,
+            "lower": lower,
+            "copy": _CLASSIC_COPY.get(key, ""),
+        })
     return rows
 
 
