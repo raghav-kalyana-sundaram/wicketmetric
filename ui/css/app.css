@@ -2036,15 +2036,23 @@ body:has(.compare-tray:not([hidden])) .toast { bottom: 80px; }
   box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--red) 70%, transparent);
 }
 
-.yr-chart { display: flex; align-items: flex-end; gap: 6px; height: 72px; }
+.yr-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 88px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
 .yr {
-  flex: 1;
+  flex: 1 0 18px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   height: 100%;
   gap: 4px;
+  min-width: 18px;
 }
 .yr i {
   display: block;
@@ -2053,7 +2061,13 @@ body:has(.compare-tray:not([hidden])) .toast { bottom: 80px; }
   background: var(--accent);
   border-radius: 1px 1px 0 0;
 }
-.yr em { font-style: normal; font-size: 10px; color: var(--ink-3); }
+.yr em {
+  font-style: normal;
+  font-size: 9px;
+  color: var(--ink-3);
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
 
 .who { display: inline-flex; align-items: center; gap: 8px; }
 .who .port { display: inline-block; }

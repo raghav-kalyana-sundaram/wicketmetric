@@ -155,9 +155,12 @@ export function scoreBeads(rows, n = 10) {
   }).join("")}</div>`;
 }
 
-function yrLabel(y) {
+function yrLabel(y, years) {
   const s = String(y ?? "");
-  return s.length === 4 ? `’${s.slice(2)}` : s;
+  if (s.length !== 4) return s;
+  const list = (years || []).map((row) => String(row.year ?? row));
+  const crosses = list.some((x) => x.startsWith("19")) && list.some((x) => x.startsWith("20"));
+  return crosses ? s : `’${s.slice(2)}`;
 }
 
 function spanLink(r, prefix) {
@@ -172,7 +175,7 @@ export function almanacBlock(a) {
   const roles = a.roles || {};
   const debut = a.debut;
   const latest = a.latest;
-  const yearSlice = (a.years || []).slice(-12);
+  const yearSlice = a.years || [];
   const pos = (a.positions || []).map((p) => ({ label: `#${p.position}`, n: p.n }));
   const notOuts = (a.dismissals || []).find((d) => String(d.label).toLowerCase() === "not out");
   const dis = (a.dismissals || [])
@@ -185,7 +188,7 @@ export function almanacBlock(a) {
   const yearRows = yearSlice.map((y) => {
     const runs = Number(y.runs || 0);
     return [
-      yrLabel(y.year),
+      yrLabel(y.year, yearSlice),
       y.inns ?? "–",
       `<span class="year-run"><span>${runs.toLocaleString()}</span><i><b style="width:${(runs / visibleYearMax * 100).toFixed(1)}%"></b></i></span>`,
       y.avg ?? "–",
@@ -214,12 +217,15 @@ export function almanacBlock(a) {
   const wlRows = [...(a.win_loss || [])]
     .sort((x, y) => (wlOrder[x.split] ?? 9) - (wlOrder[y.split] ?? 9))
     .map((r) => [esc(r.split), r.inns ?? "–", Number(r.runs || 0).toLocaleString(), r.avg ?? "–"]);
-  const bowlMax = Math.max(0, ...(a.bowl_years || []).map((y) => Number(y.wickets) || 0));
-  const bowlSlice = (a.bowl_years || []).slice(-12);
-  const bowlChart = bowlMax >= 8 ? bowlSlice.map((y) => {
+  const bowlYears = a.bowl_years || [];
+  const bowlMax = Math.max(0, ...bowlYears.map((y) => Number(y.wickets) || 0));
+  const bowlChart = bowlMax >= 8 ? bowlYears.map((y) => {
     const h = bowlMax ? (Number(y.wickets) / bowlMax * 100) : 0;
-    return `<span class="yr" title="${y.year}: ${y.wickets} wickets, ${y.econ ?? "–"} econ"><i style="height:${Math.max(h, 3)}%"></i><em>${yrLabel(y.year)}</em></span>`;
+    return `<span class="yr" title="${y.year}: ${y.wickets} wickets, ${y.econ ?? "–"} econ"><i style="height:${Math.max(h, 3)}%"></i><em>${yrLabel(y.year, bowlYears)}</em></span>`;
   }).join("") : "";
+  const bowlSpan = bowlYears.length
+    ? `${bowlYears[0].year}–${bowlYears[bowlYears.length - 1].year} · all formats`
+    : "";
   const roleBits = [
     roles.captain ? `${roles.captain} as captain` : "",
     roles.keeper ? `${roles.keeper} with the gloves` : "",
@@ -241,7 +247,7 @@ export function almanacBlock(a) {
         <div><div class="conv-k">Boundary %</div><div class="conv-n">${conv.boundary_pct ?? "–"}</div></div>
       </div>` : ""}
       ${yearSlice.length ? `<div class="almanac-row"><h3>Runs by year</h3>${ledger(["Year", "Inns", "Runs", "Avg", "100"], yearRows)}</div>` : ""}
-      ${bowlChart ? `<div class="almanac-row"><h3>Wickets by year</h3><div class="yr-chart">${bowlChart}</div></div>` : ""}
+      ${bowlChart ? `<div class="almanac-row"><h3>Wickets by year</h3><div class="yr-chart">${bowlChart}</div>${bowlSpan ? `<p class="caption">${esc(bowlSpan)}</p>` : ""}</div>` : ""}
       <div class="almanac-grid">
         ${dis.length ? `<div><h3>Dismissals</h3>${mixBars(dis)}${notOuts ? `<p class="not-out-count"><span>Not out</span><strong>${notOuts.n}</strong></p>` : ""}</div>` : ""}
         ${pos.length ? `<div><h3>Batting order</h3>${mixBars(pos)}</div>` : ""}
