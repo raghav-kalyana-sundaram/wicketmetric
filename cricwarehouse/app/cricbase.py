@@ -1,8 +1,9 @@
-"""Import pre-2002 Test/ODI scorecards from the local cricbase SQLite file.
+"""Import Test/ODI scorecards from the local cricbase SQLite file.
 
-Cricsheet ball-by-ball starts in late 2001. Cricbase fills the gap from
-ESPNCricinfo Statsguru: men's Tests from 1877 and ODIs from 1971, through 2001.
-Those rows are innings scorecards — batting and bowling lines, not deliveries.
+Cricsheet ball-by-ball is incomplete before the mid-2000s (almost nothing in
+2002, then filling in). Cricbase supplies ESPNCricinfo Statsguru scorecards
+for the rest: men's Tests from 1877 and ODIs from 1971, skipping match IDs
+already present from Cricsheet. Those rows are innings lines, not deliveries.
 """
 
 from __future__ import annotations
@@ -23,12 +24,85 @@ MONTHS = {
     "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
 }
 
+# Dismissals that put a batter on the card without costing the side a wicket.
+_NO_TEAM_WICKET = {
+    "retired hurt",
+    "retired not out",
+    "retired - hurt",
+    "retired - not out",
+    "absent hurt",
+    "absent ill",
+}
+
 # Date cell immediately before the scorecard link in a Statsguru year table.
 _YEAR_DATE = re.compile(
     r'<td nowrap="nowrap">([^<]+)</td>\s*'
     r'<td nowrap="nowrap"><a href="/ci/engine/match/(\d+)\.html"',
     re.I,
 )
+
+
+def _empty_buckets() -> dict[str, list]:
+    return {
+        "matches": [],
+        "people": [],
+        "xi": [],
+        "innings": [],
+        "batting_lines": [],
+        "bowling_lines": [],
+        "partnerships": [],
+    }
+
+
+def _came_to_crease(row: sqlite3.Row) -> bool:
+    """True if this batting row is an innings, not a DNB placeholder."""
+    if row["not_out"]:
+        return True
+    if row["dismissal_kind"]:
+        return True
+    return int(row["balls"] or 0) > 0 or int(row["runs"] or 0) > 0
+
+
+def _team_wicket(row: sqlite3.Row) -> bool:
+    if not _came_to_crease(row) or row["not_out"]:
+        return False
+    kind = (row["dismissal_kind"] or "").strip().lower()
+    if not kind:
+        return True
+    return kind not in _NO_TEAM_WICKET
+
+
+def _apply_batting_order(batting_lines: list[dict], partnerships: list[dict]) -> None:
+    """Fill batting_position from the order partners walk out to the crease."""
+    by_inn: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for stand in partnerships:
+        by_inn[(stand["match_id"], stand["innings"])].append(stand)
+    order_map: dict[tuple[str, int, str], int] = {}
+    for (mid, inn_no), stands in by_inn.items():
+        stands = sorted(stands, key=lambda row: int(row["wicket_number"] or 0))
+        order: list[str] = []
+        seen: set[str] = set()
+        prev: set[str] | None = None
+        for stand in stands:
+            pair = [stand["batter_end_1"], stand["batter_end_2"]]
+            if prev is None:
+                for pid in pair:
+                    if pid and pid not in seen:
+                        order.append(pid)
+                        seen.add(pid)
+            else:
+                incoming = {pid for pid in pair if pid} - prev
+                for pid in pair:
+                    if pid in incoming and pid not in seen:
+                        order.append(pid)
+                        seen.add(pid)
+            prev = {pid for pid in pair if pid}
+        for pos, pid in enumerate(order, start=1):
+            order_map[(mid, inn_no, pid)] = pos
+    for line in batting_lines:
+        pos = order_map.get((line["match_id"], line["innings"], line["person_id"]))
+        if pos:
+            line["position"] = pos
 
 
 def cricbase_available(db_path: Path | None = None) -> bool:
@@ -111,14 +185,7 @@ def load_historical(
     """Map cricinfo-source cricbase rows onto warehouse table dicts."""
     path = db_path or CRICBASE_DB
     if not path.exists():
-        return {
-            "matches": [],
-            "people": [],
-            "xi": [],
-            "innings": [],
-            "batting_lines": [],
-            "bowling_lines": [],
-        }
+        return _empty_buckets()
 
     recovered = dates_from_year_cache(cache_dir)
     skip = existing_ids or set()
@@ -185,14 +252,7 @@ def load_historical(
             kept_ids.add(mid)
 
         if not kept_ids:
-            return {
-                "matches": [],
-                "people": [],
-                "xi": [],
-                "innings": [],
-                "batting_lines": [],
-                "bowling_lines": [],
-            }
+            return _empty_buckets()
 
         marks = ",".join("?" * len(kept_ids))
         ids = list(kept_ids)
@@ -229,6 +289,8 @@ def load_historical(
             """,
             ids,
         ):
+            if not _came_to_crease(row):
+                continue
             mid = str(row["match_id"])
             inn_no = int(row["innings_number"])
             pid = row["player_id"]
@@ -288,6 +350,50 @@ def load_historical(
                 }
             )
 
+        tables = {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        fow_by_inn: dict[tuple[str, int], list[sqlite3.Row]] = defaultdict(list)
+        partnership_rows: list[dict] = []
+        if "partnerships" in tables:
+            for row in conn.execute(
+                f"""
+                SELECT match_id, innings_number, wicket_number,
+                       player_id_1, player_id_2, runs, not_out
+                FROM partnerships
+                WHERE match_id IN ({marks})
+                ORDER BY match_id, innings_number, wicket_number
+                """,
+                ids,
+            ):
+                mid = str(row["match_id"])
+                inn_no = int(row["innings_number"])
+                a, b = row["player_id_1"], row["player_id_2"]
+                if not a or not b:
+                    continue
+                used_people.add(a)
+                used_people.add(b)
+                id1, id2 = (a, b) if a < b else (b, a)
+                unbroken = bool(row["not_out"])
+                fow_by_inn[(mid, inn_no)].append(row)
+                partnership_rows.append(
+                    {
+                        "match_id": mid,
+                        "innings": inn_no,
+                        "innings_kind": "regular",
+                        "wicket_number": int(row["wicket_number"] or 0),
+                        "person_id_1": id1,
+                        "person_id_2": id2,
+                        "batter_end_1": a,
+                        "batter_end_2": b,
+                        "runs": int(row["runs"] or 0),
+                        "balls": 0,
+                        "start_legal_index": 0,
+                        "end_legal_index": 0,
+                        "end_reason": "end_of_innings" if unbroken else "wicket",
+                    }
+                )
+
         innings_rows: list[dict] = []
         inn_team: dict[tuple[str, int], str] = {}
         for row in conn.execute(
@@ -309,13 +415,15 @@ def load_historical(
             inn_team[(mid, inn_no)] = batting_team
             bats = bat_by_inn.get((mid, inn_no), [])
             bowls = bowl_by_inn.get((mid, inn_no), [])
+            stands = fow_by_inn.get((mid, inn_no), [])
             bat_runs = sum(int(r["runs"] or 0) for r in bats)
-            bat_outs = sum(1 for r in bats if not r["not_out"])
+            bat_outs = sum(1 for r in bats if _team_wicket(r))
+            fow_outs = sum(1 for r in stands if not r["not_out"])
             bowl_runs = sum(int(r["runs"] or 0) for r in bowls)
             bowl_wkts = sum(int(r["wickets"] or 0) for r in bowls)
             bowl_balls = sum(int(r["balls"] or 0) for r in bowls)
             runs = max(bat_runs, bowl_runs)
-            wickets = max(bowl_wkts, bat_outs)
+            wickets = max(bowl_wkts, bat_outs, fow_outs)
             extras = max(0, bowl_runs - bat_runs)
             innings_rows.append(
                 {
@@ -351,6 +459,11 @@ def load_historical(
             home, away = match_teams[line["match_id"]]
             line["team"] = away if batting == home else home
 
+        _apply_batting_order(batting_lines, partnership_rows)
+        batting_lines.sort(
+            key=lambda row: (row["match_id"], row["innings"], row["position"] or 99, row["person_id"])
+        )
+
         people = []
         for pid in sorted(used_people):
             person = players.get(pid) or {}
@@ -377,19 +490,50 @@ def load_historical(
             "innings": innings_rows,
             "batting_lines": batting_lines,
             "bowling_lines": bowling_lines,
+            "partnerships": partnership_rows,
         }
     finally:
         conn.close()
 
 
-def _existing_match_ids() -> set[str]:
-    path = WAREHOUSE / "matches.parquet"
-    if not path.exists():
-        return set()
+def _existing_match_ids(*, warehouse: Path | None = None) -> set[str]:
+    """IDs that already have a scorecard.
+
+    A prior merge can leave a match header with no batting or bowling lines
+    (the 2005 World XI game was one). Those stubs must be filled, not skipped.
+    """
+    root = warehouse or WAREHOUSE
+    scored: set[str] = set()
     import pyarrow.parquet as pq
 
-    table = pq.read_table(path, columns=["match_id"])
-    return {str(v) for v in table.column("match_id").to_pylist() if v}
+    for name in ("batting_lines", "bowling_lines"):
+        path = root / f"{name}.parquet"
+        if not path.exists():
+            continue
+        table = pq.read_table(path, columns=["match_id"])
+        scored.update(str(v) for v in table.column("match_id").to_pylist() if v)
+    return scored
+
+
+def _align_tables(existing, new):
+    import pyarrow as pa
+
+    for field in existing.schema:
+        if field.name not in new.column_names:
+            new = new.append_column(field.name, pa.nulls(new.num_rows, type=field.type))
+    for field in new.schema:
+        if field.name not in existing.column_names:
+            existing = existing.append_column(
+                field.name, pa.nulls(existing.num_rows, type=field.type)
+            )
+    new = new.select(existing.column_names)
+    aligned = []
+    for field in existing.schema:
+        col = new.column(field.name)
+        if col.type != field.type:
+            col = col.cast(field.type, safe=False)
+        aligned.append(col)
+    return existing, pa.table(aligned, schema=existing.schema)
 
 
 def _append_parquet(name: str, new_rows: list[dict], *, unique: str | None = None) -> int:
@@ -414,23 +558,33 @@ def _append_parquet(name: str, new_rows: list[dict], *, unique: str | None = Non
         existing = existing.append_column(
             "source", pa.array(["cricsheet"] * existing.num_rows, type=pa.string())
         )
-    for field in existing.schema:
-        if field.name not in new.column_names:
-            new = new.append_column(field.name, pa.nulls(new.num_rows, type=field.type))
-    for field in new.schema:
-        if field.name not in existing.column_names:
-            existing = existing.append_column(
-                field.name, pa.nulls(existing.num_rows, type=field.type)
-            )
-    new = new.select(existing.column_names)
-    aligned = []
-    for field in existing.schema:
-        col = new.column(field.name)
-        if col.type != field.type:
-            col = col.cast(field.type, safe=False)
-        aligned.append(col)
-    new = pa.table(aligned, schema=existing.schema)
+    existing, new = _align_tables(existing, new)
     combined = pa.concat_tables([existing, new])
+    pq.write_table(combined, path, compression="zstd")
+    return new.num_rows
+
+
+def _replace_parquet_by_match(name: str, new_rows: list[dict], match_ids: set[str]) -> int:
+    """Drop existing rows for these match IDs, then write the replacements."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path = WAREHOUSE / f"{name}.parquet"
+    if not path.exists():
+        if not new_rows:
+            return 0
+        pq.write_table(pa.Table.from_pylist(new_rows), path, compression="zstd")
+        return len(new_rows)
+    existing = pq.read_table(path)
+    ids = [str(v) if v is not None else "" for v in existing.column("match_id").to_pylist()]
+    keep = [i for i, mid in enumerate(ids) if mid not in match_ids]
+    remaining = existing.take(keep) if keep else existing.slice(0, 0)
+    if not new_rows:
+        pq.write_table(remaining, path, compression="zstd")
+        return 0
+    new = pa.Table.from_pylist(new_rows)
+    remaining, new = _align_tables(remaining, new)
+    combined = pa.concat_tables([remaining, new]) if remaining.num_rows else new
     pq.write_table(combined, path, compression="zstd")
     return new.num_rows
 
@@ -471,19 +625,55 @@ def stamp_sources(*, db_path: Path | None = None) -> int:
     return sum(1 for src in updated if src == "cricinfo")
 
 
+def purge_dnb_batting(*, db_path: Path | None = None) -> int:
+    """Drop Statsguru DNB placeholders that were stored as 0-run dismissals."""
+    path = db_path or CRICBASE_DB
+    if not path.exists():
+        return 0
+    conn = _connect(path)
+    try:
+        deleted = conn.execute(
+            """
+            DELETE FROM batting_innings
+            WHERE COALESCE(runs, 0) = 0 AND COALESCE(balls, 0) = 0
+              AND dismissal_kind IS NULL AND not_out = 0
+            """
+        ).rowcount
+        conn.commit()
+        return deleted
+    finally:
+        conn.close()
+
+
 def merge_historical(*, db_path: Path | None = None) -> dict[str, Any]:
-    """Append cricinfo scorecards onto an already-built warehouse."""
+    """Append cricinfo scorecards onto an already-built warehouse.
+
+    Scorecard tables for every cricinfo match are replaced so a later mapping
+    fix (DNB as wickets, FOW partnerships) lands without a full rebuild.
+    """
     if not cricbase_available(db_path):
         return {"ok": False, "error": f"cricbase SQLite not found at {db_path or CRICBASE_DB}"}
+    purged = purge_dnb_batting(db_path=db_path)
     existing = _existing_match_ids()
-    buckets = load_historical(db_path, existing_ids=existing)
+    buckets = load_historical(db_path)
+    hist_ids = {m["match_id"] for m in buckets["matches"]}
+    new_matches = [m for m in buckets["matches"] if m["match_id"] not in existing]
+    new_ids = {m["match_id"] for m in new_matches}
     added = {
-        "matches": _append_parquet("matches", buckets["matches"], unique="match_id"),
+        "matches": _append_parquet("matches", new_matches, unique="match_id"),
         "people": _append_parquet("people", buckets["people"], unique="person_id"),
-        "xi": _append_parquet("xi", buckets["xi"]),
-        "innings": _append_parquet("innings", buckets["innings"]),
-        "batting_lines": _append_parquet("batting_lines", buckets["batting_lines"]),
-        "bowling_lines": _append_parquet("bowling_lines", buckets["bowling_lines"]),
+        "xi": _append_parquet("xi", [row for row in buckets["xi"] if row["match_id"] in new_ids]),
+        "innings": _replace_parquet_by_match("innings", buckets["innings"], hist_ids),
+        "batting_lines": _replace_parquet_by_match(
+            "batting_lines", buckets["batting_lines"], hist_ids
+        ),
+        "bowling_lines": _replace_parquet_by_match(
+            "bowling_lines", buckets["bowling_lines"], hist_ids
+        ),
+        "partnerships": _replace_parquet_by_match(
+            "partnerships", buckets.get("partnerships") or [], hist_ids
+        ),
+        "dnb_rows_removed": purged,
     }
     tagged = stamp_sources(db_path=db_path)
     meta_path = WAREHOUSE / "build.json"
@@ -498,7 +688,7 @@ def merge_historical(*, db_path: Path | None = None) -> dict[str, Any]:
     if added["matches"]:
         meta["matches"] = int(meta.get("matches") or 0) + added["matches"]
         comps = set(meta.get("competitions") or [])
-        comps.update({m["competition"] for m in buckets["matches"]})
+        comps.update({m["competition"] for m in new_matches})
         meta["competitions"] = sorted(comps)
     meta["cricbase"]["tagged"] = tagged
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -524,6 +714,7 @@ def ingest_into_build(
     buckets.setdefault("innings", []).extend(hist["innings"])
     buckets.setdefault("batting_lines", []).extend(hist["batting_lines"])
     buckets.setdefault("bowling_lines", []).extend(hist["bowling_lines"])
+    buckets.setdefault("partnerships", []).extend(hist.get("partnerships") or [])
     for person in hist["people"]:
         if person["person_id"] not in people_seen:
             buckets.setdefault("people", []).append(person)
