@@ -1151,7 +1151,7 @@ async function showMatch(id) {
     <p class="match-result">${esc(result)}</p>
     <p class="meta-line">${fmtDate(m.start_date)} · <a href="#/venue?name=${encodeURIComponent(m.venue || "")}">${esc(m.venue || "")}</a> · ${esc(stageBits)}${m.toss_winner ? ` · Toss: ${esc(m.toss_winner)} ${esc(m.toss_decision || "")}` : ""}
       ${badges.map((b) => `<span class="badge">${b}</span>`).join(" ")}</p>
-    ${m.source === "cricinfo" ? `<p class="caption">Cricinfo scorecard — no ball-by-ball for this match. Deliveries start in late 2001.</p>` : ""}
+    ${m.source === "cricinfo" ? `<p class="caption">Cricinfo scorecard — no ball-by-ball for this match.</p>` : ""}
     <p class="meta-line"><a href="#/team?name=${encodeURIComponent(m.team_home)}">${esc(m.team_home)}</a> · <a href="#/team?name=${encodeURIComponent(m.team_away)}">${esc(m.team_away)}</a> team records</p>
     ${performers}
     ${progressionBlock}
@@ -1190,6 +1190,19 @@ async function showMatch(id) {
           ball_in_over: Number(ball.ball_in_over) || 0,
           batter: ball.player_out_name || "",
         });
+      }
+    }
+    if (!falls.length && parts.length) {
+      let running = 0;
+      for (const p of [...parts].sort((a, b) => (Number(a.wicket_number) || 0) - (Number(b.wicket_number) || 0))) {
+        running += Number(p.runs) || 0;
+        if (p.end_reason !== "end_of_innings") {
+          falls.push({
+            wicket_number: Number(p.wicket_number) || falls.length + 1,
+            runs: running,
+            batter: [p.name_1, p.name_2].filter(Boolean).join(" / "),
+          });
+        }
       }
     }
     html += table(
@@ -1263,29 +1276,37 @@ async function showMatch(id) {
       });
     }
     const fow = falls.map((fall) => `${fall.wicket_number}-${fall.runs}`).join(", ");
-    if (fow) html += `${fowBeads(falls, Math.ceil(Number(inn.legal_balls || 0) / Number(m.balls_per_over || 6)))}<p class="fow">FoW: ${esc(fow)}</p>`;
-    html += `<h3 class="section">Partnerships</h3>`;
-    html += table(
-      [
-        { key: "wicket_number", label: "Wkt", align: "right", numeric: true },
-        { key: "pair", label: "Pair", align: "left" },
-        { key: "runs", label: "R", align: "right", numeric: true },
-        { key: "balls", label: "B", align: "right", numeric: true },
-        { key: "end_reason", label: "End", align: "left" },
-      ],
-      parts.map((p) => ({
-        ...p,
-        wicket_number: p.end_reason === "end_of_innings" && Number(p.wicket_number) <= lastFallenWicket
-          ? Number(p.wicket_number) + 1
-          : p.wicket_number,
-        pair: `${p.name_1} / ${p.name_2}`,
-        end_reason: endLabel(p.end_reason, inn.all_out || inn.declared),
-      })),
-    );
+    if (fow) {
+      const hasOvers = falls.some((fall) => fall.over != null);
+      html += `${hasOvers ? fowBeads(falls, Math.ceil(Number(inn.legal_balls || 0) / Number(m.balls_per_over || 6))) : ""}<p class="fow">FoW: ${esc(fow)}</p>`;
+    }
+    if (parts.length) {
+      html += `<h3 class="section">Partnerships</h3>`;
+      html += table(
+        [
+          { key: "wicket_number", label: "Wkt", align: "right", numeric: true },
+          { key: "pair", label: "Pair", align: "left" },
+          { key: "runs", label: "R", align: "right", numeric: true },
+          { key: "balls", label: "B", align: "right", numeric: true },
+          { key: "end_reason", label: "End", align: "left" },
+        ],
+        parts.map((p) => ({
+          ...p,
+          wicket_number: p.end_reason === "end_of_innings" && Number(p.wicket_number) <= lastFallenWicket
+            ? Number(p.wicket_number) + 1
+            : p.wicket_number,
+          pair: `${p.name_1} / ${p.name_2}`,
+          balls: p.balls ? p.balls : "–",
+          end_reason: endLabel(p.end_reason, inn.all_out || inn.declared),
+        })),
+      );
+    }
   }
   const n = (d.deliveries || []).length;
-  html += `<button class="drawer" id="del-toggle">Ball-by-ball (${n} deliveries) ▸</button>
+  if (n) {
+    html += `<button class="drawer" id="del-toggle">Ball-by-ball (${n} deliveries) ▸</button>
     <div id="del-table" hidden></div>`;
+  }
   main.innerHTML = html;
   bindTable("");
   warmPortraits(main);
@@ -1450,19 +1471,26 @@ async function showPlayer(key) {
     ],
     batRows,
   );
-  const batOuts = d.innings.filter((i) => !i.not_out).length;
-  const batRuns = d.innings.reduce((s, i) => s + Number(i.runs || 0), 0);
+  const INTL = new Set(["test", "odi", "t20i"]);
+  const hasIntl = [...batRows, ...bowlRows].some((r) => INTL.has(r.competition));
+  const heroBowl = hasIntl ? bowlRows.filter((r) => INTL.has(r.competition)) : bowlRows;
+  const heroBat = hasIntl ? batRows.filter((r) => INTL.has(r.competition)) : batRows;
+  const heroInns = hasIntl ? d.innings.filter((i) => INTL.has(i.competition)) : d.innings;
+  const batOuts = heroInns.filter((i) => !i.not_out).length;
+  const batRuns = heroInns.reduce((s, i) => s + Number(i.runs || 0), 0);
   const careerAvg = batOuts ? batRuns / batOuts : null;
-  const totM = batRows.reduce((s, r) => s + Number(r.matches || 0), 0) || Number(d.span?.matches || 0);
-  const totInns = batRows.reduce((s, r) => s + Number(r.inns || 0), 0);
-  const totBalls = batRows.reduce((s, r) => s + Number(r.balls || 0), 0);
-  const totHs = batRows.reduce((s, r) => Math.max(s, Number(r.hs || 0)), 0);
+  const totM = hasIntl
+    ? (Number(d.span?.intl_matches) || heroBat.reduce((s, r) => s + Number(r.matches || 0), 0))
+    : (batRows.reduce((s, r) => s + Number(r.matches || 0), 0) || Number(d.span?.matches || 0));
+  const totInns = heroBat.reduce((s, r) => s + Number(r.inns || 0), 0);
+  const totBalls = heroBat.reduce((s, r) => s + Number(r.balls || 0), 0);
+  const totHs = heroBat.reduce((s, r) => Math.max(s, Number(r.hs || 0)), 0);
   const totSr = totBalls ? (batRuns * 100 / totBalls).toFixed(1) : "–";
-  const totW = bowlRows.reduce((s, r) => s + Number(r.wickets || 0), 0);
-  const totBowlRuns = bowlRows.reduce((s, r) => s + Number(r.runs || 0), 0);
-  const totLegal = bowlRows.reduce((s, r) => s + Number(r.legal_balls || 0), 0);
+  const totW = heroBowl.reduce((s, r) => s + Number(r.wickets || 0), 0);
+  const totBowlRuns = heroBowl.reduce((s, r) => s + Number(r.runs || 0), 0);
+  const totLegal = heroBowl.reduce((s, r) => s + Number(r.legal_balls || 0), 0);
   const totEcon = totLegal ? (totBowlRuns * 6 / totLegal).toFixed(2) : "–";
-  const totHundreds = batRows.reduce((s, r) => s + Number(r.hundreds || 0), 0);
+  const totHundreds = heroBat.reduce((s, r) => s + Number(r.hundreds || 0), 0);
   const almanac = d.almanac || {};
   const cricinfo = p.key_cricinfo
     ? `<a class="ext" href="https://www.espncricinfo.com/ci/content/player/${encodeURIComponent(p.key_cricinfo)}.html" rel="noreferrer">Cricinfo</a>`
@@ -1473,7 +1501,7 @@ async function showPlayer(key) {
     ).join("")}</div>`
     : "";
   const totAvg = batOuts ? (batRuns / batOuts).toFixed(1) : null;
-  const totFifties = batRows.reduce((s, r) => s + Number(r.fifties || 0), 0);
+  const totFifties = heroBat.reduce((s, r) => s + Number(r.fifties || 0), 0);
   const bestBowlInn = (d.bowling_innings || []).reduce((best, i) => {
     if (!best) return i;
     const bw = Number(i.wickets || 0), cw = Number(best.wickets || 0);
@@ -2446,7 +2474,7 @@ async function showRecords() {
     history.replaceState(null, "", `#/records?${qs}`);
     main.innerHTML = `
       <h1 class="page-title">Record book</h1>
-      <p class="lede">The extremes this warehouse holds. Tests from 1877 and ODIs from 1971 are on the card; fastest fifties and hundreds still need the ball-by-ball era.</p>
+      <p class="lede">The extremes this warehouse holds. Tests from 1877 and ODIs from 1971 are on the card; fastest fifties and hundreds still need ball-by-ball files.</p>
       ${leaderboardNav("records")}
       <div id="rec-body"><div class="skel"></div><div class="skel"></div></div>`;
     const d = await fetch(`/api/records?${qs}`).then((r) => r.json()).catch(() => ({ rows: [], kinds: [] }));
