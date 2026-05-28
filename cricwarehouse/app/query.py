@@ -8,6 +8,13 @@ from typing import Any
 from cricwarehouse.competitions import normalize_format, LABELS
 from cricwarehouse.app.db import connect, warehouse_ready
 from cricwarehouse.app.metrics import is_qualifier, LEAGUE_QUAL_BALLS, INTL_CAREER_BALLS
+from cricwarehouse.app.search import (
+    interpretation,
+    lift_bare,
+    search_people,
+    search_teams,
+    _year_from_two,
+)
 
 TOKEN_RE = re.compile(r'([a-z_]+):("([^"]+)"|(\S+))', re.I)
 KNOWN_KEYS = {
@@ -36,6 +43,10 @@ KNOWN_KEYS = {
     "notout",
     "min_balls",
     "min_partnerships",
+    "side",
+    "event",
+    "home",
+    "away",
 }
 
 TOKEN_HELP = [
@@ -91,25 +102,22 @@ def parse_query(raw: str) -> ParsedQuery:
     if rest_words and rest_words[0].lower() in {"war", "metric", "standings"}:
         bare_mode = {"war": "war", "metric": "war", "standings": "standings"}[rest_words[0].lower()]
         rest = " ".join(rest_words[1:])
-    # "A vs B" / "A v B"
-    vs = re.split(r"\s+v(?:s)?\.?\s+", rest, maxsplit=1, flags=re.I)
-    if len(vs) == 2 and vs[0] and vs[1] and "compare" not in q.tokens:
-        q.tokens["compare"] = f"{vs[0].strip()},{vs[1].strip()}"
-        rest = ""
-    # bare number after leftover name → runs heuristic
     if rest:
-        parts = rest.split()
-        nums = [p for p in parts if re.fullmatch(r"\d{1,3}", p)]
-        words = [p for p in parts if not re.fullmatch(r"\d{1,3}", p)]
-        if words and "player" not in q.tokens and "compare" not in q.tokens:
-            q.bare_player = " ".join(words)
-            q.tokens["player"] = q.bare_player
-        if nums and "runs" not in q.tokens:
-            q.tokens["runs"] = nums[0]
-            q.heuristic = f"runs:{nums[0]} (exact)"
+        lifted = lift_bare(rest, q.tokens)
+        for key, val in lifted.tokens.items():
+            q.tokens.setdefault(key, val)
+        if lifted.player and "player" not in q.tokens and "compare" not in q.tokens:
+            q.bare_player = lifted.player
+            q.tokens["player"] = lifted.player
+        if lifted.heuristic:
+            q.heuristic = lifted.heuristic
+        if lifted.mode and q.mode == "innings":
+            q.mode = lifted.mode
     # mode
     if bare_mode == "standings" or "standings" in q.tokens or raw.strip().lower().startswith("standings"):
         q.mode = "standings"
+    elif q.mode == "matches" or ("home" in q.tokens and "away" in q.tokens):
+        q.mode = "matches"
     elif "compare" in q.tokens:
         q.mode = "compare"
     elif "pair" in q.tokens:
@@ -118,6 +126,12 @@ def parse_query(raw: str) -> ParsedQuery:
         q.mode = "war"
     elif "with" in q.tokens or "without" in q.tokens:
         q.mode = "split"
+    elif (
+        q.tokens.get("player")
+        and (q.tokens.get("opposition") or q.tokens.get("opp") or q.tokens.get("side"))
+        and not any(k in q.tokens for k in ("runs", "out", "dismissed_by", "notout"))
+    ):
+        q.mode = "matches"
     else:
         q.mode = "innings"
     if "format" in q.tokens:
@@ -138,51 +152,138 @@ def parse_query(raw: str) -> ParsedQuery:
 
 
 def _people_match(con, needle: str) -> list[dict]:
-    n = needle.strip().lower()
-    if not n:
+    from cricwarehouse.app.search import get_index
+
+    idx = get_index()
+    if idx is not None:
+        return idx.search(needle)
+    raw = (needle or "").strip().lower()
+    if not raw or con is None:
         return []
+    n = re.sub(r"[-_]+", " ", raw).strip()
     slug = re.sub(r"[^a-z0-9]+", "-", n).strip("-")
     last = n.split()[-1]
+    first = n.split()[0]
     rows = con.execute(
         """
         SELECT p.person_id, p.display_name, p.unique_name, p.slug, p.gender,
                CASE
                  WHEN lower(p.slug) = ? THEN 0
+                 WHEN lower(p.person_id) = ? THEN 0
                  WHEN lower(p.unique_name) = ? THEN 1
-                 WHEN lower(p.display_name) = ? THEN 2
-                 WHEN lower(p.unique_name) LIKE ? THEN 3
-                 WHEN lower(p.slug) LIKE ? THEN 4
-                 WHEN lower(p.display_name) LIKE ? THEN 5
-                 WHEN lower(p.unique_name) LIKE ? THEN 6
-                 WHEN lower(p.display_name) LIKE ? THEN 7
-                 ELSE 8
+                 WHEN lower(p.display_name) = ? THEN 1
+                 WHEN lower(p.unique_name) LIKE ? OR lower(p.display_name) LIKE ?
+                   OR (p.name_variants IS NOT NULL AND lower(p.name_variants) LIKE ?) THEN 2
+                 WHEN lower(p.slug) LIKE ? THEN 3
+                 WHEN lower(p.unique_name) LIKE ? OR lower(p.display_name) LIKE ? THEN 4
+                 WHEN lower(p.unique_name) LIKE ? OR lower(p.display_name) LIKE ? THEN 5
+                 ELSE 6
                END AS hit,
                COALESCE(x.apps, 0) AS apps
         FROM people p
         LEFT JOIN (
           SELECT person_id, COUNT(*) AS apps FROM xi GROUP BY 1
         ) x ON x.person_id = p.person_id
-        WHERE lower(p.person_id) = ?
-           OR lower(p.slug) = ?
-           OR lower(p.unique_name) = ?
-           OR lower(p.display_name) = ?
+        WHERE lower(p.person_id) IN (?, ?)
+           OR lower(p.slug) IN (?, ?)
+           OR lower(p.unique_name) IN (?, ?)
+           OR lower(p.display_name) IN (?, ?)
            OR lower(p.unique_name) LIKE ?
            OR lower(p.display_name) LIKE ?
            OR lower(p.slug) LIKE ?
-           OR (p.name_variants IS NOT NULL AND lower(p.name_variants) LIKE ?)
+           OR lower(p.unique_name) LIKE ?
+           OR lower(p.display_name) LIKE ?
+           OR (p.name_variants IS NOT NULL AND (
+                 lower(p.name_variants) LIKE ? OR lower(p.name_variants) LIKE ?
+           ))
         ORDER BY hit, apps DESC, p.unique_name
         LIMIT 20
         """,
         [
-            slug, n, n,
-            f"% {last}", f"%-{last}", f"% {last}",
-            f"{n}%", f"{n}%",
-            n, slug, n, n,
-            f"%{n}%", f"%{n}%", f"%{slug}%", f"%{n}%",
+            slug, raw,
+            n, n,
+            f"{n}%", f"{n}%", f"{n}%",
+            f"{slug}%",
+            f"{first}%", f"{first}%",
+            f"% {last}", f"% {last}",
+            raw, n,
+            slug, re.sub(r"[^a-z0-9]+", "-", raw).strip("-"),
+            n, raw,
+            n, raw,
+            f"{n}%", f"{n}%", f"{slug}%",
+            f"% {last}", f"% {last}",
+            f"%{n}%", f"%{raw}%",
         ],
     ).fetchall()
     cols = ["person_id", "display_name", "unique_name", "slug", "gender", "hit", "apps"]
     return [dict(zip(cols, r[:7])) for r in rows]
+
+
+def pick_person(people: list[dict], needle: str | None = None) -> dict | None:
+    """Exact slug/id, or a runaway apps lead. Otherwise None so the UI can ask."""
+    if not people:
+        return None
+    if needle:
+        raw = needle.strip().lower()
+        n = re.sub(r"[-_]+", " ", raw).strip()
+        slug = re.sub(r"[^a-z0-9]+", "-", n).strip("-")
+        for p in people:
+            if p.get("slug") in {slug, raw} or (p.get("person_id") or "").lower() == raw:
+                return p
+    top = people[0]
+    if top.get("hit") == 0:
+        return top
+    if len(people) == 1:
+        return top
+    nxt = people[1]
+    if int(top.get("apps") or 0) >= 15 and int(top.get("apps") or 0) >= 3 * max(int(nxt.get("apps") or 0), 1):
+        return top
+    return None
+
+
+def resolve_team(con, team: str) -> str | None:
+    """Exact side name. Contains-match is how 'India' swallowed India A / Women."""
+    needle = (team or "").strip()
+    if not needle:
+        return None
+    row = con.execute(
+        """
+        SELECT team, COUNT(*) AS n FROM (
+          SELECT team_home AS team FROM matches
+          UNION ALL
+          SELECT team_away AS team FROM matches
+        )
+        WHERE lower(team) = lower(?)
+        GROUP BY 1
+        ORDER BY n DESC
+        LIMIT 1
+        """,
+        [needle],
+    ).fetchone()
+    if row:
+        return row[0]
+    row = con.execute(
+        """
+        SELECT team, COUNT(*) AS n FROM (
+          SELECT team_home AS team FROM matches
+          UNION ALL
+          SELECT team_away AS team FROM matches
+        )
+        WHERE lower(team) LIKE lower(?)
+        GROUP BY 1
+        ORDER BY (lower(team) = lower(?)) DESC, n DESC
+        LIMIT 1
+        """,
+        [f"{needle}%", needle],
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _safe_int(val: Any, default: int | None = None) -> int | None:
+    try:
+        return int(str(val).strip())
+    except (TypeError, ValueError):
+        return default
 
 
 def _date_bounds(tokens: dict[str, str]) -> tuple[str | None, str | None]:
@@ -213,11 +314,18 @@ def execute(raw: str) -> dict[str, Any]:
     only_name = (
         parsed.mode == "innings"
         and parsed.bare_player
-        and not any(k in parsed.tokens for k in ("runs", "out", "dismissed_by", "notout", "opposition", "opp", "venue", "year", "years", "from", "to"))
+        and not any(
+            k in parsed.tokens
+            for k in (
+                "runs", "out", "dismissed_by", "notout", "opposition", "opp",
+                "venue", "year", "years", "from", "to", "side", "event",
+                "home", "away", "team", "format", "comp",
+            )
+        )
     )
     if only_name and dest_key in {"stats", "wowy", "rankings", "metrics", "war", "build", "docs", "best", "compare", "teams", "twin", "shift", "resources"}:
         dest = {
-            "rankings": "/stats",
+            "rankings": "/rankings",
             "war": "/metrics",
             "docs": "/resources",
             "resources": "/resources",
@@ -252,6 +360,8 @@ def execute(raw: str) -> dict[str, Any]:
                     "rows": [],
                     "columns": [],
                 }
+        elif parsed.mode == "matches":
+            result = _exec_matches(con, parsed)
         elif parsed.mode == "compare":
             result = _exec_compare(con, parsed)
         elif parsed.mode == "pair":
@@ -264,6 +374,14 @@ def execute(raw: str) -> dict[str, Any]:
             result = _exec_split(con, parsed)
         else:
             result = _exec_innings(con, parsed)
+            if _retry_two_digit_as_year(parsed, result):
+                year = _year_from_two(parsed.tokens["runs"].zfill(2))
+                parsed.tokens.pop("runs", None)
+                parsed.tokens["year"] = year
+                parsed.mode = "matches"
+                parsed.heuristic = interpretation(parsed.tokens, parsed.tokens.get("player"))
+                result = _exec_matches(con, parsed)
+                result["year_fallback"] = year
     finally:
         con.close()
     result["parsed"] = {
@@ -272,6 +390,7 @@ def execute(raw: str) -> dict[str, Any]:
         "ignored": parsed.ignored,
         "heuristic": parsed.heuristic,
         "mode": parsed.mode,
+        "interpretation": interpretation(parsed.tokens, parsed.tokens.get("player")),
     }
     return result
 
@@ -291,16 +410,269 @@ def _scope_line(tokens: dict, n: int, extra: str = "") -> str:
     return " · ".join(bits)
 
 
+def _retry_two_digit_as_year(parsed: ParsedQuery, result: dict) -> bool:
+    """‘Sachin New Zealand 94’ is often 1994 when no 94 vs that side exists."""
+    if result.get("rows"):
+        return False
+    runs = parsed.tokens.get("runs")
+    if not runs or not re.fullmatch(r"\d{1,2}", runs):
+        return False
+    if parsed.tokens.get("year") or parsed.tokens.get("years"):
+        return False
+    return bool(
+        parsed.tokens.get("side")
+        or parsed.tokens.get("opposition")
+        or parsed.tokens.get("opp")
+        or parsed.tokens.get("home")
+    )
+
+
+def _has_innings_constraint(tokens: dict[str, str]) -> bool:
+    return any(
+        k in tokens
+        for k in (
+            "player", "runs", "out", "dismissed_by", "notout",
+            "opposition", "opp", "venue", "year", "years", "from", "to",
+            "team", "format", "comp", "gender", "side", "event", "home", "away",
+        )
+    )
+
+
+def _apply_side(con, tokens: dict[str, str], person_id: str | None) -> None:
+    side = tokens.pop("side", None)
+    if not side or tokens.get("opposition") or tokens.get("opp") or tokens.get("team"):
+        return
+    name = resolve_team(con, side) or side
+    if person_id:
+        n = con.execute(
+            "SELECT COUNT(*) FROM xi WHERE person_id = ? AND lower(team) = lower(?)",
+            [person_id, name],
+        ).fetchone()[0]
+        if not n:
+            row = con.execute(
+                """
+                SELECT team FROM xi
+                WHERE person_id = ? AND lower(team) LIKE ?
+                GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 1
+                """,
+                [person_id, f"%{name.lower()}%"],
+            ).fetchone()
+            if row:
+                tokens["team"] = row[0]
+                return
+        else:
+            tokens["team"] = name
+            return
+    tokens["opposition"] = name
+
+
+def _match_filters(tokens: dict[str, str], alias: str = "m") -> tuple[list[str], list[Any]]:
+    where = ["1=1"]
+    params: list[Any] = []
+    comp = _comp_filter(tokens)
+    if comp:
+        where.append(f"{alias}.competition = ?")
+        params.append(comp)
+    if tokens.get("gender"):
+        g = "female" if tokens["gender"].lower().startswith(("f", "w")) else "male"
+        where.append(f"{alias}.gender = ?")
+        params.append(g)
+    start, end = _date_bounds(tokens)
+    if start:
+        where.append(f"{alias}.start_date >= ?")
+        params.append(start)
+    if end:
+        where.append(f"{alias}.start_date <= ?")
+        params.append(end)
+    if tokens.get("venue"):
+        where.append(f"{alias}.venue ILIKE ?")
+        params.append(f"%{tokens['venue']}%")
+    if tokens.get("event"):
+        where.append(f"lower({alias}.event_name) LIKE ?")
+        params.append(f"%{tokens['event'].lower()}%")
+    return where, params
+
+
+def _exec_matches(con, parsed: ParsedQuery) -> dict:
+    tokens = parsed.tokens
+    player = tokens.get("player")
+    people = _people_match(con, player) if player else []
+    picked = pick_person(people, player) if people else None
+    if player and not people:
+        return {
+            "ok": True,
+            "kind": "empty",
+            "title": parsed.raw,
+            "message": f"No players match {player}.",
+            "columns": [],
+            "rows": [],
+            "people": [],
+            "scope": _scope_line(tokens, 0),
+        }
+    if people and not picked and player:
+        return {
+            "ok": True,
+            "kind": "pick_player",
+            "people": people,
+            "message": f"{len(people)} players match “{player}”. Pick one.",
+            "rows": [],
+            "columns": [],
+        }
+    if picked:
+        people = [picked]
+        _apply_side(con, tokens, picked["person_id"])
+    else:
+        _apply_side(con, tokens, None)
+
+    where, params = _match_filters(tokens)
+    if picked:
+        where.append("x.person_id = ?")
+        params.append(picked["person_id"])
+    home, away = tokens.get("home"), tokens.get("away")
+    if home and away:
+        a = resolve_team(con, home) or home
+        b = resolve_team(con, away) or away
+        where.append(
+            f"(({_team_eq('m.team_home', a)} AND {_team_eq('m.team_away', b)})"
+            f" OR ({_team_eq('m.team_home', b)} AND {_team_eq('m.team_away', a)}))"
+        )
+        params.extend([a, b, b, a])
+    else:
+        opp = tokens.get("opposition") or tokens.get("opp")
+        side = tokens.get("team")
+        if opp:
+            resolved = resolve_team(con, opp) or opp
+            if picked:
+                where.append(
+                    "((m.team_home = ? AND x.team <> m.team_home) OR (m.team_away = ? AND x.team <> m.team_away))"
+                )
+                params.extend([resolved, resolved])
+            else:
+                where.append("(m.team_home = ? OR m.team_away = ?)")
+                params.extend([resolved, resolved])
+        if side:
+            resolved = resolve_team(con, side) or side
+            if picked:
+                where.append("x.team = ?")
+                params.append(resolved)
+            else:
+                where.append("(m.team_home = ? OR m.team_away = ?)")
+                params.extend([resolved, resolved])
+
+    if picked:
+        sql = f"""
+            SELECT m.match_id, m.start_date, m.team_home, m.team_away, m.winner,
+                   m.competition, m.gender, m.venue, m.event_name, m.result_method,
+                   m.win_by_runs, m.win_by_wickets, m.win_by_innings, x.team AS player_team
+            FROM matches m
+            JOIN xi x ON x.match_id = m.match_id
+            WHERE {' AND '.join(where)}
+            ORDER BY m.start_date DESC
+            LIMIT 200
+        """
+    else:
+        sql = f"""
+            SELECT m.match_id, m.start_date, m.team_home, m.team_away, m.winner,
+                   m.competition, m.gender, m.venue, m.event_name, m.result_method,
+                   m.win_by_runs, m.win_by_wickets, m.win_by_innings, NULL AS player_team
+            FROM matches m
+            WHERE {' AND '.join(where)}
+            ORDER BY m.start_date DESC
+            LIMIT 200
+        """
+    recs = con.execute(sql, params).fetchall()
+    cols = [
+        "match_id", "start_date", "team_home", "team_away", "winner",
+        "competition", "gender", "venue", "event_name", "result_method",
+        "win_by_runs", "win_by_wickets", "win_by_innings", "player_team",
+    ]
+    rows = [dict(zip(cols, r)) for r in recs]
+    for row in rows:
+        row["fixture"] = f"{row['team_home']} v {row['team_away']}"
+        row["result"] = _result_line({**row, "team": row.get("player_team") or row.get("winner")})
+        if row.get("player_team") and row.get("winner"):
+            row["result"] = (
+                "Won" if row["winner"] == row["player_team"]
+                else ("Lost" if row["winner"] else "—")
+            )
+            if row.get("result_method") == "dls":
+                row["result"] += " (DLS)"
+        elif row.get("winner"):
+            row["result"] = f"{row['winner']} won"
+    if len(rows) == 1:
+        return {
+            "ok": True,
+            "kind": "goto_match",
+            "match_id": rows[0]["match_id"],
+            "people": people,
+            "rows": rows,
+        }
+    title = parsed.heuristic or parsed.raw
+    if not rows:
+        return {
+            "ok": True,
+            "kind": "empty",
+            "title": title,
+            "message": f"No matches for {title}. Try a year, a format, or a last name.",
+            "columns": [],
+            "rows": [],
+            "people": people,
+            "scope": _scope_line(tokens, 0),
+        }
+    return {
+        "ok": True,
+        "kind": "matches",
+        "title": title,
+        "columns": [
+            {"key": "start_date", "label": "Date", "align": "left", "link": "match"},
+            {"key": "fixture", "label": "Match", "align": "left", "link": "match"},
+            {"key": "competition", "label": "Comp", "align": "left"},
+            {"key": "venue", "label": "Ground", "align": "left"},
+            {"key": "result", "label": "Result", "align": "left"},
+        ],
+        "rows": rows,
+        "people": people,
+        "scope": _scope_line(tokens, len(rows), title if title != parsed.raw else ""),
+        "empty_hint": (
+            {"message": f"No matches for {title}. Try a year, a format, or a last name.", "chips": []}
+            if not rows else None
+        ),
+    }
+
+
+def _team_eq(column: str, _value: str) -> str:
+    return f"{column} = ?"
+
+
 def _exec_innings(con, parsed: ParsedQuery) -> dict:
     tokens = parsed.tokens
+    if not _has_innings_constraint(tokens):
+        ignored = parsed.ignored
+        extra = f" Ignored {', '.join(ignored)}." if ignored else ""
+        return {
+            "ok": True,
+            "kind": "empty",
+            "title": parsed.raw,
+            "message": "Add a player, a score, or a filter — a bare query would dump the whole warehouse." + extra,
+            "columns": [],
+            "rows": [],
+            "people": [],
+            "scope": _scope_line(tokens, 0),
+        }
     player = tokens.get("player")
     people = _people_match(con, player) if player else []
     where = ["b.innings_kind = 'regular'"]
     params: list[Any] = []
     if people:
-        ids = [p["person_id"] for p in people]
+        picked = pick_person(people, player)
+        ids = [picked["person_id"]] if picked else [p["person_id"] for p in people]
         where.append(f"b.person_id IN ({','.join(['?'] * len(ids))})")
         params.extend(ids)
+        if picked:
+            people = [picked]
+            _apply_side(con, tokens, picked["person_id"])
+        else:
+            _apply_side(con, tokens, None)
     elif player:
         return {
             "ok": True,
@@ -312,15 +684,39 @@ def _exec_innings(con, parsed: ParsedQuery) -> dict:
             "people": [],
             "scope": _scope_line(tokens, 0),
         }
+    else:
+        _apply_side(con, tokens, None)
     runs = tokens.get("runs")
     if runs:
         if "-" in runs:
             a, b = runs.split("-", 1)
+            lo, hi = _safe_int(a), _safe_int(b)
+            if lo is None or hi is None:
+                return {
+                    "ok": True,
+                    "kind": "empty",
+                    "message": f"runs:{runs} needs numbers, like runs:80-120.",
+                    "columns": [],
+                    "rows": [],
+                    "people": people,
+                }
+            if lo > hi:
+                lo, hi = hi, lo
             where.append("b.runs BETWEEN ? AND ?")
-            params.extend([int(a), int(b)])
+            params.extend([lo, hi])
         else:
+            exact = _safe_int(runs)
+            if exact is None:
+                return {
+                    "ok": True,
+                    "kind": "empty",
+                    "message": f"runs:{runs} needs a number.",
+                    "columns": [],
+                    "rows": [],
+                    "people": people,
+                }
             where.append("b.runs = ?")
-            params.append(int(runs))
+            params.append(exact)
     if tokens.get("notout") in {"true", "1", "yes"}:
         where.append("b.not_out = TRUE")
     if tokens.get("out"):
@@ -352,11 +748,19 @@ def _exec_innings(con, parsed: ParsedQuery) -> dict:
         params.extend([f"%{tokens['team']}%"] * 3)
     if tokens.get("opposition") or tokens.get("opp"):
         opp = tokens.get("opposition") or tokens["opp"]
-        where.append("((m.team_home ILIKE ? AND b.team <> m.team_home) OR (m.team_away ILIKE ? AND b.team <> m.team_away))")
-        params.extend([f"%{opp}%"] * 2)
+        resolved = resolve_team(con, opp)
+        if resolved:
+            where.append("((m.team_home = ? AND b.team <> m.team_home) OR (m.team_away = ? AND b.team <> m.team_away))")
+            params.extend([resolved, resolved])
+        else:
+            where.append("((m.team_home ILIKE ? AND b.team <> m.team_home) OR (m.team_away ILIKE ? AND b.team <> m.team_away))")
+            params.extend([f"%{opp}%"] * 2)
     if tokens.get("venue"):
         where.append("m.venue ILIKE ?")
         params.append(f"%{tokens['venue']}%")
+    if tokens.get("event"):
+        where.append("lower(m.event_name) LIKE ?")
+        params.append(f"%{tokens['event'].lower()}%")
 
     sql = f"""
         SELECT b.match_id, m.start_date, p.display_name, p.slug, p.person_id,
@@ -370,6 +774,7 @@ def _exec_innings(con, parsed: ParsedQuery) -> dict:
         JOIN people p ON p.person_id = b.person_id
         WHERE {' AND '.join(where)}
         ORDER BY m.start_date DESC
+        LIMIT 2000
     """
     recs = con.execute(sql, params).fetchall()
     cols = [
@@ -381,7 +786,7 @@ def _exec_innings(con, parsed: ParsedQuery) -> dict:
     for row in rows:
         row["runs_display"] = f"{row['runs']}*" if row["not_out"] else str(row["runs"])
         row["result"] = _result_line(row)
-    return {
+    packed = {
         "ok": True,
         "kind": "innings",
         "title": parsed.raw,
@@ -401,6 +806,11 @@ def _exec_innings(con, parsed: ParsedQuery) -> dict:
         "scope": _scope_line(tokens, len(rows)),
         "empty_hint": _empty_hint(con, parsed, people) if not rows else None,
     }
+    if not rows:
+        hint = packed.get("empty_hint") or {}
+        packed["kind"] = "empty"
+        packed["message"] = hint.get("message") or f"No innings match {parsed.raw}."
+    return packed
 
 
 def _result_line(row: dict) -> str:
@@ -412,7 +822,8 @@ def _result_line(row: dict) -> str:
         return "Tie"
     if not w:
         return "—"
-    return "Won" if w == team else "Lost"
+    mark = " (DLS)" if row.get("result_method") == "dls" else ""
+    return ("Won" if w == team else "Lost") + mark
 
 
 def _empty_hint(con, parsed: ParsedQuery, people: list[dict]) -> dict | None:
@@ -462,12 +873,26 @@ def _exec_compare(con, parsed: ParsedQuery) -> dict:
             "rows": [],
             "columns": [],
         }
-    a, b = left[0], right[0]
+    a, b = pick_person(left, parts[0]), pick_person(right, parts[1])
+    if not a:
+        return {
+            "ok": True,
+            "kind": "pick_player",
+            "people": left,
+            "message": f"{len(left)} players match “{parts[0]}”. Pick one.",
+            "rows": [],
+            "columns": [],
+        }
+    if not b:
+        return {
+            "ok": True,
+            "kind": "pick_player",
+            "people": right,
+            "message": f"{len(right)} players match “{parts[1]}”. Pick one.",
+            "rows": [],
+            "columns": [],
+        }
     tokens = parsed.tokens
-    if "from" not in tokens and "to" not in tokens and "years" not in tokens and "year" not in tokens:
-        # default trailing 5 years when the chip is the Smith/Root question style
-        if "years" in parsed.raw or True:
-            pass
     start, end = _date_bounds(tokens)
     stats_a = _player_agg(con, a["person_id"], tokens, start, end)
     stats_b = _player_agg(con, b["person_id"], tokens, start, end)
@@ -545,16 +970,28 @@ def _player_agg(con, pid: str, tokens: dict, start: str | None, end: str | None)
         """,
         params,
     ).fetchone()
+    bowl_where = ["bl.person_id = ?", "bl.innings_kind = 'regular'"]
+    bowl_params: list[Any] = [pid]
+    if comp:
+        bowl_where.append("m.competition = ?")
+        bowl_params.append(comp)
+    if start:
+        bowl_where.append("m.start_date >= ?")
+        bowl_params.append(start)
+    if end:
+        bowl_where.append("m.start_date <= ?")
+        bowl_params.append(end)
+    if tokens.get("gender"):
+        g = "female" if tokens["gender"].lower().startswith(("f", "w")) else "male"
+        bowl_where.append("m.gender = ?")
+        bowl_params.append(g)
     bowl = con.execute(
         f"""
         SELECT SUM(bl.wickets), SUM(bl.runs), SUM(bl.legal_balls)
         FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
-        WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
-          {('AND m.competition = ?' if comp else '')}
-          {('AND m.start_date >= ?' if start else '')}
-          {('AND m.start_date <= ?' if end else '')}
+        WHERE {' AND '.join(bowl_where)}
         """,
-        [pid] + ([comp] if comp else []) + ([start] if start else []) + ([end] if end else []),
+        bowl_params,
     ).fetchone()
     matches, inns, runs, balls, outs = bat
     wickets, bowl_runs, legal = bowl
@@ -566,12 +1003,27 @@ def _player_agg(con, pid: str, tokens: dict, start: str | None, end: str | None)
     legal = int(legal or 0)
     met = None
     try:
+        met_where = ["person_id = ?"]
+        met_params: list[Any] = [pid]
+        if comp:
+            met_where.append("competition = ?")
+            met_params.append(comp)
+        if tokens.get("gender"):
+            g = "female" if tokens["gender"].lower().startswith(("f", "w")) else "male"
+            met_where.append("gender = ?")
+            met_params.append(g)
+        if start:
+            met_where.append("season >= ?")
+            met_params.append(start[:4])
+        if end:
+            met_where.append("left(season, 4) <= ?")
+            met_params.append(end[:4])
         met = con.execute(
-            """
+            f"""
             SELECT SUM(war), SUM(rae_bat), SUM(wpa)
-            FROM metrics_t20 WHERE person_id = ?
+            FROM metrics_t20 WHERE {' AND '.join(met_where)}
             """,
-            [pid],
+            met_params,
         ).fetchone()
     except Exception:
         met = (None, None, None)
@@ -593,16 +1045,16 @@ def _player_agg(con, pid: str, tokens: dict, start: str | None, end: str | None)
 def _exec_pair(con, parsed: ParsedQuery) -> dict:
     tokens = parsed.tokens
     pair = tokens.get("pair", "*")
-    min_n = int(tokens.get("min_partnerships") or 10)
+    min_n = _safe_int(tokens.get("min_partnerships"), 10) or 10
     where = ["pr.innings_kind = 'regular'"]
     params: list[Any] = []
     if pair != "*":
         parts = [p.strip() for p in pair.split(",") if p.strip()]
         ids = []
         for p in parts:
-            found = _people_match(con, p)
+            found = pick_person(_people_match(con, p), p)
             if found:
-                ids.append(found[0]["person_id"])
+                ids.append(found["person_id"])
         if len(ids) == 2:
             a, b = sorted(ids)
             where.append("pr.person_id_1 = ? AND pr.person_id_2 = ?")
@@ -675,10 +1127,15 @@ def _exec_war(con, parsed: ParsedQuery) -> dict:
         params.append(g)
     years = tokens.get("years") or tokens.get("year")
     if years:
-        y = years.split("-")[-1]
-        where.append("mt.season LIKE ?")
-        params.append(f"{y}%")
-    min_balls = int(tokens.get("min_balls") or 0)
+        m = re.match(r"(\d{4})(?:\s*[-–]\s*(\d{4}))?", years)
+        if m:
+            y0 = int(m.group(1))
+            y1 = int(m.group(2) or m.group(1))
+            if y0 > y1:
+                y0, y1 = y1, y0
+            where.append("TRY_CAST(left(mt.season, 4) AS INTEGER) BETWEEN ? AND ?")
+            params.extend([y0, y1])
+    min_balls = _safe_int(tokens.get("min_balls"), 0) or 0
     if min_balls:
         where.append("(mt.balls_bat + mt.balls_bowl) >= ?")
         params.append(min_balls)
@@ -691,6 +1148,7 @@ def _exec_war(con, parsed: ParsedQuery) -> dict:
         JOIN people p ON p.person_id = mt.person_id
         WHERE {' AND '.join(where)}
         ORDER BY mt.war DESC NULLS LAST
+        LIMIT 500
         """,
         params,
     ).fetchall()
@@ -746,6 +1204,13 @@ def _exec_standings(con, parsed: ParsedQuery) -> dict:
     if year and year.isdigit():
         where.append("season LIKE ?")
         params.append(f"{year}%")
+    if tokens.get("gender"):
+        g = "female" if tokens["gender"].lower().startswith(("f", "w")) else "male"
+        where.append("gender = ?")
+        params.append(g)
+    elif comp in {"t20i", "odi", "test"}:
+        where.append("gender = ?")
+        params.append("male")
     recs = con.execute(
         f"""
         SELECT season, gender, position, team, played, won, lost, tied, no_result, points, nrr
@@ -799,28 +1264,51 @@ def _exec_split(con, parsed: ParsedQuery) -> dict:
         return {"ok": True, "kind": "empty", "message": "with/without needs team:", "rows": [], "columns": []}
     person_tok = with_p or without_p
     people = _people_match(con, person_tok) if person_tok else []
-    if not people:
+    person = pick_person(people, person_tok)
+    if not person:
+        if people:
+            return {
+                "ok": True,
+                "kind": "pick_player",
+                "people": people,
+                "message": f"{len(people)} players match “{person_tok}”. Pick one.",
+                "rows": [],
+                "columns": [],
+            }
         return {"ok": True, "kind": "empty", "message": f"No player match for {person_tok}.", "rows": [], "columns": []}
-    pid = people[0]["person_id"]
-    name = people[0]["display_name"]
+    pid = person["person_id"]
+    name = person["display_name"]
+    side = resolve_team(con, team)
+    if not side:
+        return {"ok": True, "kind": "empty", "message": f"No side matching {team}.", "rows": [], "columns": []}
+    first = con.execute(
+        """
+        SELECT MIN(m.start_date)
+        FROM matches m
+        JOIN xi x ON x.match_id = m.match_id
+        WHERE x.person_id = ? AND x.team = ?
+        """,
+        [pid, side],
+    ).fetchone()[0]
     recs = con.execute(
         """
         SELECT m.match_id, m.start_date, m.team_home, m.team_away, m.winner, m.result_method,
                EXISTS (
                  SELECT 1 FROM xi x
-                 WHERE x.match_id = m.match_id AND x.person_id = ? AND x.team ILIKE ?
+                 WHERE x.match_id = m.match_id AND x.person_id = ? AND x.team = ?
                ) AS present
         FROM matches m
-        WHERE (m.team_home ILIKE ? OR m.team_away ILIKE ?)
+        WHERE (m.team_home = ? OR m.team_away = ?)
+          AND (? IS NULL OR m.start_date >= ?)
         """,
-        [pid, f"%{team}%", f"%{team}%", f"%{team}%"],
+        [pid, side, side, side, first, first],
     ).fetchall()
     with_m = [r for r in recs if r[6]]
     without_m = [r for r in recs if not r[6]]
 
     def summarize(group, label):
         n = len(group)
-        wins = sum(1 for r in group if r[4] and team.lower() in str(r[4]).lower())
+        wins = sum(1 for r in group if r[4] == side)
         return {
             "split": label,
             "matches": n,
@@ -842,7 +1330,7 @@ def _exec_split(con, parsed: ParsedQuery) -> dict:
     return {
         "ok": True,
         "kind": "split",
-        "title": f"{team} with {name}",
+        "title": f"{side} with {name}",
         "columns": [
             {"key": "split", "label": "Split", "align": "left"},
             {"key": "matches", "label": "N", "align": "right", "numeric": True},
@@ -858,23 +1346,34 @@ def _exec_split(con, parsed: ParsedQuery) -> dict:
 
 def suggest(q: str) -> dict:
     q = (q or "").strip()
-    tokens = [t for t in TOKEN_HELP if t[0].startswith(q.lower()) or q.lower() in t[1].lower()]
+    parsed = parse_query(q) if q else None
+    player = (parsed.tokens.get("player") if parsed else None) or q
+    people = search_people(player) if len(player) >= 2 else []
+    teams: list[dict] = []
+    if parsed and (parsed.tokens.get("side") or parsed.tokens.get("opposition") or parsed.tokens.get("home")):
+        hint = parsed.tokens.get("opposition") or parsed.tokens.get("side") or parsed.tokens.get("home") or ""
+        teams = search_teams(hint)
+    elif q and ":" not in q:
+        last = q.split()[-1]
+        if len(last) >= 2:
+            teams = search_teams(last)
+    token_rows = []
+    ql = q.lower()
     if ":" in q:
         key, _, rest = q.partition(":")
-        rest = rest.strip()
-        people = []
-        if warehouse_ready() and rest and key.lower() in {"player", "compare", "with", "without", "pair", "dismissed_by"}:
-            con = connect()
-            try:
-                people = _people_match(con, rest)
-            finally:
-                con.close()
-        return {"tokens": [{"key": k, "hint": h} for k, h in TOKEN_HELP if k.startswith(key.lower())], "people": people}
-    people = []
-    if warehouse_ready() and len(q) >= 2:
-        con = connect()
-        try:
-            people = _people_match(con, q)
-        finally:
-            con.close()
-    return {"tokens": [{"key": k, "hint": h} for k, h in tokens[:8]], "people": people}
+        token_rows = [{"key": k, "hint": h} for k, h in TOKEN_HELP if k.startswith(key.lower())]
+        if rest and key.lower() in {"player", "compare", "with", "without", "pair", "dismissed_by"}:
+            people = search_people(rest) or people
+    elif len(ql) < 12 and any(k.startswith(ql) or ql in h.lower() for k, h in TOKEN_HELP):
+        token_rows = [{"key": k, "hint": h} for k, h in TOKEN_HELP if k.startswith(ql) or ql in h.lower()][:6]
+    return {
+        "tokens": token_rows,
+        "people": people,
+        "teams": teams,
+        "parsed": {
+            "tokens": parsed.tokens if parsed else {},
+            "mode": parsed.mode if parsed else None,
+            "heuristic": parsed.heuristic if parsed else None,
+            "interpretation": interpretation(parsed.tokens, parsed.tokens.get("player")) if parsed else "",
+        } if parsed else {},
+    }
