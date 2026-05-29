@@ -175,6 +175,10 @@ def build(*, workers: int | None = None, with_metrics: bool = True) -> None:
     if with_metrics:
         _log("Rebuilding T20 metrics…")
         metrics_mod.rebuild_metrics()
+        _log("Rebuilding form ratings…")
+        from cricwarehouse.app.form import rebuild_form
+
+        rebuild_form()
     _log("Build complete.")
 
 

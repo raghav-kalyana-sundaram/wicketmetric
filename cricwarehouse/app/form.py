@@ -1,0 +1,803 @@
+"""Rolling cross-format form ratings, 2K-style.
+
+A player's published overall is a 40–99 integer from recent Test, ODI, and
+T20I counting stats — averages, strike rates, volume, and milestones. It is
+not a percentile and it does not use the T20 resource model (RAA, WAR, TSR,
+TE). Tests and ODIs have no advanced inputs at all.
+
+About five players per gender sit on 99 at any snapshot, batters and bowlers
+sharing that club. Everyone else can climb on the same curve; 99 is reserved
+for the top of the current field.
+"""
+
+from __future__ import annotations
+
+import json
+from collections import defaultdict
+from datetime import date, datetime, timezone
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from cricwarehouse.app.db import connect, warehouse_ready, write_parquet
+from cricwarehouse.competitions import GENDER_LABEL
+from cricwarehouse.paths import WAREHOUSE
+from cricwarehouse.teams import WTC_TEAMS, WOMEN_TEST_TEAMS
+
+FORM_VERSION = "form-v1.0.0"
+FORMATS = ("test", "odi", "t20i")
+MAX_NINES = 5
+NINE_THRESHOLD = 82.0
+ACTIVE_DAYS = 270
+PRIOR_OVR = 74.0
+# Full-member internationals only. Associate T20Is mint fake 90s.
+FORM_TEAMS = {
+    "male": WTC_TEAMS + ("Afghanistan", "Ireland", "Zimbabwe"),
+    "female": WOMEN_TEST_TEAMS,
+}
+
+# Lookback and half-life in days. Tests are sparse, so they keep older knocks.
+WINDOW = {"test": 730, "odi": 540, "t20i": 365}
+HALF_LIFE = {"test": 400, "odi": 280, "t20i": 180}
+# A format drops out of the blend if they have not played it recently.
+# Stale Test residue should not drag down current ODI or T20I form.
+FRESH = {"test": 450, "odi": 300, "t20i": 200}
+PRESTIGE = {"test": 1.15, "odi": 1.0, "t20i": 1.0}
+
+MIN_BAT_INNS = {"test": 5.0, "odi": 6.0, "t20i": 6.0}
+MIN_BAT_RUNS = {"test": 100.0, "odi": 150.0, "t20i": 120.0}
+MIN_BOWL_INNS = {"test": 6.0, "odi": 8.0, "t20i": 8.0}
+MIN_BOWL_WKTS = {"test": 10.0, "odi": 10.0, "t20i": 8.0}
+MIN_BOWL_BALLS = {"test": 240.0, "odi": 180.0, "t20i": 96.0}
+BLEND_INNS = 4.0
+SHRINK_INNS = 4.0
+SHRINK_UNTIL = 8.0
+
+LN2 = np.log(2.0)
+
+# Piecewise control points: the value on the left maps to the rating on the right.
+# Higher is better except where invert=True (bowling average, strike rate, economy).
+BAT_AVG = {
+    "test": ((15, 48), (25, 62), (35, 74), (45, 84), (55, 91), (70, 96), (95, 99)),
+    "odi": ((15, 48), (25, 62), (35, 74), (45, 84), (55, 91), (70, 96), (95, 99)),
+    "t20i": ((12, 48), (20, 62), (28, 74), (36, 84), (45, 91), (55, 96), (72, 99)),
+}
+BAT_SR = {
+    "test": ((30, 50), (40, 62), (50, 72), (60, 80), (75, 88), (90, 94), (115, 98)),
+    "odi": ((60, 50), (75, 62), (85, 72), (95, 80), (110, 88), (125, 94), (155, 98)),
+    "t20i": ((100, 50), (115, 62), (130, 72), (145, 80), (160, 88), (180, 94), (215, 98)),
+}
+BAT_RUNS = {
+    "test": ((150, 55), (400, 70), (800, 82), (1200, 90), (1800, 95), (2600, 98)),
+    "odi": ((200, 55), (500, 70), (900, 82), (1400, 90), (2000, 95), (2800, 98)),
+    "t20i": ((140, 55), (350, 70), (600, 82), (900, 90), (1300, 95), (1800, 98)),
+}
+# Hundreds per 10 innings (Tests/ODI). T20 uses fifty-plus per 10 innings.
+BAT_HUNDRED_RATE = {
+    "test": ((0.0, 58), (0.8, 72), (1.6, 82), (2.6, 90), (4.0, 95), (6.0, 98)),
+    "odi": ((0.0, 58), (0.6, 72), (1.2, 82), (2.0, 90), (3.2, 95), (5.0, 98)),
+}
+BAT_FIFTY_RATE = {
+    "t20i": ((0.0, 55), (1.5, 70), (3.0, 80), (4.5, 88), (6.0, 94), (8.0, 98)),
+}
+
+BOWL_AVG = {
+    "test": ((42, 52), (34, 68), (28, 78), (23, 87), (19, 93), (15, 97), (12, 99)),
+    "odi": ((40, 52), (33, 68), (27, 78), (23, 87), (19, 93), (16, 97), (13, 99)),
+    "t20i": ((34, 52), (28, 68), (23, 78), (19, 87), (16, 93), (13, 97), (11, 99)),
+}
+BOWL_SR = {
+    "test": ((85, 52), (68, 68), (56, 78), (48, 87), (40, 93), (33, 97), (27, 99)),
+    "odi": ((52, 52), (42, 68), (35, 78), (29, 87), (25, 93), (21, 97), (18, 99)),
+    "t20i": ((26, 52), (21, 68), (18, 78), (16, 87), (14, 93), (12, 97), (10, 99)),
+}
+BOWL_ECON = {
+    "test": ((4.2, 52), (3.4, 68), (2.9, 78), (2.5, 87), (2.15, 93), (1.8, 97), (1.5, 99)),
+    "odi": ((6.4, 52), (5.6, 68), (5.0, 78), (4.5, 87), (4.1, 93), (3.6, 97), (3.2, 99)),
+    "t20i": ((9.0, 52), (8.0, 68), (7.3, 78), (6.7, 87), (6.2, 93), (5.7, 97), (5.2, 99)),
+}
+BOWL_WKTS = {
+    "test": ((12, 55), (28, 70), (48, 82), (70, 90), (95, 95), (125, 98)),
+    "odi": ((12, 55), (28, 70), (45, 82), (65, 90), (85, 95), (110, 98)),
+    "t20i": ((8, 55), (18, 70), (28, 82), (40, 90), (55, 95), (75, 98)),
+}
+
+BAT_WEIGHTS = {
+    "test": {"avg": 0.48, "runs": 0.22, "impact": 0.22, "sr": 0.08},
+    "odi": {"avg": 0.38, "runs": 0.22, "impact": 0.18, "sr": 0.22},
+    "t20i": {"avg": 0.30, "runs": 0.22, "impact": 0.18, "sr": 0.30},
+}
+BOWL_WEIGHTS = {
+    "test": {"avg": 0.38, "sr": 0.30, "econ": 0.12, "wkts": 0.20},
+    "odi": {"avg": 0.32, "sr": 0.24, "econ": 0.28, "wkts": 0.16},
+    "t20i": {"avg": 0.28, "sr": 0.22, "econ": 0.36, "wkts": 0.14},
+}
+
+
+def piecewise(x: float | None, points: tuple[tuple[float, float], ...], *, invert: bool = False) -> float | None:
+    """Map a raw stat onto 40–99 through linear segments."""
+    if x is None or not np.isfinite(x):
+        return None
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    if invert:
+        if x >= xs[0]:
+            return float(ys[0])
+        if x <= xs[-1]:
+            return float(ys[-1])
+        for (x0, y0), (x1, y1) in zip(points, points[1:]):
+            if x0 >= x >= x1:
+                if x0 == x1:
+                    return float(y1)
+                t = (x0 - x) / (x0 - x1)
+                return float(y0 + t * (y1 - y0))
+        return float(ys[-1])
+    if x <= xs[0]:
+        return float(ys[0])
+    if x >= xs[-1]:
+        return float(ys[-1])
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if x0 <= x <= x1:
+            if x1 == x0:
+                return float(y1)
+            t = (x - x0) / (x1 - x0)
+            return float(y0 + t * (y1 - y0))
+    return float(ys[-1])
+
+
+def shrink(value: float, n: float, *, prior: float = PRIOR_OVR, prior_n: float = SHRINK_INNS) -> float:
+    """Pull a thin sample toward a competent international. Full trust after SHRINK_UNTIL."""
+    n = max(float(n), 0.0)
+    if n >= SHRINK_UNTIL:
+        return float(value)
+    return (n * value + prior_n * prior) / (n + prior_n)
+
+
+def score_batting_window(
+    *,
+    fmt: str,
+    inns: float,
+    runs: float,
+    outs: float,
+    balls: float,
+    hundreds: float,
+    fifties: float,
+) -> dict[str, float] | None:
+    """Turn one format's decay-weighted batting pile into a 40–99 rating."""
+    if fmt not in FORMATS:
+        return None
+    if inns < MIN_BAT_INNS[fmt] or runs < MIN_BAT_RUNS[fmt]:
+        return None
+    avg = runs / max(outs, 0.35)
+    sr = (100.0 * runs / balls) if balls >= 20 else None
+    per10 = 10.0 / max(inns, 1.0)
+    hundred_rate = hundreds * per10
+    fifty_plus_rate = (hundreds + fifties) * per10
+    attrs = {
+        "avg": piecewise(avg, BAT_AVG[fmt]),
+        "runs": piecewise(runs, BAT_RUNS[fmt]),
+        "sr": piecewise(sr, BAT_SR[fmt]) if sr is not None else None,
+    }
+    if fmt == "t20i":
+        attrs["impact"] = piecewise(fifty_plus_rate, BAT_FIFTY_RATE["t20i"])
+    else:
+        attrs["impact"] = piecewise(hundred_rate, BAT_HUNDRED_RATE[fmt])
+    weights = BAT_WEIGHTS[fmt]
+    used = {k: v for k, v in attrs.items() if v is not None}
+    wsum = sum(weights[k] for k in used)
+    if wsum <= 0:
+        return None
+    raw = sum(used[k] * weights[k] for k in used) / wsum
+    rating = shrink(raw, inns)
+    return {
+        "rating": rating,
+        "avg": avg,
+        "sr": sr,
+        "runs": runs,
+        "inns": inns,
+        "hundreds": hundreds,
+        "fifties": fifties,
+        **{f"attr_{k}": v for k, v in attrs.items() if v is not None},
+    }
+
+
+def score_bowling_window(
+    *,
+    fmt: str,
+    inns: float,
+    wickets: float,
+    runs: float,
+    balls: float,
+) -> dict[str, float] | None:
+    """Turn one format's decay-weighted bowling pile into a 40–99 rating."""
+    if fmt not in FORMATS:
+        return None
+    if inns < MIN_BOWL_INNS[fmt]:
+        return None
+    if wickets < MIN_BOWL_WKTS[fmt] and balls < MIN_BOWL_BALLS[fmt]:
+        return None
+    if wickets < 6:
+        return None
+    avg = runs / wickets
+    sr = balls / wickets
+    econ = (6.0 * runs / balls) if balls >= 30 else None
+    attrs = {
+        "avg": piecewise(avg, BOWL_AVG[fmt], invert=True),
+        "sr": piecewise(sr, BOWL_SR[fmt], invert=True),
+        "econ": piecewise(econ, BOWL_ECON[fmt], invert=True) if econ is not None else None,
+        "wkts": piecewise(wickets, BOWL_WKTS[fmt]),
+    }
+    weights = BOWL_WEIGHTS[fmt]
+    used = {k: v for k, v in attrs.items() if v is not None}
+    wsum = sum(weights[k] for k in used)
+    if wsum <= 0:
+        return None
+    raw = sum(used[k] * weights[k] for k in used) / wsum
+    rating = shrink(raw, inns)
+    return {
+        "rating": rating,
+        "avg": avg,
+        "sr": sr,
+        "econ": econ,
+        "wickets": wickets,
+        "inns": inns,
+        "balls": balls,
+        **{f"attr_{k}": v for k, v in attrs.items() if v is not None},
+    }
+
+
+def blend_formats(parts: dict[str, float], inns: dict[str, float]) -> float | None:
+    """Volume-weighted blend of format ratings. Tests carry a small prestige tilt."""
+    num = 0.0
+    den = 0.0
+    for fmt, rating in parts.items():
+        if rating is None or fmt not in FORMATS:
+            continue
+        w = max(float(inns.get(fmt) or 0.0), 0.0) * PRESTIGE[fmt]
+        if w < BLEND_INNS * PRESTIGE[fmt] and w < BLEND_INNS:
+            continue
+        num += rating * w
+        den += w
+    if den <= 0:
+        return None
+    return num / den
+
+
+def player_overall(bat: float | None, bowl: float | None) -> tuple[float | None, str | None]:
+    """Primary overall. A genuine two-way player gets a small bump, never a free 99."""
+    if bat is None and bowl is None:
+        return None, None
+    if bat is None:
+        return bowl, "bowl"
+    if bowl is None:
+        return bat, "bat"
+    primary = "bowl" if bowl >= bat else "bat"
+    overall = max(bat, bowl)
+    lesser = min(bat, bowl)
+    if lesser >= 75:
+        overall = min(98.4, overall + 1.0)
+    if lesser >= 82:
+        overall = min(98.4, overall + 1.0)
+    return overall, primary
+
+
+def apply_nines(rows: list[dict], *, max_nines: int = MAX_NINES, threshold: float = NINE_THRESHOLD) -> list[dict]:
+    """At most five 99s per gender. Batters and bowlers share that club."""
+    by_gender: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        by_gender[row.get("gender") or ""].append(row)
+    for group in by_gender.values():
+        eligible = [
+            r
+            for r in group
+            if r.get("active") and r.get("raw_overall") is not None and r["raw_overall"] >= threshold
+        ]
+        eligible.sort(
+            key=lambda r: (
+                -float(r["raw_overall"]),
+                -float(r.get("bat") or 0),
+                -float(r.get("bowl") or 0),
+                r.get("person_id") or "",
+            )
+        )
+        winners = {id(r) for r in eligible[:max_nines]}
+        for row in group:
+            raw = row.get("raw_overall")
+            if raw is None:
+                continue
+            if id(row) in winners:
+                row["overall"] = 99
+                row["is_99"] = True
+            else:
+                row["overall"] = int(max(40, min(98, round(raw))))
+                row["is_99"] = False
+    return rows
+
+
+def _decay_weight(days: np.ndarray, half_life: np.ndarray) -> np.ndarray:
+    return np.exp(-LN2 * days / np.maximum(half_life, 1.0))
+
+
+def _prepare_lines(df: pd.DataFrame, kind: str) -> pd.DataFrame:
+    out = df.copy()
+    out["date"] = pd.to_datetime(out["start_date"], errors="coerce")
+    out = out[out["date"].notna() & out["competition"].isin(FORMATS)]
+    out = out[out["gender"].isin(["male", "female"])]
+    out["half_life"] = out["competition"].map(HALF_LIFE).astype(float)
+    out["window"] = out["competition"].map(WINDOW).astype(float)
+    if kind == "bat":
+        out["runs"] = pd.to_numeric(out["runs"], errors="coerce").fillna(0.0)
+        out["balls"] = pd.to_numeric(out["balls"], errors="coerce").fillna(0.0)
+        out["not_out"] = out["not_out"].fillna(False).astype(bool)
+        out["outs"] = np.where(out["not_out"], 0.0, 1.0)
+        out["hundreds"] = np.where(out["runs"] >= 100, 1.0, 0.0)
+        out["fifties"] = np.where((out["runs"] >= 50) & (out["runs"] < 100), 1.0, 0.0)
+        out["inns"] = 1.0
+    else:
+        out["runs"] = pd.to_numeric(out["runs"], errors="coerce").fillna(0.0)
+        out["legal_balls"] = pd.to_numeric(out["legal_balls"], errors="coerce").fillna(0.0)
+        out["wickets"] = pd.to_numeric(out["wickets"], errors="coerce").fillna(0.0)
+        out["inns"] = 1.0
+    return out.reset_index(drop=True)
+
+
+def _slice_as_of(df: pd.DataFrame, as_of: pd.Timestamp) -> pd.DataFrame:
+    """Rows dated on or before as_of and inside the longest format window."""
+    if df.empty:
+        return df
+    dates = df["date"]
+    hi = int(dates.searchsorted(as_of, side="right"))
+    lo = int(dates.searchsorted(as_of - pd.Timedelta(days=730), side="left"))
+    sub = df.iloc[lo:hi]
+    if sub.empty:
+        return sub
+    days = (as_of - sub["date"]).dt.days
+    return sub.loc[(days >= 0) & (days <= sub["window"])]
+
+
+def _weighted_bat(df: pd.DataFrame, as_of: pd.Timestamp) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    sub = _slice_as_of(df, as_of)
+    if sub.empty:
+        return pd.DataFrame()
+    days = (as_of - sub["date"]).dt.days.to_numpy(dtype=float)
+    w = _decay_weight(days, sub["half_life"].to_numpy(dtype=float))
+    keyed = sub.assign(
+        w=w,
+        w_inns=sub["inns"].to_numpy(dtype=float) * w,
+        w_runs=sub["runs"].to_numpy(dtype=float) * w,
+        w_outs=sub["outs"].to_numpy(dtype=float) * w,
+        w_balls=sub["balls"].to_numpy(dtype=float) * w,
+        w_hundreds=sub["hundreds"].to_numpy(dtype=float) * w,
+        w_fifties=sub["fifties"].to_numpy(dtype=float) * w,
+    )
+    return keyed.groupby(["person_id", "gender", "competition"], sort=False, as_index=False).agg(
+        inns=("w_inns", "sum"),
+        runs=("w_runs", "sum"),
+        outs=("w_outs", "sum"),
+        balls=("w_balls", "sum"),
+        hundreds=("w_hundreds", "sum"),
+        fifties=("w_fifties", "sum"),
+        last_date=("date", "max"),
+    )
+
+
+def _weighted_bowl(df: pd.DataFrame, as_of: pd.Timestamp) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    sub = _slice_as_of(df, as_of)
+    if sub.empty:
+        return pd.DataFrame()
+    days = (as_of - sub["date"]).dt.days.to_numpy(dtype=float)
+    w = _decay_weight(days, sub["half_life"].to_numpy(dtype=float))
+    keyed = sub.assign(
+        w=w,
+        w_inns=sub["inns"].to_numpy(dtype=float) * w,
+        w_wkts=sub["wickets"].to_numpy(dtype=float) * w,
+        w_runs=sub["runs"].to_numpy(dtype=float) * w,
+        w_balls=sub["legal_balls"].to_numpy(dtype=float) * w,
+    )
+    return keyed.groupby(["person_id", "gender", "competition"], sort=False, as_index=False).agg(
+        inns=("w_inns", "sum"),
+        wickets=("w_wkts", "sum"),
+        runs=("w_runs", "sum"),
+        balls=("w_balls", "sum"),
+        last_date=("date", "max"),
+    )
+
+
+def score_snapshot(bat: pd.DataFrame, bowl: pd.DataFrame, as_of) -> list[dict]:
+    """Score every qualified player as of one date. `bat`/`bowl` are raw innings frames."""
+    as_of_ts = pd.Timestamp(as_of)
+    if not bat.empty and not bat["date"].is_monotonic_increasing:
+        bat = bat.sort_values("date")
+    if not bowl.empty and not bowl["date"].is_monotonic_increasing:
+        bowl = bowl.sort_values("date")
+    bat_w = _weighted_bat(bat, as_of_ts)
+    bowl_w = _weighted_bowl(bowl, as_of_ts)
+    players: dict[tuple[str, str], dict] = {}
+
+    def slot(pid: str, gender: str) -> dict:
+        key = (pid, gender)
+        rec = players.get(key)
+        if rec is None:
+            rec = {
+                "person_id": pid,
+                "gender": gender,
+                "as_of": as_of_ts.date().isoformat(),
+                "bat_parts": {},
+                "bowl_parts": {},
+                "bat_inns": {},
+                "bowl_inns": {},
+                "last_date": None,
+                "runs": 0.0,
+                "wickets": 0.0,
+                "bat_n": 0.0,
+                "bowl_n": 0.0,
+            }
+            players[key] = rec
+        return rec
+
+    for row in bat_w.itertuples(index=False):
+        scored = score_batting_window(
+            fmt=row.competition,
+            inns=float(row.inns),
+            runs=float(row.runs),
+            outs=float(row.outs),
+            balls=float(row.balls),
+            hundreds=float(row.hundreds),
+            fifties=float(row.fifties),
+        )
+        if not scored:
+            continue
+        last = pd.Timestamp(row.last_date)
+        if (as_of_ts - last).days > FRESH[row.competition]:
+            continue
+        rec = slot(row.person_id, row.gender)
+        rec["bat_parts"][row.competition] = scored["rating"]
+        rec["bat_inns"][row.competition] = scored["inns"]
+        rec["runs"] += float(row.runs)
+        rec["bat_n"] += scored["inns"]
+        if rec["last_date"] is None or last > rec["last_date"]:
+            rec["last_date"] = last
+
+    for row in bowl_w.itertuples(index=False):
+        scored = score_bowling_window(
+            fmt=row.competition,
+            inns=float(row.inns),
+            wickets=float(row.wickets),
+            runs=float(row.runs),
+            balls=float(row.balls),
+        )
+        if not scored:
+            continue
+        last = pd.Timestamp(row.last_date)
+        if (as_of_ts - last).days > FRESH[row.competition]:
+            continue
+        rec = slot(row.person_id, row.gender)
+        rec["bowl_parts"][row.competition] = scored["rating"]
+        rec["bowl_inns"][row.competition] = scored["inns"]
+        rec["wickets"] += float(row.wickets)
+        rec["bowl_n"] += scored["inns"]
+        if rec["last_date"] is None or last > rec["last_date"]:
+            rec["last_date"] = last
+
+    out = []
+    for rec in players.values():
+        bat_r = blend_formats(rec["bat_parts"], rec["bat_inns"])
+        bowl_r = blend_formats(rec["bowl_parts"], rec["bowl_inns"])
+        raw, primary = player_overall(bat_r, bowl_r)
+        if raw is None or primary is None:
+            continue
+        last = rec["last_date"]
+        active = last is not None and (as_of_ts - last).days <= ACTIVE_DAYS
+        out.append(
+            {
+                "as_of": rec["as_of"],
+                "person_id": rec["person_id"],
+                "gender": rec["gender"],
+                "raw_overall": float(raw),
+                "bat": None if bat_r is None else float(bat_r),
+                "bowl": None if bowl_r is None else float(bowl_r),
+                "bat_test": rec["bat_parts"].get("test"),
+                "bat_odi": rec["bat_parts"].get("odi"),
+                "bat_t20i": rec["bat_parts"].get("t20i"),
+                "bowl_test": rec["bowl_parts"].get("test"),
+                "bowl_odi": rec["bowl_parts"].get("odi"),
+                "bowl_t20i": rec["bowl_parts"].get("t20i"),
+                "primary": primary,
+                "active": bool(active),
+                "bat_inns": float(rec["bat_n"]),
+                "bowl_inns": float(rec["bowl_n"]),
+                "runs": float(rec["runs"]),
+                "wickets": float(rec["wickets"]),
+                "form_version": FORM_VERSION,
+            }
+        )
+    return apply_nines(out)
+
+
+def _month_ends(dates: pd.Series) -> list[pd.Timestamp]:
+    periods = dates.dropna().dt.to_period("M").unique()
+    return sorted(pd.Period(p, freq="M").to_timestamp(how="end").normalize() for p in periods)
+
+
+def _full_member_mask(df: pd.DataFrame) -> pd.Series:
+    out = pd.Series(False, index=df.index)
+    for gender, teams in FORM_TEAMS.items():
+        allowed = set(teams)
+        part = df["gender"] == gender
+        out.loc[part] = df.loc[part, "team_home"].isin(allowed) & df.loc[part, "team_away"].isin(allowed)
+    return out
+
+
+def _load_lines(con) -> tuple[pd.DataFrame, pd.DataFrame]:
+    bat = con.execute(
+        """
+        SELECT b.person_id, b.runs, b.balls, b.not_out,
+               m.start_date, m.competition, m.gender, m.team_home, m.team_away
+        FROM batting_lines b
+        JOIN matches m ON m.match_id = b.match_id
+        WHERE b.innings_kind = 'regular'
+          AND m.competition IN ('test', 'odi', 't20i')
+        """
+    ).fetchdf()
+    bowl = con.execute(
+        """
+        SELECT bl.person_id, bl.runs, bl.legal_balls, bl.wickets,
+               m.start_date, m.competition, m.gender, m.team_home, m.team_away
+        FROM bowling_lines bl
+        JOIN matches m ON m.match_id = bl.match_id
+        WHERE bl.innings_kind = 'regular'
+          AND m.competition IN ('test', 'odi', 't20i')
+        """
+    ).fetchdf()
+    bat = _prepare_lines(bat, "bat")
+    bowl = _prepare_lines(bowl, "bowl")
+    if not bat.empty:
+        bat = bat.loc[_full_member_mask(bat)].reset_index(drop=True)
+    if not bowl.empty:
+        bowl = bowl.loc[_full_member_mask(bowl)].reset_index(drop=True)
+    return bat, bowl
+
+
+def rebuild_form(*, step_months: int = 1) -> dict[str, Any]:
+    """Walk month-ends that had international cricket and write form_ratings."""
+    if not warehouse_ready():
+        raise RuntimeError("Warehouse not built yet.")
+    con = connect()
+    try:
+        bat, bowl = _load_lines(con)
+    finally:
+        con.close()
+    if bat.empty and bowl.empty:
+        write_parquet("form_ratings", [])
+        return {"rows": 0, "snapshots": 0, "version": FORM_VERSION}
+
+    bat = bat.sort_values("date").reset_index(drop=True)
+    bowl = bowl.sort_values("date").reset_index(drop=True)
+    dates = pd.concat([bat["date"], bowl["date"]], ignore_index=True)
+    stamps = _month_ends(dates)
+    if step_months > 1:
+        stamps = stamps[::step_months]
+        if stamps and stamps[-1] != _month_ends(dates)[-1]:
+            stamps.append(_month_ends(dates)[-1])
+
+    rows: list[dict] = []
+    print(f"Form ratings — {len(stamps)} month-end snapshots", flush=True)
+    for i, as_of in enumerate(stamps, start=1):
+        rows.extend(score_snapshot(bat, bowl, as_of))
+        if i % 50 == 0 or i == len(stamps):
+            print(f"  scored {i}/{len(stamps)}  rows={len(rows):,}", flush=True)
+
+    packed = _pack_rows(rows)
+    write_parquet("form_ratings", packed)
+    meta = {
+        "form_version": FORM_VERSION,
+        "built_at": datetime.now(timezone.utc).isoformat(),
+        "snapshots": len(stamps),
+        "rows": len(packed),
+        "max_nines": MAX_NINES,
+        "formats": list(FORMATS),
+    }
+    (WAREHOUSE / "form_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    print(f"Form ratings written: {len(packed):,} rows", flush=True)
+    return meta
+
+
+def _pack_rows(rows: list[dict]) -> list[dict]:
+    packed = []
+    for r in rows:
+        packed.append(
+            {
+                "as_of": r["as_of"],
+                "person_id": r["person_id"],
+                "gender": r["gender"],
+                "overall": int(r["overall"]),
+                "bat": None if r.get("bat") is None else int(round(r["bat"])),
+                "bowl": None if r.get("bowl") is None else int(round(r["bowl"])),
+                "bat_test": _maybe_int(r.get("bat_test")),
+                "bat_odi": _maybe_int(r.get("bat_odi")),
+                "bat_t20i": _maybe_int(r.get("bat_t20i")),
+                "bowl_test": _maybe_int(r.get("bowl_test")),
+                "bowl_odi": _maybe_int(r.get("bowl_odi")),
+                "bowl_t20i": _maybe_int(r.get("bowl_t20i")),
+                "primary": r.get("primary"),
+                "is_99": bool(r.get("is_99")),
+                "raw_overall": None if r.get("raw_overall") is None else round(float(r["raw_overall"]), 3),
+                "active": bool(r.get("active")),
+                "bat_inns": None if r.get("bat_inns") is None else round(float(r["bat_inns"]), 2),
+                "bowl_inns": None if r.get("bowl_inns") is None else round(float(r["bowl_inns"]), 2),
+                "runs": None if r.get("runs") is None else round(float(r["runs"]), 1),
+                "wickets": None if r.get("wickets") is None else round(float(r["wickets"]), 1),
+                "form_version": FORM_VERSION,
+            }
+        )
+    return packed
+
+
+def _maybe_int(value) -> int | None:
+    if value is None or (isinstance(value, float) and not np.isfinite(value)):
+        return None
+    return int(round(value))
+
+
+def form_ready() -> bool:
+    return (WAREHOUSE / "form_ratings.parquet").exists()
+
+
+def player_form(person_id: str) -> dict[str, Any] | None:
+    if not form_ready():
+        return None
+    con = connect()
+    try:
+        recs = con.execute(
+            """
+            SELECT f.*, p.display_name, p.slug, p.unique_name
+            FROM form_ratings f
+            JOIN people p ON p.person_id = f.person_id
+            WHERE f.person_id = ?
+            ORDER BY f.as_of
+            """,
+            [person_id],
+        ).fetchdf()
+        if recs is None or recs.empty:
+            return None
+        rows = _records(recs)
+        current = rows[-1]
+        peak = max(rows, key=lambda r: (int(r.get("overall") or 0), r.get("as_of") or ""))
+        as_of = current["as_of"]
+        gender = current.get("gender")
+        rank = None
+        n99 = 0
+        field = 0
+        if gender:
+            board = con.execute(
+                """
+                SELECT person_id, overall, is_99
+                FROM form_ratings
+                WHERE as_of = ? AND gender = ?
+                ORDER BY overall DESC, raw_overall DESC
+                """,
+                [as_of, gender],
+            ).fetchdf()
+            if board is not None and not board.empty:
+                field = int(len(board))
+                n99 = int(board["is_99"].sum()) if "is_99" in board else int((board["overall"] == 99).sum())
+                ids = list(board["person_id"])
+                if person_id in ids:
+                    rank = ids.index(person_id) + 1
+        return {
+            "current": current,
+            "peak": {"overall": peak.get("overall"), "as_of": peak.get("as_of")},
+            "series": [
+                {
+                    "as_of": r["as_of"],
+                    "overall": r.get("overall"),
+                    "bat": r.get("bat"),
+                    "bowl": r.get("bowl"),
+                    "is_99": bool(r.get("is_99")),
+                }
+                for r in rows
+            ],
+            "rank": rank,
+            "field": field,
+            "n99": n99,
+            "caption": _caption(current, rank, field, n99),
+            "version": FORM_VERSION,
+        }
+    finally:
+        con.close()
+
+
+def latest_board(*, gender: str | None = "male", limit: int = 80) -> dict[str, Any]:
+    if not form_ready():
+        return {
+            "rows": [],
+            "scope": "Form ratings not built yet. Run: python -m cricwarehouse rebuild-form",
+            "metric": "overall",
+            "as_of": None,
+        }
+    gender = gender if gender in {"male", "female"} else "male"
+    con = connect()
+    try:
+        as_of = con.execute(
+            "SELECT MAX(as_of) FROM form_ratings WHERE gender = ?", [gender]
+        ).fetchone()[0]
+        if not as_of:
+            return {"rows": [], "scope": "No form snapshots", "metric": "overall", "as_of": None}
+        recs = con.execute(
+            """
+            SELECT f.*, p.display_name, p.slug, p.unique_name
+            FROM form_ratings f
+            JOIN people p ON p.person_id = f.person_id
+            WHERE f.as_of = ? AND f.gender = ?
+            ORDER BY f.overall DESC, f.raw_overall DESC, p.display_name
+            LIMIT ?
+            """,
+            [as_of, gender, max(int(limit), 5)],
+        ).fetchdf()
+        rows = _records(recs)
+        for i, row in enumerate(rows, start=1):
+            row["rank"] = i
+            row["player"] = row.get("display_name")
+        n99 = sum(1 for r in rows if r.get("is_99") or r.get("overall") == 99)
+        return {
+            "rows": rows,
+            "as_of": as_of,
+            "metric": "overall",
+            "n99": n99,
+            "scope": (
+                f"{GENDER_LABEL.get(gender, gender)} · Test + ODI + T20I form "
+                f"as of {_fmt_as_of(as_of)} · {n99} on 99"
+            ),
+        }
+    finally:
+        con.close()
+
+
+def _caption(current: dict, rank: int | None, field: int, n99: int) -> str:
+    bits = [
+        "Recent Test, ODI and T20I counting stats against full-member sides — not a percentile, not T20 WAR.",
+        "At most five 99s at once, batters and bowlers together.",
+    ]
+    if rank and field:
+        bits.append(f"#{rank} of {field} qualified {current.get('gender') or 'players'} on {_fmt_as_of(current.get('as_of'))}.")
+    if current.get("is_99") or current.get("overall") == 99:
+        bits.append("One of the 99s.")
+    elif n99:
+        bits.append(f"{n99} players on 99 right now.")
+    return " ".join(bits)
+
+
+def _fmt_as_of(iso: str | None) -> str:
+    if not iso:
+        return "—"
+    try:
+        d = date.fromisoformat(str(iso)[:10])
+        return f"{d.day} {d.strftime('%b %Y')}"
+    except ValueError:
+        return str(iso)[:10]
+
+
+def _records(df: pd.DataFrame) -> list[dict]:
+    if df is None or df.empty:
+        return []
+    rows = []
+    for raw in df.to_dict("records"):
+        item = {}
+        for k, v in raw.items():
+            if hasattr(v, "item"):
+                try:
+                    v = v.item()
+                except Exception:
+                    v = None
+            if isinstance(v, float) and v != v:
+                v = None
+            if isinstance(v, (pd.Timestamp, datetime)):
+                v = v.date().isoformat()
+            item[k] = v
+        rows.append(item)
+    return rows

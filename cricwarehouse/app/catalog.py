@@ -14,7 +14,8 @@ from cricwarehouse.teams import (
     wtc_params,
 )
 from cricwarehouse.app.db import connect, warehouse_ready
-from cricwarehouse.app.query import _people_match
+from cricwarehouse.app.query import _people_match, pick_person, resolve_team
+from cricwarehouse.app.search import search_people, search_teams
 
 BOWL_CREDITED = (
     "bowled",
@@ -30,35 +31,36 @@ def search(q: str) -> dict[str, Any]:
     q = (q or "").strip()
     if not warehouse_ready() or len(q) < 1:
         return {"people": [], "teams": [], "destinations": _destinations(q)}
-    con = connect()
-    try:
-        people = _people_match(con, q)
-        teams = [
-            {"team": r[0]}
-            for r in con.execute(
-                """
-                SELECT DISTINCT team FROM (
-                  SELECT team_home AS team FROM matches
-                  UNION
-                  SELECT team_away AS team FROM matches
-                )
-                WHERE lower(team) LIKE ?
-                ORDER BY team
-                LIMIT 8
-                """,
-                [f"%{q.lower()}%"],
-            ).fetchall()
-        ]
-        return {"people": people, "teams": teams, "destinations": _destinations(q)}
-    finally:
-        con.close()
+    from cricwarehouse.app.query import parse_query
+
+    parsed = parse_query(q)
+    needle = parsed.tokens.get("player") or q
+    people = search_people(needle)
+    side = (
+        parsed.tokens.get("opposition")
+        or parsed.tokens.get("side")
+        or parsed.tokens.get("home")
+        or parsed.tokens.get("team")
+        or ""
+    )
+    teams = search_teams(side or q.split()[-1])
+    return {
+        "people": people,
+        "teams": teams,
+        "destinations": _destinations(q),
+        "parsed": {
+            "tokens": parsed.tokens,
+            "mode": parsed.mode,
+            "heuristic": parsed.heuristic,
+        },
+    }
 
 
 def _destinations(q: str) -> list[dict]:
     dest = [
         {"id": "stats", "label": "Stats table", "hint": "Master batting and bowling, with percentiles and WAR"},
         {"id": "records", "label": "Record book", "hint": "Highest scores, best bowling, biggest stands, fastest hundreds"},
-        {"id": "rankings", "label": "Rankings", "hint": "One leaderboard at a time"},
+        {"id": "rankings", "label": "Rankings", "hint": "One leaderboard at a time, including form overalls"},
         {"id": "standings", "label": "Standings", "hint": "League points tables and playoffs"},
         {"id": "grounds", "label": "Grounds", "hint": "Venue records and whether the chase is on"},
         {"id": "wowy", "label": "WOWY", "hint": "With or without a player"},
@@ -70,7 +72,7 @@ def _destinations(q: str) -> list[dict]:
     ]
     ql = q.lower()
     if ql:
-        dest = [d for d in dest if ql in d["id"] or ql in d["label"].lower() or ql in d["hint"].lower()] or dest
+        dest = [d for d in dest if ql in d["id"] or ql in d["label"].lower() or ql in d["hint"].lower()]
     return dest
 
 
@@ -312,6 +314,9 @@ def master_stats(
 
 
 def rankings(*, metric: str = "runs", comp: str | None = None, gender: str | None = None, min_inns: int = 5) -> dict:
+    if metric == "overall":
+        from cricwarehouse.app.form import latest_board
+        return latest_board(gender=gender, limit=200)
     if metric == "war":
         return _war_rankings(comp=comp, gender=gender)
     data = master_stats(comp=comp, gender=gender, min_inns=min_inns, role="all", sort=metric)
@@ -361,7 +366,7 @@ def _war_rankings(*, comp: str | None, gender: str | None) -> dict:
             r["avg"] = None
             r["wickets"] = None
             r["bowl_avg"] = None
-            r["econ"] = r.get("war")
+            r["econ"] = None
         return {
             "rows": _jsonable(rows),
             "scope": _scope(comp, gender, len(rows)) + " · T20 WAR",
@@ -379,7 +384,7 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
         people = _people_match(con, player)
         if not people:
             return {"ok": True, "kind": "empty", "message": f"No player match for {player}.", "rows": []}
-        needle = player.strip().lower()
+        needle = re.sub(r"[-_]+", " ", player.strip().lower()).strip()
         slug = re.sub(r"[^a-z0-9]+", "-", needle).strip("-")
         exact = [
             p
@@ -387,10 +392,10 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
             if p["slug"] == slug
             or (p.get("unique_name") or "").lower() == needle
             or (p.get("person_id") or "").lower() == needle
+            or p["slug"] == player.strip().lower()
         ]
-        top, nxt = people[0], people[1] if len(people) > 1 else None
-        clear_lead = int(top.get("apps") or 0) >= 15 and int(top.get("apps") or 0) >= 3 * max(int((nxt or {}).get("apps") or 0), 1)
-        if len(people) > 1 and not exact and not clear_lead:
+        person = exact[0] if exact else pick_person(people, player)
+        if not person:
             return {
                 "ok": True,
                 "kind": "pick_player",
@@ -398,10 +403,12 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
                 "rows": [],
                 "message": f"{len(people)} players match “{player}”. Pick one.",
             }
-        person = exact[0] if exact else people[0]
         pid = person["person_id"]
-        where = ["(m.team_home ILIKE ? OR m.team_away ILIKE ?)"]
-        params: list[Any] = [f"%{team}%", f"%{team}%"]
+        side = resolve_team(con, team)
+        if not side:
+            return {"ok": True, "kind": "empty", "message": f"No side matching {team}.", "rows": []}
+        where = ["(m.team_home = ? OR m.team_away = ?)"]
+        params: list[Any] = [side, side]
         if comp:
             where.append("m.competition = ?")
             params.append(comp)
@@ -413,10 +420,10 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
             SELECT MIN(m.start_date)
             FROM matches m
             JOIN xi x ON x.match_id = m.match_id
-            WHERE x.person_id = ? AND x.team ILIKE ?
+            WHERE x.person_id = ? AND x.team = ?
               AND {' AND '.join(where)}
             """,
-            [pid, f"%{team}%"] + params,
+            [pid, side] + params,
         ).fetchone()[0]
         if first:
             where.append("m.start_date >= ?")
@@ -427,18 +434,18 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
                    EXISTS (
                      SELECT 1 FROM xi x
                      WHERE x.match_id = m.match_id AND x.person_id = ?
-                       AND x.team ILIKE ?
+                       AND x.team = ?
                    ) AS present
             FROM matches m
             WHERE {' AND '.join(where)}
             """,
-            [pid, f"%{team}%"] + params,
+            [pid, side] + params,
         ).fetchall()
 
         def pack(group, label):
             ids = [r[0] for r in group]
             n = len(ids)
-            wins = sum(1 for r in group if r[4] and team.lower() in str(r[4]).lower())
+            wins = sum(1 for r in group if r[4] == side)
             if not ids:
                 return {
                     "split": label, "matches": 0, "wins": 0, "win_pct": None,
@@ -448,13 +455,13 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
             rf, ra, wk = con.execute(
                 f"""
                 SELECT
-                  SUM(CASE WHEN i.batting_team ILIKE ? THEN i.runs ELSE 0 END),
-                  SUM(CASE WHEN i.bowling_team ILIKE ? THEN i.runs ELSE 0 END),
-                  SUM(CASE WHEN i.bowling_team ILIKE ? THEN i.wickets ELSE 0 END)
+                  SUM(CASE WHEN i.batting_team = ? THEN i.runs ELSE 0 END),
+                  SUM(CASE WHEN i.bowling_team = ? THEN i.runs ELSE 0 END),
+                  SUM(CASE WHEN i.bowling_team = ? THEN i.wickets ELSE 0 END)
                 FROM innings i
                 WHERE i.match_id IN ({placeholders}) AND i.innings_kind = 'regular'
                 """,
-                [f"%{team}%", f"%{team}%", f"%{team}%"] + ids,
+                [side, side, side] + ids,
             ).fetchone()
             return {
                 "split": label,
@@ -476,13 +483,13 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
             "ok": True,
             "kind": "wowy",
             "person": person,
-            "team": team,
+            "team": side,
             "people": people,
             "rows": rows,
-            "scope": f"{team} · {person['display_name']} · from {first[:10] if first else '—'} · in this warehouse",
+            "scope": f"{side} · {person['display_name']} · from {first[:10] if first else '—'} · in this warehouse",
             "available_from": first,
             "caption": (
-                f"Only matches on or after {person['display_name']}'s first XI for {team}"
+                f"Only matches on or after {person['display_name']}'s first XI for {side}"
                 + (f" ({first[:10]})" if first else "")
                 + ". Small samples stay noisy — this is a split, not RAPM."
             ),
@@ -1608,7 +1615,7 @@ def player_almanac(con, person_id: str) -> dict[str, Any]:
     bowl_years = rows(
         """
         SELECT CAST(substr(m.start_date, 1, 4) AS INTEGER) AS year,
-               SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
+               COUNT(*) AS inns, SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
                SUM(bl.legal_balls) AS legal_balls
         FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
         WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
@@ -1619,7 +1626,10 @@ def player_almanac(con, person_id: str) -> dict[str, Any]:
     )
     for r in bowl_years:
         balls = r.get("legal_balls") or 0
+        wk = r.get("wickets") or 0
         r["econ"] = round(r["runs"] * 6 / balls, 2) if balls and r.get("runs") is not None else None
+        r["avg"] = round(r["runs"] / wk, 1) if wk and r.get("runs") is not None else None
+        r["sr"] = round(balls / wk, 1) if wk else None
 
     ha = rows(
         """
@@ -1799,6 +1809,136 @@ def player_almanac(con, person_id: str) -> dict[str, Any]:
         [person_id],
     )
 
+    last_bowl = rows(
+        """
+        SELECT bl.wickets, bl.runs, bl.legal_balls, bl.maidens, m.start_date, m.match_id,
+               CASE WHEN bl.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+               m.competition
+        FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
+        WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
+        ORDER BY m.start_date DESC
+        LIMIT 10
+        """,
+        [person_id],
+    )
+
+    hauls = one(
+        """
+        SELECT COUNT(*) AS inns,
+               SUM(wickets) AS wickets,
+               SUM(runs) AS runs,
+               SUM(legal_balls) AS legal_balls,
+               SUM(maidens) AS maidens,
+               SUM(CASE WHEN wickets >= 5 THEN 1 ELSE 0 END) AS five_fors,
+               SUM(CASE WHEN wickets = 4 THEN 1 ELSE 0 END) AS four_fors,
+               SUM(CASE WHEN wickets = 3 THEN 1 ELSE 0 END) AS three_fors
+        FROM bowling_lines
+        WHERE person_id = ? AND innings_kind = 'regular'
+        """,
+        [person_id],
+    ) or {}
+    wk = int(hauls.get("wickets") or 0)
+    legal = int(hauls.get("legal_balls") or 0)
+    conceded = int(hauls.get("runs") or 0)
+    hauls["avg"] = round(conceded / wk, 1) if wk else None
+    hauls["econ"] = round(conceded * 6 / legal, 2) if legal else None
+    hauls["sr"] = round(legal / wk, 1) if wk else None
+
+    bowl_vs = rows(
+        """
+        SELECT CASE WHEN bl.team = m.team_home THEN m.team_away ELSE m.team_home END AS opposition,
+               COUNT(*) AS inns, SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
+               SUM(bl.legal_balls) AS legal_balls
+        FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
+        WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
+        GROUP BY 1
+        ORDER BY SUM(bl.wickets) DESC
+        LIMIT 8
+        """,
+        [person_id],
+    )
+    for r in bowl_vs:
+        w = r.get("wickets") or 0
+        balls = r.get("legal_balls") or 0
+        r["avg"] = round(r["runs"] / w, 1) if w and r.get("runs") is not None else None
+        r["econ"] = round(r["runs"] * 6 / balls, 2) if balls and r.get("runs") is not None else None
+
+    bowl_venues = rows(
+        """
+        SELECT m.venue, COUNT(*) AS inns, SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
+               SUM(bl.legal_balls) AS legal_balls
+        FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
+        WHERE bl.person_id = ? AND bl.innings_kind = 'regular' AND m.venue IS NOT NULL
+        GROUP BY 1
+        ORDER BY SUM(bl.wickets) DESC
+        LIMIT 6
+        """,
+        [person_id],
+    )
+    for r in bowl_venues:
+        w = r.get("wickets") or 0
+        balls = r.get("legal_balls") or 0
+        r["avg"] = round(r["runs"] / w, 1) if w and r.get("runs") is not None else None
+        r["econ"] = round(r["runs"] * 6 / balls, 2) if balls and r.get("runs") is not None else None
+
+    bowl_ha = rows(
+        """
+        SELECT CASE WHEN bl.team = m.team_home THEN 'Home' ELSE 'Away' END AS split,
+               COUNT(*) AS inns, SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
+               SUM(bl.legal_balls) AS legal_balls
+        FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
+        WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
+        GROUP BY 1
+        """,
+        [person_id],
+    )
+    for r in bowl_ha:
+        w = r.get("wickets") or 0
+        balls = r.get("legal_balls") or 0
+        r["avg"] = round(r["runs"] / w, 1) if w and r.get("runs") is not None else None
+        r["econ"] = round(r["runs"] * 6 / balls, 2) if balls and r.get("runs") is not None else None
+
+    bowl_win_loss = rows(
+        """
+        SELECT CASE
+                 WHEN m.winner = bl.team THEN 'Won'
+                 WHEN m.winner IS NOT NULL THEN 'Lost'
+                 ELSE 'Draw / NR'
+               END AS split,
+               COUNT(*) AS inns, SUM(bl.wickets) AS wickets, SUM(bl.runs) AS runs,
+               SUM(bl.legal_balls) AS legal_balls
+        FROM bowling_lines bl JOIN matches m ON m.match_id = bl.match_id
+        WHERE bl.person_id = ? AND bl.innings_kind = 'regular'
+        GROUP BY 1
+        """,
+        [person_id],
+    )
+    for r in bowl_win_loss:
+        w = r.get("wickets") or 0
+        balls = r.get("legal_balls") or 0
+        r["avg"] = round(r["runs"] / w, 1) if w and r.get("runs") is not None else None
+        r["econ"] = round(r["runs"] * 6 / balls, 2) if balls and r.get("runs") is not None else None
+
+    bowl_kinds_raw = rows(
+        """
+        SELECT COALESCE(NULLIF(d.wicket_kind, ''), 'unknown') AS kind, COUNT(*) AS n
+        FROM deliveries d
+        WHERE d.bowler = ? AND d.innings_kind = 'regular'
+          AND COALESCE(d.d_bowl, 0) > 0
+        GROUP BY 1
+        """,
+        [person_id],
+    )
+    bowl_kind_counts: dict[str, int] = {}
+    for r in bowl_kinds_raw:
+        label = dismissal_group(r.get("kind"))
+        if label == "Not out":
+            continue
+        bowl_kind_counts[label] = bowl_kind_counts.get(label, 0) + int(r.get("n") or 0)
+    bowl_dismissals = [
+        {"label": k, "n": v} for k, v in sorted(bowl_kind_counts.items(), key=lambda x: (-x[1], x[0]))
+    ]
+
     return {
         "dismissals": dismissals,
         "positions": positions,
@@ -1814,6 +1954,13 @@ def player_almanac(con, person_id: str) -> dict[str, Any]:
         "debut": debut,
         "latest": latest,
         "last5": last5,
+        "last_bowl": last_bowl,
+        "hauls": hauls,
+        "bowl_vs": bowl_vs,
+        "bowl_venues": bowl_venues,
+        "bowl_home_away": bowl_ha,
+        "bowl_win_loss": bowl_win_loss,
+        "bowl_dismissals": bowl_dismissals,
         "win_loss": win_loss,
         "phases": phases,
     }

@@ -34,6 +34,7 @@ TABLES = (
     "model_audit",
     "unscored_exposure",
     "chase_distortion",
+    "form_ratings",
 )
 
 # Cricsheet writes the same ground several ways depending on when the file was
@@ -173,6 +174,10 @@ CREATE OR REPLACE VIEW v_match_value_t20 AS
 CREATE OR REPLACE VIEW v_model_audit AS SELECT * FROM model_audit;
 CREATE OR REPLACE VIEW v_unscored_exposure AS SELECT * FROM unscored_exposure;
 CREATE OR REPLACE VIEW v_chase_distortion AS SELECT * FROM chase_distortion;
+CREATE OR REPLACE VIEW v_form_ratings AS
+  SELECT f.*, p.display_name, p.unique_name, p.slug
+  FROM form_ratings f
+  JOIN people p ON p.person_id = f.person_id;
 """
 
 DOCUMENTED_VIEWS = [
@@ -199,6 +204,7 @@ DOCUMENTED_VIEWS = [
     "v_model_audit",
     "v_unscored_exposure",
     "v_chase_distortion",
+    "v_form_ratings",
 ]
 
 
