@@ -1,7 +1,7 @@
-import { highlightHTML, heuristic, upsertToken, trailingScore } from "./querybox.js";
+import { highlightHTML, heuristic, upsertToken, trailingScore, inningsIntent, parseBare } from "./querybox.js";
 import {
   initChrome, setDocTitle, favList, renderFavStar, trayAdd,
-  formBlock, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
+  formBlock, overallBadge, overallBlock, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
   portrait, warmPortraits, ribbon, almanacBlock, mixBars,
   manhattan, progression, performerCards, statCards, recentList, recentPush, ledger,
 } from "./chrome.js";
@@ -21,11 +21,11 @@ const searchToggle = $("search-toggle");
 const searchScrim = $("search-scrim");
 
 const CHIPS = [
-  "kohli",
-  "bumrah",
+  "Sachin Tendulkar New Zealand 94",
   "kohli 89",
+  "India vs New Zealand 1994",
+  "bumrah vs australia 2018",
   "compare:smith,root years:2021-2026",
-  "pair:* comp:ipl",
   "standings comp:ipl year:2025",
 ];
 
@@ -127,25 +127,26 @@ searchToggle?.addEventListener("click", () => {
 searchScrim?.addEventListener("click", closeSearch);
 
 let suggestReq = 0;
-input.addEventListener("input", async () => {
+let suggestTimer = 0;
+input.addEventListener("input", () => {
   syncHighlight();
   const v = input.value;
-  const score = trailingScore(v);
-  if (score) {
-    renderInningsAC(score);
-    return;
+  const intent = inningsIntent(v);
+  if (intent) {
+    renderInningsAC(intent);
   }
+  const parsed = parseBare(v);
+  const needle = parsed.player || v.trim();
   const word = v.split(/\s+/).pop() || "";
-  if (/^\d{1,3}$/.test(word)) {
-    ac.classList.remove("open");
-    return;
-  }
-  if (word.endsWith(":") || word.length >= 2) {
-    const current = ++suggestReq;
-    const s = await fetch(`/api/suggest?q=${encodeURIComponent(word)}`).then((r) => r.json()).catch(() => ({}));
-    if (current !== suggestReq) return;
-    renderAC(s);
-  } else {
+  if (word.endsWith(":") || needle.length >= 2 || parsed.opp || parsed.home) {
+    clearTimeout(suggestTimer);
+    suggestTimer = setTimeout(async () => {
+      const current = ++suggestReq;
+      const s = await fetch(`/api/suggest?q=${encodeURIComponent(v.trim())}`).then((r) => r.json()).catch(() => ({}));
+      if (current !== suggestReq) return;
+      renderAC(s, intent);
+    }, 80);
+  } else if (!intent) {
     ac.classList.remove("open");
   }
 });
@@ -179,9 +180,21 @@ input.addEventListener("keydown", (e) => {
   }
 });
 
-function renderAC(s) {
+function renderAC(s, intent) {
   acItems = [];
   let html = "";
+  const read = s.parsed?.interpretation || s.parsed?.heuristic || "";
+  if (intent) {
+    const vs = intent.opp ? ` vs ${intent.opp}` : "";
+    const year = intent.year ? ` · ${intent.year}` : "";
+    acItems.push({ kind: "innings", name: intent.name, runs: intent.runs });
+    html += `<h4>Innings</h4>
+      <button type="button" data-i="${acItems.length - 1}">Find ${esc(intent.runs)} by ${esc(intent.name)}${esc(vs)}${esc(year)} <span class="hint">Enter</span></button>`;
+  } else if (read && (s.parsed?.tokens?.opposition || s.parsed?.tokens?.side || s.parsed?.tokens?.home || s.parsed?.mode === "matches")) {
+    acItems.push({ kind: "innings", name: s.parsed?.tokens?.player || "", runs: s.parsed?.tokens?.runs || "" });
+    html += `<h4>Search</h4>
+      <button type="button" data-i="${acItems.length - 1}">${esc(read)} <span class="hint">Enter</span></button>`;
+  }
   if (s.people?.length) {
     html += `<h4>People</h4>`;
     s.people.forEach((p) => {
@@ -195,7 +208,7 @@ function renderAC(s) {
     s.teams.forEach((t) => {
       const name = t.team || t;
       acItems.push({ kind: "team", team: name });
-      html += `<button type="button" data-i="${acItems.length - 1}">${esc(name)} <span class="hint">WOWY</span></button>`;
+      html += `<button type="button" data-i="${acItems.length - 1}">${esc(name)} <span class="hint">team</span></button>`;
     });
   }
   if (s.tokens?.length) {
@@ -226,9 +239,11 @@ function renderAC(s) {
 }
 
 function renderInningsAC(score) {
+  const vs = score.opp ? ` vs ${score.opp}` : "";
+  const year = score.year ? ` · ${score.year}` : "";
   acItems = [{ kind: "innings", name: score.name, runs: score.runs }];
   ac.innerHTML = `<h4>Innings</h4>
-    <button type="button" data-i="0">Find ${esc(score.runs)} by ${esc(score.name)} <span class="hint">Enter</span></button>`;
+    <button type="button" data-i="0">Find ${esc(score.runs)} by ${esc(score.name)}${esc(vs)}${esc(year)} <span class="hint">Enter</span></button>`;
   ac.classList.add("open");
   acIndex = 0;
   paintAC();
@@ -251,9 +266,13 @@ function acceptAC(item) {
   }
   if (item.kind === "person") {
     closeSearch();
-    const score = trailingScore(input.value);
-    if (score) {
-      location.hash = `#/q=${encodeURIComponent(`${item.slug} ${score.runs}`)}`;
+    const parsed = parseBare(input.value);
+    if (parsed.runs || parsed.opp || parsed.year || parsed.home) {
+      const bits = [item.slug];
+      if (parsed.opp) bits.push(parsed.opp);
+      if (parsed.year) bits.push(parsed.year);
+      if (parsed.runs) bits.push(parsed.runs);
+      location.hash = `#/q=${encodeURIComponent(bits.join(" "))}`;
       return;
     }
     location.hash = `#/player/${item.slug}`;
@@ -261,6 +280,11 @@ function acceptAC(item) {
   }
   if (item.kind === "team") {
     closeSearch();
+    const parsed = parseBare(input.value);
+    if (parsed.player || parsed.runs || parsed.year || parsed.home) {
+      runQuery();
+      return;
+    }
     location.hash = `#/wowy?team=${encodeURIComponent(item.team)}`;
     return;
   }
@@ -755,9 +779,10 @@ async function showHomeSnapshot() {
   try { tier = localStorage.getItem(PULSE_TIER_KEY) || "top"; } catch { /* blocked */ }
   if (!PULSE_TIERS.some(([id]) => id === tier)) tier = "top";
   main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
-  const [snap, otd] = await Promise.all([
+  const [snap, otd, formBoard] = await Promise.all([
     fetch("/api/snapshot").then((r) => r.json()).catch(() => ({ rows: [] })),
     fetch("/api/onthisday?limit=5").then((r) => r.json()).catch(() => ({ matches: [], innings: [] })),
+    fetch("/api/form?gender=male&limit=8").then((r) => r.json()).catch(() => ({ rows: [] })),
   ]);
   if (gen !== routeGen) return;
   if (!snap.rows?.length) {
@@ -797,18 +822,33 @@ async function showHomeSnapshot() {
         </div>
       </section>`
     : "";
+  const nines = (formBoard.rows || []).filter((r) => r.is_99 || r.overall === 99).slice(0, 5);
+  const nineBlock = nines.length
+    ? `<section class="ovr-club-wrap">
+        <h2 class="section">99 club · ${esc(formBoard.as_of ? String(formBoard.as_of).slice(0, 7) : "now")}</h2>
+        <p class="caption">At most five at once, batters and bowlers together. Test + ODI + T20I form.</p>
+        <div class="ovr-club">${nines.map((r) => `
+          <a href="#/player/${esc(r.slug)}">
+            ${portrait(r.slug, r.display_name, "xs")}
+            <span class="n">99</span>
+            <span><span class="who">${esc(r.display_name)}</span><span class="side">${r.primary === "bowl" ? "Bowl" : "Bat"}${r.bat && r.bowl ? ` · ${r.primary === "bowl" ? r.bowl : r.bat}` : ""}</span></span>
+          </a>`).join("")}</div>
+      </section>`
+    : "";
   main.innerHTML = `
     ${personRail("Pinned", favs)}
     ${personRail("Recently viewed", recent)}
     <nav class="home-jump" aria-label="Browse">
       <a href="#/records">Record book</a>
       <a href="#/stats">Stats table</a>
+      <a href="#/rankings?metric=overall">Form overalls</a>
       <a href="#/rankings">Rankings</a>
       <a href="#/best">Best T20</a>
       <a href="#/standings">Standings</a>
       <a href="#/grounds">Grounds</a>
       <a href="#/compare">Compare two players</a>
     </nav>
+    ${nineBlock}
     <div class="pulse-head">
       <h2 class="section">Latest</h2>
       <div class="fmt-row" id="pulse-tier" role="group" aria-label="Which cricket to show">
@@ -891,6 +931,10 @@ async function showResults(q) {
     location.hash = `#/player/${res.person.slug}`;
     return;
   }
+  if (res.kind === "goto_match" && res.match_id) {
+    location.hash = `#/match/${res.match_id}`;
+    return;
+  }
   if (res.kind === "goto_page" && res.hash) {
     location.hash = `#${res.hash}`;
     return;
@@ -919,7 +963,7 @@ async function showResults(q) {
   }
   main.innerHTML = `
     ${disamb}
-    <p class="scope">${esc(res.scope || "")}${ignored ? ` · <span class="ignored">${esc(ignored)}</span>` : ""}</p>
+    <p class="scope">${esc(res.scope || "")}${res.year_fallback ? ` · read ${esc(res.year_fallback)} as a year` : ""}${ignored ? ` · <span class="ignored">${esc(ignored)}</span>` : ""}</p>
     ${res.kind === "standings" && res.playoffs?.length ? `<h2 class="section">Points table</h2>` : ""}
     ${table(res.columns || [], res.rows || [], { pageIndex: page, total: (res.rows || []).length, query: q, faces: res.kind === "innings", copyLine: res.kind === "innings" })}
     ${res.kind === "standings" && res.playoffs?.length ? playoffBlock(res.playoffs) : ""}
@@ -1511,6 +1555,13 @@ async function showPlayer(key) {
   const bestBat = d.innings.reduce((best, i) => (!best || Number(i.runs || 0) > Number(best.runs || 0) ? i : best), null);
   const bestPair = (d.pairs || [])[0];
   const bestYear = (almanac.years || []).reduce((best, y) => (!best || Number(y.runs || 0) > Number(best.runs || 0) ? y : best), null);
+  const bestBowlYear = (almanac.bowl_years || []).reduce((best, y) => (!best || Number(y.wickets || 0) > Number(best.wickets || 0) ? y : best), null);
+  const topBowlOpp = (almanac.bowl_vs || [])[0];
+  const topBowlGround = (almanac.bowl_venues || [])[0];
+  const hauls = almanac.hauls || {};
+  const allLegal = bowlRows.reduce((s, r) => s + Number(r.legal_balls || 0), 0);
+  const allBowlRuns = bowlRows.reduce((s, r) => s + Number(r.runs || 0), 0);
+  const careerEcon = allLegal ? allBowlRuns * 6 / allLegal : null;
   const heroStats = bowlerFirst
     ? [
         ["Matches", d.span?.matches || totM || "–"],
@@ -1528,7 +1579,41 @@ async function showPlayer(key) {
         ["HS", totHs || "–"],
         ["100s / 50s", `${totHundreds || 0} / ${totFifties || 0}`],
       ];
-  const milestoneCards = statCards([
+  const bestBowlCard = bestBowlInn && Number(bestBowlInn.wickets) > 0 ? {
+    kicker: "Best bowling",
+    value: `${bestBowlInn.wickets}/${bestBowlInn.runs}`,
+    note: `v ${esc(bestBowlInn.opposition || "—")} · ${fmtDate(bestBowlInn.start_date)}`,
+    href: bestBowlInn.match_id ? `#/match/${encodeURIComponent(bestBowlInn.match_id)}` : "",
+    linkLabel: "Scorecard",
+  } : null;
+  const milestoneCards = statCards(bowlerFirst ? [
+    bestBowlCard,
+    bestBowlYear && Number(bestBowlYear.wickets) > 0 ? {
+      kicker: "Best year with the ball",
+      value: Number(bestBowlYear.wickets || 0).toLocaleString(),
+      note: `${bestBowlYear.year} · ${bestBowlYear.inns ?? "–"} inns · ${bestBowlYear.avg ?? "–"} avg · ${bestBowlYear.econ ?? "–"} econ`,
+    } : null,
+    topBowlOpp && Number(topBowlOpp.wickets) > 0 ? {
+      kicker: "Most wickets vs",
+      value: Number(topBowlOpp.wickets || 0).toLocaleString(),
+      note: `${esc(topBowlOpp.opposition)} · ${topBowlOpp.inns} inns at ${topBowlOpp.avg ?? "–"} avg`,
+    } : null,
+    Number(hauls.five_fors) > 0 || Number(hauls.four_fors) > 0 ? {
+      kicker: "Hauls",
+      value: `${hauls.five_fors || 0} / ${hauls.four_fors || 0}`,
+      note: "Five-fors / four-fors · all formats",
+    } : topBowlGround && Number(topBowlGround.wickets) > 0 ? {
+      kicker: "Most wickets at",
+      value: Number(topBowlGround.wickets || 0).toLocaleString(),
+      note: `${esc(topBowlGround.venue)} · ${topBowlGround.inns} inns · ${topBowlGround.econ ?? "–"} econ`,
+    } : bestBat && Number(bestBat.runs) >= 50 ? {
+      kicker: "Highest score",
+      value: `${bestBat.runs}${bestBat.not_out ? "*" : ""}`,
+      note: `v ${esc(bestBat.opposition || "—")} · ${fmtDate(bestBat.start_date)}`,
+      href: bestBat.match_id ? `#/match/${encodeURIComponent(bestBat.match_id)}` : "",
+      linkLabel: "Scorecard",
+    } : null,
+  ] : [
     bestBat && Number(bestBat.runs) > 0 ? {
       kicker: "Highest score",
       value: `${bestBat.runs}${bestBat.not_out ? "*" : ""}`,
@@ -1536,13 +1621,7 @@ async function showPlayer(key) {
       href: bestBat.match_id ? `#/match/${encodeURIComponent(bestBat.match_id)}` : "",
       linkLabel: "Scorecard",
     } : null,
-    bestBowlInn && Number(bestBowlInn.wickets) > 0 ? {
-      kicker: "Best bowling",
-      value: `${bestBowlInn.wickets}/${bestBowlInn.runs}`,
-      note: `v ${esc(bestBowlInn.opposition || "—")} · ${fmtDate(bestBowlInn.start_date)}`,
-      href: bestBowlInn.match_id ? `#/match/${encodeURIComponent(bestBowlInn.match_id)}` : "",
-      linkLabel: "Scorecard",
-    } : null,
+    bestBowlCard,
     bestYear ? {
       kicker: "Best year with the bat",
       value: Number(bestYear.runs || 0).toLocaleString(),
@@ -1556,21 +1635,50 @@ async function showPlayer(key) {
       linkLabel: "Profile",
     } : null,
   ]);
-  const formatCardRows = batRows
-    .map((s) => {
-      const bowlRow = bowlRows.find((b) => b.competition === s.competition) || {};
-      return { ...s, wickets: bowlRow.wickets, bowl_econ: bowlRow.econ };
-    })
-    .sort((a, b) => Number(b.matches || 0) - Number(a.matches || 0))
-    .slice(0, 5);
+  const formatCardRows = (() => {
+    if (bowlerFirst) {
+      return [...bowlRows]
+        .sort((a, b) => Number(b.matches || 0) - Number(a.matches || 0))
+        .slice(0, 5)
+        .map((b) => ({
+          competition: b.competition,
+          matches: b.matches,
+          bowl: b,
+          bat: batRows.find((s) => s.competition === b.competition) || null,
+        }));
+    }
+    return batRows
+      .map((s) => {
+        const bowlRow = bowlRows.find((b) => b.competition === s.competition) || {};
+        return { competition: s.competition, matches: s.matches, bat: s, bowl: bowlRow.wickets ? bowlRow : null };
+      })
+      .sort((a, b) => Number(b.matches || 0) - Number(a.matches || 0))
+      .slice(0, 5);
+  })();
   const formatCards = formatCardRows.length
-    ? `<div class="format-cards">${formatCardRows.map((s) => `
+    ? `<div class="format-cards">${formatCardRows.map((s) => {
+        const comp = String(s.competition || "");
+        if (bowlerFirst) {
+          const b = s.bowl || {};
+          const bat = s.bat || {};
+          return `
         <article class="format-card">
-          <div class="fc-comp"><span class="comp-badge comp-${esc(String(s.competition).toLowerCase())}">${esc(String(s.competition).toUpperCase())}</span><span class="caption">${s.matches} matches</span></div>
-          <div class="fc-line"><strong>${Number(s.runs || 0).toLocaleString()}</strong> runs at ${esc(String(s.avg))}</div>
-          <div class="caption">${esc(String(s.sr))} SR · HS ${s.hs ?? "–"} · ${s.hundreds || 0}×100 · ${s.fifties || 0}×50</div>
-          ${s.wickets ? `<div class="caption">${s.wickets} wickets at ${esc(String(s.bowl_econ ?? "–"))} econ</div>` : ""}
-        </article>`).join("")}</div>`
+          <div class="fc-comp"><span class="comp-badge comp-${esc(comp.toLowerCase())}">${esc(comp.toUpperCase())}</span><span class="caption">${s.matches} matches</span></div>
+          <div class="fc-line"><strong>${Number(b.wickets || 0).toLocaleString()}</strong> wickets at ${esc(String(b.avg ?? "–"))}</div>
+          <div class="caption">${esc(String(b.econ ?? "–"))} econ · ${esc(String(b.overs ?? "–"))} overs · ${b.maidens || 0} mdns</div>
+          ${bat.runs ? `<div class="caption">${Number(bat.runs).toLocaleString()} runs at ${esc(String(bat.avg))} · HS ${bat.hs ?? "–"}</div>` : ""}
+        </article>`;
+        }
+        const bat = s.bat || {};
+        const bowl = s.bowl;
+        return `
+        <article class="format-card">
+          <div class="fc-comp"><span class="comp-badge comp-${esc(comp.toLowerCase())}">${esc(comp.toUpperCase())}</span><span class="caption">${s.matches} matches</span></div>
+          <div class="fc-line"><strong>${Number(bat.runs || 0).toLocaleString()}</strong> runs at ${esc(String(bat.avg))}</div>
+          <div class="caption">${esc(String(bat.sr))} SR · HS ${bat.hs ?? "–"} · ${bat.hundreds || 0}×100 · ${bat.fifties || 0}×50</div>
+          ${bowl?.wickets ? `<div class="caption">${bowl.wickets} wickets at ${esc(String(bowl.econ ?? "–"))} econ</div>` : ""}
+        </article>`;
+      }).join("")}</div>`
     : "";
   main.innerHTML = `
     <div class="player-hero">
@@ -1586,9 +1694,11 @@ async function showPlayer(key) {
         ${teamChips}
         ${ribbon(heroStats)}
       </div>
+      ${overallBadge(d.form)}
     </div>
     <nav class="jump player-jump" aria-label="Player profile sections">
-      <button type="button" class="btn-text active" data-jump="profile-almanac">Almanac</button>
+      ${d.form?.current ? `<button type="button" class="btn-text active" data-jump="profile-form">Form</button>` : ""}
+      <button type="button" class="btn-text${d.form?.current ? "" : " active"}" data-jump="profile-almanac">Almanac</button>
       <button type="button" class="btn-text" data-jump="profile-value">Value</button>
       <button type="button" class="btn-text" data-jump="profile-resource">Value model</button>
       <button type="button" class="btn-text" data-jump="profile-best">Best</button>
@@ -1602,11 +1712,14 @@ async function showPlayer(key) {
       · <a href="#/shift?player=${encodeURIComponent(p.slug)}">Stat line shift</a>
       · <button type="button" class="btn-text" id="add-tray">C — compare tray</button>
     </p>
+    ${d.form?.current ? overallBlock(d.form) : ""}
     <section class="profile-section" id="profile-almanac">
       ${formatCards}
       ${milestoneCards}
-      ${formBlock(d.innings, { n: 10, careerAvg })}
-      ${almanacBlock(almanac)}
+      ${bowlerFirst
+        ? formBlock(d.bowling_innings, { n: 10, kind: "bowl", careerEcon })
+        : formBlock(d.innings, { n: 10, careerAvg })}
+      ${almanacBlock(almanac, { bowlFirst: bowlerFirst })}
     </section>
     <section class="profile-section profile-scope" id="profile-value">
       <h2 class="section">Utility index</h2>
@@ -1622,7 +1735,7 @@ async function showPlayer(key) {
       <div id="pf-box"></div>
     </section>
     <section class="profile-section profile-scope" id="profile-matchups">
-      <h2 class="section">Batter vs bowler</h2>
+      <h2 class="section">${bowlerFirst ? "Bowler vs batter" : "Batter vs bowler"}</h2>
       <p class="caption">Balls they actually faced each other. Twelve-ball floor. Tables are sorted by balls.</p>
       <div class="fmt-row scoped-tabs" id="h2h-tabs">${["all", ...h2hComps].map((c, i) => `<button class="tab ${i === 0 ? "active" : ""}" data-h2h="${c}">${c === "all" ? "All" : c.toUpperCase()}</button>`).join("")}</div>
       <div id="h2h-box"></div>
@@ -2803,6 +2916,7 @@ async function showTeam(name) {
 }
 
 const RANK_METRICS = [
+  ["overall", "Form overall"],
   ["runs", "Most runs"],
   ["wickets", "Most wickets"],
   ["avg", "Best batting average"],
@@ -2834,7 +2948,9 @@ async function showRankings() {
     history.replaceState(null, "", `#/rankings?${qs}`);
     main.innerHTML = `
       <h1 class="page-title">Rankings</h1>
-      <p class="lede">One leaderboard at a time. Pick the metric, the competition, and the qualifying floor.</p>
+      <p class="lede">${state.metric === "overall"
+        ? "Rolling Test + ODI + T20I form. A 40–99 rating, not a percentile. At most five 99s per gender."
+        : "One leaderboard at a time. Pick the metric, the competition, and the qualifying floor."}</p>
       ${leaderboardNav("rankings")}
       <div id="rk-body"><div class="skel"></div><div class="skel"></div></div>`;
     const d = await fetch(`/api/rankings?${qs}`).then((r) => r.json()).catch(() => ({ rows: [] }));
@@ -2848,6 +2964,7 @@ async function showRankings() {
       wickets: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 }],
       econ: [{ key: "wickets", label: "W", align: "right", numeric: true }],
       te: [{ key: "wickets", label: "W", align: "right", numeric: true }, { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 }],
+      overall: [{ key: "bat", label: "Bat", align: "right", numeric: true }, { key: "bowl", label: "Bowl", align: "right", numeric: true }, { key: "primary", label: "Side", align: "left" }],
       war: [{ key: "matches", label: "M", align: "right", numeric: true }],
       raa_bat: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "tsr", label: "TSR", align: "right", numeric: true, digits: 2 }],
       raa_bowl: [{ key: "wickets", label: "W", align: "right", numeric: true }, { key: "te", label: "TE", align: "right", numeric: true, digits: 2 }],
@@ -2865,16 +2982,16 @@ async function showRankings() {
       </div>
       <div class="stats-toolbar">
         <div class="filters">
-          <label>Competition
+          ${state.metric === "overall" ? `<p class="caption">International form only — Tests, ODIs, T20Is.</p>` : `<label>Competition
             <select id="rk-comp">${COMP_CHOICES.slice(0, 8).map(([k, l]) => `<option value="${k}" ${state.comp === k ? "selected" : ""}>${l || "All"}</option>`).join("")}</select>
-          </label>
+          </label>`}
           <label>Gender
             <select id="rk-g">
               <option value="male" ${state.gender === "male" ? "selected" : ""}>Men</option>
               <option value="female" ${state.gender === "female" ? "selected" : ""}>Women</option>
             </select>
           </label>
-          <label>Min innings <input type="number" id="rk-min" min="1" max="500" value="${state.min}"></label>
+          ${state.metric === "overall" ? "" : `<label>Min innings <input type="number" id="rk-min" min="1" max="500" value="${state.min}"></label>`}
         </div>
         <div class="view-options">${shareButton("rk-share")}</div>
       </div>
@@ -3955,6 +4072,7 @@ async function showBuild() {
     <button class="btn primary" id="do-pull">Pull updates</button>
     <button class="btn primary" id="do-build">Build warehouse</button>
     <button class="btn primary" id="do-metrics">Rebuild metrics</button>
+    <button class="btn primary" id="do-form">Rebuild form ratings</button>
     <div class="log" id="job-log"></div>
   `;
   const run = (kind, btn) => {
@@ -3977,6 +4095,7 @@ async function showBuild() {
   $("do-pull").addEventListener("click", (e) => run("pull", e.target));
   $("do-build").addEventListener("click", (e) => run("build", e.target));
   $("do-metrics").addEventListener("click", (e) => run("metrics", e.target));
+  $("do-form").addEventListener("click", (e) => run("form", e.target));
 }
 
 async function showSQL() {

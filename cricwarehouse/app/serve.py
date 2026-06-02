@@ -18,7 +18,7 @@ from cricwarehouse.competitions import LABELS, GENDER_LABEL
 from cricwarehouse.paths import ROOT, UI, USER_DATA, WAREHOUSE, ensure_dirs
 from cricwarehouse.app.db import DOCUMENTED_VIEWS, connect, disk_size_bytes, warehouse_ready
 from cricwarehouse.app.pull import discover_local_dumps, load_sources
-from cricwarehouse.app.query import execute, parse_query, suggest
+from cricwarehouse.app.query import execute, parse_query, pick_person, suggest, _people_match
 from cricwarehouse.app import catalog
 from cricwarehouse.app.portraits import resolve_portrait
 
@@ -33,7 +33,7 @@ def _fmt_date(iso: str | None) -> str:
         return "—"
     try:
         d = datetime.fromisoformat(iso[:10])
-        return d.strftime("%-d %b %Y")
+        return f"{d.day} {d.strftime('%b %Y')}"
     except Exception:
         return iso
 
@@ -178,11 +178,27 @@ def create_app() -> FastAPI:
     @app.get("/api/parse")
     def api_parse(q: str = ""):
         p = parse_query(q)
-        return {"tokens": p.tokens, "ignored": p.ignored, "heuristic": p.heuristic, "mode": p.mode}
+        from cricwarehouse.app.search import interpretation
+        return {
+            "tokens": p.tokens,
+            "ignored": p.ignored,
+            "heuristic": p.heuristic,
+            "mode": p.mode,
+            "interpretation": interpretation(p.tokens, p.tokens.get("player")),
+        }
 
     @app.get("/api/suggest")
     def api_suggest(q: str = ""):
-        return catalog.search(q)
+        data = catalog.search(q)
+        extra = suggest(q)
+        data["tokens"] = extra.get("tokens") or []
+        if extra.get("parsed"):
+            data["parsed"] = extra["parsed"]
+        if extra.get("teams"):
+            data["teams"] = extra["teams"]
+        if extra.get("people"):
+            data["people"] = extra["people"]
+        return data
 
     @app.get("/api/portrait/{key}")
     def api_portrait(key: str, warm: bool = False):
@@ -190,15 +206,11 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "No warehouse")
         con = connect()
         try:
-            rec = con.execute(
-                "SELECT person_id, slug, display_name, key_cricinfo FROM people WHERE person_id = ? OR slug = ? LIMIT 1",
-                [key, key],
-            ).fetchdf()
+            person = _lookup_person(con, key)
         finally:
             con.close()
-        if rec.empty:
+        if not person:
             raise HTTPException(404, "Player not found")
-        person = _clean(rec.iloc[0].to_dict())
         path = resolve_portrait(person, warm=warm)
         if not path:
             raise HTTPException(404, "No portrait")
@@ -226,7 +238,7 @@ def create_app() -> FastAPI:
         discipline: str | None = None,
         comp: str | None = None,
         gender: str | None = None,
-        wtc: bool = True,
+        wtc: bool = False,
         mode: str = "composite",
         limit: int = 50,
     ):
@@ -275,6 +287,11 @@ def create_app() -> FastAPI:
         min_inns: int = 5,
     ):
         return catalog.rankings(metric=metric, comp=comp or None, gender=gender or None, min_inns=min_inns)
+
+    @app.get("/api/form")
+    def api_form(gender: str | None = "male", limit: int = 80):
+        from cricwarehouse.app.form import latest_board
+        return latest_board(gender=gender or "male", limit=limit)
 
     @app.get("/api/wowy")
     def api_wowy(team: str, player: str, comp: str | None = None, gender: str | None = None):
@@ -397,17 +414,9 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "Warehouse not built yet.")
         con = connect()
         try:
-            person = con.execute(
-                """
-                SELECT * FROM people
-                WHERE person_id = ? OR slug = ? OR lower(unique_name) = lower(?)
-                LIMIT 1
-                """,
-                [key, key, key],
-            ).fetchdf()
-            if person.empty:
+            p = _lookup_person(con, key)
+            if not p:
                 raise HTTPException(404, "Player not found")
-            p = _clean(person.iloc[0].to_dict())
             pid = p["person_id"]
             inns = con.execute(
                 """
@@ -505,6 +514,14 @@ def create_app() -> FastAPI:
                 "SELECT MIN(start_date), MAX(start_date), COUNT(*) FROM matches m JOIN xi x ON x.match_id = m.match_id WHERE x.person_id = ?",
                 [pid],
             ).fetchone()
+            intl_span = con.execute(
+                """
+                SELECT MIN(start_date), MAX(start_date), COUNT(*)
+                FROM matches m JOIN xi x ON x.match_id = m.match_id
+                WHERE x.person_id = ? AND m.competition IN ('test', 'odi', 't20i')
+                """,
+                [pid],
+            ).fetchone()
             teams = con.execute(
                 """
                 SELECT CASE
@@ -531,19 +548,12 @@ def create_app() -> FastAPI:
                 perfs = catalog.list_performances(person_id=pid, discipline=primary_role, limit=25)
             h2h = catalog.matchups(pid)
             almanac = catalog.player_almanac(con, pid)
+            from cricwarehouse.app.form import player_form
+            form = player_form(pid)
             return {
                 "person": p,
                 "primary_role": primary_role,
-                "span": {
-                    "first": span[0],
-                    "last": span[1],
-                    "matches": int(span[2] or 0),
-                    "line": (
-                        f"{span[0][:4]}–{span[1][:4]} · {int(span[2] or 0)} matches"
-                        if span[0] and span[1]
-                        else f"{int(span[2] or 0)} matches"
-                    ),
-                },
+                "span": _span_payload(span, intl_span),
                 "summary": _clean_list(summary),
                 "bowling_summary": _clean_list(bowl),
                 "innings": _clean_list(inns),
@@ -561,6 +571,7 @@ def create_app() -> FastAPI:
                 "super_over": _clean_list(so),
                 "teams": _clean_list(teams),
                 "almanac": _clean(almanac),
+                "form": _clean(form) if form else None,
             }
         finally:
             con.close()
@@ -571,15 +582,33 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "Warehouse not built yet.")
         con = connect()
         try:
-            person = con.execute(
-                "SELECT person_id FROM people WHERE person_id = ? OR slug = ? LIMIT 1",
-                [key, key],
-            ).fetchone()
+            person = _lookup_person(con, key)
             if not person:
                 raise HTTPException(404, "Player not found")
-            return catalog.career_value(person[0], pool=pool)
+            return catalog.career_value(person["person_id"], pool=pool)
         finally:
             con.close()
+
+    @app.get("/api/player/{key}/resource")
+    def api_player_resource(key: str, comp: str | None = None):
+        if not warehouse_ready():
+            raise HTTPException(400, "Warehouse not built yet.")
+        con = connect()
+        try:
+            person = _lookup_person(con, key)
+        finally:
+            con.close()
+        if not person:
+            raise HTTPException(404, "Player not found")
+        return catalog.player_value_v2(person["person_id"], comp=comp or None)
+
+    @app.get("/api/model")
+    def api_model(gender: str = "male"):
+        return catalog.resource_model(gender=gender)
+
+    @app.get("/api/match/{match_id}/value")
+    def api_match_value(match_id: str):
+        return catalog.match_value(match_id)
 
     @app.get("/api/metrics")
     def api_metrics(
@@ -647,6 +676,8 @@ def create_app() -> FastAPI:
     def api_standings(comp: str = "ipl", season: str | None = None, gender: str | None = None):
         if not warehouse_ready():
             return {"rows": [], "playoffs": [], "seasons": []}
+        if not gender and comp in {"t20i", "odi", "test"}:
+            gender = "male"
         con = connect()
         try:
             seasons = [
@@ -686,6 +717,8 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "Warehouse not built yet.")
         data = await request.json()
         sql = str(data.get("sql") or "").strip().rstrip(";")
+        if ";" in sql:
+            return {"ok": False, "error": "One statement at a time."}
         if FORBIDDEN_SQL.search(sql):
             return {"ok": False, "error": "Read-only · documented views only. Write statements are rejected."}
         con = connect()
@@ -740,10 +773,20 @@ def create_app() -> FastAPI:
         data = await request.json()
         USER_DATA.mkdir(parents=True, exist_ok=True)
         current = get_settings()
-        if data.get("theme"):
-            current["theme"] = data["theme"]
-        if data.get("weights"):
-            current["weights"] = data["weights"]
+        theme = data.get("theme")
+        if theme in {"charcoal", "paper"}:
+            current["theme"] = theme
+        weights = data.get("weights")
+        if isinstance(weights, dict):
+            cleaned: dict[str, float] = {}
+            for key in ("rae", "wpa", "consistency"):
+                try:
+                    cleaned[key] = max(0.0, min(1.0, float(weights[key])))
+                except (KeyError, TypeError, ValueError):
+                    cleaned[key] = current["weights"].get(key, 0.0)
+            total = sum(cleaned.values())
+            if total > 0:
+                current["weights"] = {k: round(v / total, 4) for k, v in cleaned.items()}
         (USER_DATA / "settings.json").write_text(json.dumps(current, indent=2))
         return current
 
@@ -751,15 +794,23 @@ def create_app() -> FastAPI:
     def get_presets():
         p = USER_DATA / "presets.json"
         if p.exists():
-            return json.loads(p.read_text())
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return {"presets": []}
+            if isinstance(data, dict) and isinstance(data.get("presets"), list):
+                return data
         return {"presets": []}
 
     @app.post("/api/presets")
     async def post_preset(request: Request):
         incoming = await request.json()
+        name = str(incoming.get("name") or "").strip()
+        if not name:
+            return get_presets()
         data = get_presets()
         data.setdefault("presets", []).append(
-            {"name": incoming.get("name"), "weights": incoming.get("weights")}
+            {"name": name, "weights": incoming.get("weights")}
         )
         USER_DATA.mkdir(parents=True, exist_ok=True)
         (USER_DATA / "presets.json").write_text(json.dumps(data, indent=2))
@@ -768,8 +819,12 @@ def create_app() -> FastAPI:
     @app.get("/api/export")
     def api_export(q: str = ""):
         result = execute(q)
+        if not result.get("ok") or result.get("kind") in {"empty", "goto_player", "goto_page", "pick_player"}:
+            raise HTTPException(400, result.get("error") or result.get("message") or "Nothing to export.")
         rows = result.get("rows") or []
         cols = [c["key"] for c in result.get("columns") or []]
+        if not cols:
+            raise HTTPException(400, "Nothing to export.")
         import csv
         import io
 
@@ -786,9 +841,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/job/{kind}")
     def api_job(kind: str):
-        if kind not in {"pull", "build", "metrics"}:
+        if kind not in {"pull", "build", "metrics", "form"}:
             raise HTTPException(404, "Unknown job")
-        cmd = [sys.executable, "-m", "cricwarehouse", kind if kind != "metrics" else "rebuild-metrics"]
+        job = {"metrics": "rebuild-metrics", "form": "rebuild-form"}.get(kind, kind)
+        cmd = [sys.executable, "-m", "cricwarehouse", job]
 
         def stream():
             proc = subprocess.Popen(
@@ -808,6 +864,46 @@ def create_app() -> FastAPI:
         return StreamingResponse(stream(), media_type="text/event-stream")
 
     return app
+
+
+def _span_payload(span, intl_span=None) -> dict:
+    """Headline span prefers Test/ODI/T20I when the player has any."""
+    all_first, all_last, all_n = span[0], span[1], int(span[2] or 0)
+    intl_n = int(intl_span[2] or 0) if intl_span else 0
+    use = intl_span if intl_n else span
+    first, last, n = use[0], use[1], int(use[2] or 0)
+    return {
+        "first": all_first,
+        "last": all_last,
+        "matches": all_n,
+        "intl_matches": intl_n,
+        "line": (
+            f"{str(first)[:4]}–{str(last)[:4]} · {n} matches"
+            if first and last
+            else f"{n} matches"
+        ),
+    }
+
+
+def _lookup_person(con, key: str) -> dict | None:
+    rec = con.execute(
+        """
+        SELECT * FROM people
+        WHERE person_id = ? OR slug = ? OR lower(unique_name) = lower(?)
+        LIMIT 1
+        """,
+        [key, key, key],
+    ).fetchdf()
+    if not rec.empty:
+        return _clean(rec.iloc[0].to_dict())
+    people = _people_match(con, key)
+    picked = pick_person(people, key)
+    if not picked:
+        return None
+    rec = con.execute("SELECT * FROM people WHERE person_id = ? LIMIT 1", [picked["person_id"]]).fetchdf()
+    if rec.empty:
+        return None
+    return _clean(rec.iloc[0].to_dict())
 
 
 def _clean(obj: Any) -> Any:

@@ -10,7 +10,7 @@ export const GLOSSARY = [
   { id: "wowy", term: "WOWY", body: "With or without you. Team results only from the player’s first XI for that side — matches before they existed don’t count as “without.”" },
   { id: "pressure", term: "Pressure", body: "0–1: required rate vs expected remaining rate in chases, and overs 16+ in the first innings. Impact = RAE × (1 + pressure)." },
   { id: "pct", term: "Percentile", body: "Share of the filtered set you sit above. A 92 vs 98 still means something — fat-tail innings are not pinned at 99." },
-  { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 are Cricinfo scorecards; ball-by-ball (and fastest fifties/hundreds) starts in late 2001 with Cricsheet." },
+  { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 use Cricinfo scorecards where Cricsheet has no file; ball-by-ball (and fastest fifties/hundreds) is Cricsheet." },
   { id: "manhattan", term: "Manhattan", body: "One bar per over, height is runs off that over. A dot above the bar marks a wicket in it. Useful for finding where an innings turned." },
   { id: "chase_pct", term: "Chase %", body: "Share of decided matches at a ground won by the side batting second. Above 55% and the toss is worth having." },
   { id: "balls_to", term: "Balls to 50 / 100", body: "Balls the batter had faced when the milestone came up, counted from the ball-by-ball rows. No-balls faced count as balls." },
@@ -155,6 +155,19 @@ export function scoreBeads(rows, n = 10) {
   }).join("")}</div>`;
 }
 
+export function spellBeads(rows, n = 10) {
+  const last = (rows || []).slice(0, n);
+  if (!last.length) return "";
+  return `<div class="score-beads">${last.map((i) => {
+    const w = Number(i.wickets || 0);
+    const r = Number(i.runs || 0);
+    const cls = w >= 5 ? "ton" : w >= 3 ? "fifty" : w === 0 ? "duck" : "";
+    const label = `${w}/${r} v ${i.opposition || ""}`;
+    const inner = `<span class="sbead ${cls}" title="${esc(label)}">${w}/${r}</span>`;
+    return i.match_id ? `<a class="sbead-link" href="#/match/${esc(i.match_id)}">${inner}</a>` : inner;
+  }).join("")}</div>`;
+}
+
 function yrLabel(y, years) {
   const s = String(y ?? "");
   if (s.length !== 4) return s;
@@ -169,7 +182,7 @@ function spanLink(r, prefix) {
   return r.match_id ? `<a href="#/match/${esc(r.match_id)}">${body}</a>` : body;
 }
 
-export function almanacBlock(a) {
+export function almanacBlock(a, { bowlFirst = false } = {}) {
   if (!a) return "";
   const conv = a.conversion || {};
   const roles = a.roles || {};
@@ -219,7 +232,7 @@ export function almanacBlock(a) {
     .map((r) => [esc(r.split), r.inns ?? "–", Number(r.runs || 0).toLocaleString(), r.avg ?? "–"]);
   const bowlYears = a.bowl_years || [];
   const bowlMax = Math.max(0, ...bowlYears.map((y) => Number(y.wickets) || 0));
-  const bowlChart = bowlMax >= 8 ? bowlYears.map((y) => {
+  const bowlChart = (bowlFirst ? bowlYears.length >= 3 : bowlMax >= 8) ? bowlYears.map((y) => {
     const h = bowlMax ? (Number(y.wickets) / bowlMax * 100) : 0;
     return `<span class="yr" title="${y.year}: ${y.wickets} wickets, ${y.econ ?? "–"} econ"><i style="height:${Math.max(h, 3)}%"></i><em>${yrLabel(y.year, bowlYears)}</em></span>`;
   }).join("") : "";
@@ -231,10 +244,72 @@ export function almanacBlock(a) {
     roles.keeper ? `${roles.keeper} with the gloves` : "",
   ].filter(Boolean);
   const convPct = conv.conversion != null ? Math.min(100, Number(conv.conversion)) : 0;
+  const hauls = a.hauls || {};
+  const bowlYearMax = Math.max(1, ...bowlYears.map((y) => Number(y.wickets) || 0));
+  const bowlYearRows = bowlYears.map((y) => {
+    const wk = Number(y.wickets || 0);
+    return [
+      yrLabel(y.year, bowlYears),
+      y.inns ?? "–",
+      `<span class="year-run"><span>${wk.toLocaleString()}</span><i><b style="width:${(wk / bowlYearMax * 100).toFixed(1)}%"></b></i></span>`,
+      y.avg ?? "–",
+      y.econ ?? "–",
+    ];
+  });
+  const bowlRow = (r) => [esc(r.split || r.opposition || r.venue), r.inns ?? "–", Number(r.wickets || 0).toLocaleString(), r.avg ?? "–", r.econ ?? "–"];
+  const bowlHaRows = (a.bowl_home_away || []).map(bowlRow);
+  const bowlWlRows = [...(a.bowl_win_loss || [])]
+    .sort((x, y) => (wlOrder[x.split] ?? 9) - (wlOrder[y.split] ?? 9))
+    .map(bowlRow);
+  const bowlVsRows = (a.bowl_vs || []).map((r) => [
+    esc(r.opposition), r.inns ?? "–", Number(r.wickets || 0).toLocaleString(), r.avg ?? "–", r.econ ?? "–",
+  ]);
+  const bowlVenueRows = (a.bowl_venues || []).map((r) => [
+    esc(r.venue), r.inns ?? "–", Number(r.wickets || 0).toLocaleString(), r.avg ?? "–", r.econ ?? "–",
+  ]);
+  const bowlKinds = a.bowl_dismissals || [];
+  const spanLine = debut || latest
+    ? `<p class="almanac-span">${spanLink(debut, "Debut")}${debut && latest ? "<br>" : ""}${spanLink(latest, "Latest")}</p>`
+    : "";
+  const roleLine = roleBits.length ? `<p class="caption">${roleBits.join(" · ")}</p>` : "";
+
+  if (bowlFirst) {
+    const batInns = Number(conv.inns || 0);
+    const batStrip = batInns > 0 || a.last5?.length ? `
+      <div class="almanac-row"><h3>With the bat</h3>
+        ${a.last5?.length ? `${scoreBeads(a.last5, 10)}<p class="caption">Each score opens that match</p>` : ""}
+        ${conv.hundreds != null && (Number(conv.hundreds) || Number(conv.fifties) || Number(conv.runs)) ? `<p class="caption">${Number(conv.runs || 0).toLocaleString()} runs · HS ${conv.hs ?? "–"} · ${conv.hundreds || 0} hundreds · ${conv.fifties || 0} fifties</p>` : ""}
+      </div>` : "";
+    return `
+    <section class="almanac" id="almanac">
+      ${a.last_bowl?.length ? `<div class="almanac-row"><h3>Last spells</h3>${spellBeads(a.last_bowl, 10)}<p class="caption">Each figure opens that match</p></div>` : ""}
+      ${spanLine}
+      ${hauls.wickets != null ? `<div class="conv">
+        <div><div class="conv-k">Five-fors</div><div class="conv-n">${hauls.five_fors ?? 0}</div></div>
+        <div><div class="conv-k">Four-fors</div><div class="conv-n">${hauls.four_fors ?? 0}</div></div>
+        <div><div class="conv-k">Average</div><div class="conv-n">${hauls.avg ?? "–"}</div></div>
+        <div><div class="conv-k">Economy</div><div class="conv-n">${hauls.econ ?? "–"}</div></div>
+        <div><div class="conv-k">Strike rate</div><div class="conv-n">${hauls.sr ?? "–"}</div></div>
+      </div>` : ""}
+      ${bowlYearRows.length ? `<div class="almanac-row"><h3>Wickets by year</h3>${ledger(["Year", "Inns", "Wkts", "Avg", "Econ"], bowlYearRows)}</div>` : ""}
+      ${bowlChart ? `<div class="yr-chart">${bowlChart}</div>${bowlSpan ? `<p class="caption">${esc(bowlSpan)}</p>` : ""}` : ""}
+      <div class="almanac-grid">
+        ${bowlKinds.length ? `<div><h3>How they take wickets</h3>${mixBars(bowlKinds)}</div>` : ""}
+        ${fmts.length ? `<div><h3>Formats</h3>${mixBars(fmts)}</div>` : ""}
+        ${bowlHaRows.length ? `<div><h3>Home / away</h3>${ledger(["", "Inns", "Wkts", "Avg", "Econ"], bowlHaRows)}</div>` : ""}
+        ${bowlWlRows.length ? `<div><h3>In wins and losses</h3>${ledger(["", "Inns", "Wkts", "Avg", "Econ"], bowlWlRows)}</div>` : ""}
+        ${bowlVsRows.length ? `<div class="span-2"><h3>Vs opposition</h3>${ledger(["Opp", "Inns", "Wkts", "Avg", "Econ"], bowlVsRows)}</div>` : ""}
+        ${bowlVenueRows.length ? `<div class="span-2"><h3>Grounds</h3>${ledger(["Ground", "Inns", "Wkts", "Avg", "Econ"], bowlVenueRows)}</div>` : ""}
+      </div>
+      ${batStrip}
+      ${roleLine}
+    </section>`;
+  }
+
   return `
     <section class="almanac" id="almanac">
       ${a.last5?.length ? `<div class="almanac-row"><h3>Last knocks</h3>${scoreBeads(a.last5, 10)}<p class="caption">Each score opens that match</p></div>` : ""}
-      ${debut || latest ? `<p class="almanac-span">${spanLink(debut, "Debut")}${debut && latest ? "<br>" : ""}${spanLink(latest, "Latest")}</p>` : ""}
+      ${spanLine}
       ${conv.hundreds != null ? `<div class="conv">
         <div><div class="conv-k">Hundreds</div><div class="conv-n">${conv.hundreds}</div></div>
         <div><div class="conv-k">Fifties</div><div class="conv-n">${conv.fifties ?? "–"}</div></div>
@@ -259,7 +334,7 @@ export function almanacBlock(a) {
         ${vsRows.length ? `<div class="span-2"><h3>Vs opposition</h3>${ledger(["Opp", "Inns", "Runs", "Avg", "100"], vsRows)}</div>` : ""}
         ${venueRows.length ? `<div class="span-2"><h3>Grounds</h3>${ledger(["Ground", "Inns", "Runs", "Avg"], venueRows)}</div>` : ""}
       </div>
-      ${roleBits.length ? `<p class="caption">${roleBits.join(" · ")}</p>` : ""}
+      ${roleLine}
     </section>`;
 }
 
@@ -302,10 +377,14 @@ export function favToggle(slug, name) {
   return list;
 }
 
-export function sparkline(values, { width = 168, height = 36 } = {}) {
+export function sparkline(values, { width = 168, height = 36, key = "runs" } = {}) {
   const points = (values || []).map((value) => {
     if (typeof value === "object" && value !== null) {
-      return { n: Number(value.runs), label: `${value.runs}${value.not_out ? "*" : ""} v ${value.opposition || "—"} · ${fmtDateAlmanac(value.start_date)}` };
+      const n = Number(value[key] ?? value.runs);
+      const label = key === "wickets"
+        ? `${value.wickets ?? 0}/${value.runs ?? 0} v ${value.opposition || "—"} · ${fmtDateAlmanac(value.start_date)}`
+        : `${value.runs}${value.not_out ? "*" : ""} v ${value.opposition || "—"} · ${fmtDateAlmanac(value.start_date)}`;
+      return { n, label };
     }
     return { n: Number(value), label: String(value) };
   }).filter((p) => Number.isFinite(p.n));
@@ -325,15 +404,139 @@ export function sparkline(values, { width = 168, height = 36 } = {}) {
     const y = height - 2 - ((p.n - min) / span) * (height - 4);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4"><title>${esc(p.label)}</title></circle>`;
   }).join("");
-  return `<svg class="spark" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Scores from the last ${points.length} innings">
+  return `<svg class="spark" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Last ${points.length} ${key === "wickets" ? "spells" : "innings"}">
     <polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${pts.join(" ")}"/>
     ${dots}
   </svg>`;
 }
 
-export function formBlock(innings, { n = 10, careerAvg = null } = {}) {
+function ovrTone(n) {
+  const v = Number(n);
+  if (v >= 99) return "gold";
+  if (v >= 90) return "hot";
+  if (v >= 80) return "good";
+  return "mid";
+}
+
+function fmtOvrDate(iso) {
+  if (!iso) return "—";
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(iso).slice(0, 10);
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export function overallBadge(form) {
+  const cur = form?.current;
+  if (!cur || cur.overall == null) return "";
+  const ovr = Number(cur.overall);
+  const rank = form.rank && form.field ? `#${form.rank} of ${form.field}` : "";
+  return `<div class="ovr-badge ovr-${ovrTone(ovr)}" title="${esc(form.caption || "Form overall")}">
+    <div class="ovr-kicker">${cur.is_99 ? "99 club" : "Overall"}</div>
+    <div class="ovr-n">${ovr}</div>
+    <div class="ovr-split">
+      ${cur.bat != null ? `<span>Bat ${cur.bat}</span>` : ""}
+      ${cur.bowl != null ? `<span>Bowl ${cur.bowl}</span>` : ""}
+    </div>
+    ${rank ? `<div class="ovr-rank">${esc(rank)}</div>` : ""}
+  </div>`;
+}
+
+export function overallChart(series, { width = 720, height = 220 } = {}) {
+  const pts = (series || []).filter((p) => p && p.overall != null && p.as_of);
+  if (pts.length < 2) return "";
+  const pad = { l: 36, r: 14, t: 16, b: 28 };
+  const times = pts.map((p) => new Date(p.as_of).getTime());
+  const t0 = Math.min(...times);
+  const t1 = Math.max(...times);
+  const span = Math.max(t1 - t0, 1);
+  const yMin = 50;
+  const yMax = 99;
+  const X = (t) => pad.l + ((t - t0) / span) * (width - pad.l - pad.r);
+  const Y = (n) => pad.t + (1 - (Math.max(yMin, Math.min(yMax, Number(n))) - yMin) / (yMax - yMin)) * (height - pad.t - pad.b);
+  const line = (key, cls) => {
+    const kept = pts.filter((p) => p[key] != null);
+    if (kept.length < 2) return "";
+    const d = kept.map((p) => `${X(new Date(p.as_of).getTime()).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(" ");
+    return `<polyline class="${cls}" fill="none" points="${d}"/>`;
+  };
+  const marks = pts.filter((_, i) => i === 0 || i === pts.length - 1 || i % Math.ceil(pts.length / 18) === 0);
+  const years = [];
+  const startY = new Date(t0).getFullYear();
+  const endY = new Date(t1).getFullYear();
+  const step = endY - startY > 16 ? 4 : endY - startY > 8 ? 2 : 1;
+  for (let y = startY; y <= endY; y += step) years.push(y);
+  const yTicks = [50, 70, 85, 99];
+  const last = pts[pts.length - 1];
+  return `<figure class="ovr-chart">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Form overall against time">
+      ${yTicks.map((t) => `<line class="ovr-grid" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${width - pad.r}" y2="${Y(t).toFixed(1)}"/>
+        <text class="ovr-axis" x="${pad.l - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${t}</text>`).join("")}
+      ${years.map((y) => {
+        const x = X(new Date(y, 0, 1).getTime());
+        return `<text class="ovr-axis" x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle">${y}</text>`;
+      }).join("")}
+      <line class="ovr-nine" x1="${pad.l}" y1="${Y(99).toFixed(1)}" x2="${width - pad.r}" y2="${Y(99).toFixed(1)}"/>
+      ${line("bat", "ovr-line bat")}
+      ${line("bowl", "ovr-line bowl")}
+      ${line("overall", "ovr-line ovr")}
+      ${marks.map((p) => `<circle class="ovr-dot${p.is_99 ? " nine" : ""}" cx="${X(new Date(p.as_of).getTime()).toFixed(1)}" cy="${Y(p.overall).toFixed(1)}" r="${p.is_99 ? 3.4 : 2.4}"><title>${esc(fmtOvrDate(p.as_of))} · ${p.overall}${p.bat != null ? ` · bat ${p.bat}` : ""}${p.bowl != null ? ` · bowl ${p.bowl}` : ""}</title></circle>`).join("")}
+    </svg>
+    <figcaption class="ovr-cap">
+      <span class="ovr-key ovr"><i></i>Overall</span>
+      ${pts.some((p) => p.bat != null) ? `<span class="ovr-key bat"><i></i>Bat</span>` : ""}
+      ${pts.some((p) => p.bowl != null) ? `<span class="ovr-key bowl"><i></i>Bowl</span>` : ""}
+      <span class="caption">Latest ${last.overall} on ${esc(fmtOvrDate(last.as_of))}</span>
+    </figcaption>
+  </figure>`;
+}
+
+export function overallBlock(form) {
+  if (!form?.current || form.current.overall == null) return "";
+  const cur = form.current;
+  const fmts = [
+    ["Test", cur.bat_test, cur.bowl_test],
+    ["ODI", cur.bat_odi, cur.bowl_odi],
+    ["T20I", cur.bat_t20i, cur.bowl_t20i],
+  ].filter(([, bat, bowl]) => bat != null || bowl != null);
+  const peak = form.peak && form.peak.overall != null
+    ? `Peak ${form.peak.overall} in ${fmtOvrDate(form.peak.as_of)}`
+    : "";
+  return `<section class="profile-section ovr-panel" id="profile-form">
+    <div class="ovr-head">
+      ${overallBadge(form)}
+      <div class="ovr-copy">
+        <h2 class="section">Form overall</h2>
+        <p class="caption">${esc(form.caption || "")}</p>
+        ${fmts.length ? `<div class="ovr-fmts">${fmts.map(([lab, bat, bowl]) =>
+          `<span><strong>${lab}</strong> ${bat != null ? `bat ${bat}` : ""}${bat != null && bowl != null ? " · " : ""}${bowl != null ? `bowl ${bowl}` : ""}</span>`
+        ).join("")}</div>` : ""}
+        ${peak ? `<p class="caption">${esc(peak)}</p>` : ""}
+      </div>
+    </div>
+    ${overallChart(form.series || [])}
+  </section>`;
+}
+
+export function formBlock(innings, { n = 10, careerAvg = null, kind = "bat", careerEcon = null } = {}) {
   const last = (innings || []).slice(0, n);
   if (!last.length) return "";
+  if (kind === "bowl") {
+    const wickets = last.reduce((s, i) => s + Number(i.wickets || 0), 0);
+    const runs = last.reduce((s, i) => s + Number(i.runs || 0), 0);
+    const balls = last.reduce((s, i) => s + Number(i.legal_balls || 0), 0);
+    const econ = balls ? (runs * 6 / balls) : null;
+    const vs = careerEcon != null && econ != null
+      ? (econ <= careerEcon ? `, tighter than career ${Number(careerEcon).toFixed(2)}` : `, dearer than career ${Number(careerEcon).toFixed(2)}`)
+      : "";
+    return `<div class="form-block">
+      <div class="form-copy">
+        <div class="form-kicker">Last ${last.length} spells</div>
+        <div class="form-line">${wickets} wickets · ${econ == null ? "—" : econ.toFixed(2)} econ${vs}</div>
+      </div>
+      ${sparkline(last.slice().reverse(), { key: "wickets" })}
+    </div>`;
+  }
   const runs = last.reduce((s, i) => s + Number(i.runs || 0), 0);
   const outs = last.filter((i) => !i.not_out).length;
   const avg = outs ? (runs / outs) : null;
@@ -709,6 +912,7 @@ export async function openPalette() {
     ${recents.length ? `<h4>Recently viewed</h4>${recents.map((r) => `<button type="button" data-hash="#/player/${esc(r.slug)}">${portrait(r.slug, r.name, "xs")}<span>${esc(r.name)}</span></button>`).join("")}<h4>Pages</h4>` : ""}
     <button type="button" data-hash="#/stats">Stats</button>
     <button type="button" data-hash="#/records">Record book</button>
+    <button type="button" data-hash="#/rankings?metric=overall">Form overalls</button>
     <button type="button" data-hash="#/rankings">Rankings</button>
     <button type="button" data-hash="#/standings">Standings</button>
     <button type="button" data-hash="#/grounds">Grounds</button>
@@ -728,10 +932,11 @@ export async function openPalette() {
       return;
     }
     const innings = !/:\S/.test(q) && /[a-z]/i.test(q) ? q.match(/^(.*\S)\s+(\d{1,3})$/) : null;
-    const s = await (await fetch(`/api/suggest?q=${encodeURIComponent(innings ? innings[1] : q)}`)).json();
+    const s = await (await fetch(`/api/suggest?q=${encodeURIComponent(q)}`)).json();
     let html = "";
-    if (innings) {
-      html += `<button type="button" data-hash="#/q=${encodeURIComponent(q)}">Find ${esc(innings[2])} by ${esc(innings[1])} <span class="hint">innings</span></button>`;
+    const read = s.parsed?.interpretation || (innings ? `Find ${innings[2]} by ${innings[1]}` : "");
+    if (read && (innings || s.parsed?.tokens?.opposition || s.parsed?.mode === "matches")) {
+      html += `<button type="button" data-hash="#/q=${encodeURIComponent(q)}">${esc(read)} <span class="hint">search</span></button>`;
     }
     (s.people || []).slice(0, 8).forEach((p) => {
       const hint = p.unique_name && p.unique_name !== p.display_name ? ` <span class="hint">${esc(p.unique_name)}</span>` : "";

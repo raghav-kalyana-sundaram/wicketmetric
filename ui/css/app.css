@@ -696,6 +696,14 @@ body.search-open #query-shell.docked #query-wrap .query-box {
 .token-pill .k { color: var(--ink-2); font-weight: 700; }
 .token-pill .v { color: var(--ink); }
 .token-bad { border-bottom: 1px dotted var(--red); }
+.token-entity {
+  color: var(--accent);
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+.token-score {
+  color: var(--ink);
+  font-weight: 700;
+}
 
 .ghost {
   margin: var(--space-2) 0 0 var(--space-4);
@@ -1547,6 +1555,114 @@ h2.section:hover .query-affordance, h3.section:hover .query-affordance { opacity
   padding: var(--space-4) var(--space-5);
   margin: var(--space-2) 0 var(--space-5);
 }
+.ovr-badge {
+  flex: 0 0 auto;
+  min-width: 6.5rem;
+  padding: 12px 14px 10px;
+  border-radius: var(--radius-panel);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--line);
+  text-align: center;
+}
+.ovr-badge.ovr-gold { box-shadow: 0 0 0 1px var(--gold); }
+.ovr-badge.ovr-hot { box-shadow: 0 0 0 1px var(--accent); }
+.ovr-kicker {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ovr-badge.ovr-gold .ovr-kicker { color: var(--gold); }
+.ovr-n {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 2rem + 2vw, 3.4rem);
+  line-height: 1;
+  margin: 4px 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+.ovr-badge.ovr-gold .ovr-n { color: var(--gold); }
+.ovr-badge.ovr-hot .ovr-n { color: var(--accent); }
+.ovr-split {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  font-size: var(--t-caption);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.ovr-rank { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.ovr-panel { margin: 8px 0 28px; }
+.ovr-head {
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.ovr-copy { flex: 1 1 auto; min-width: 0; }
+.ovr-fmts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 8px 0 0;
+  font-size: var(--t-caption);
+  color: var(--ink-2);
+}
+.ovr-fmts strong { color: var(--ink); margin-right: 4px; }
+.ovr-chart { margin: 8px 0 0; }
+.ovr-chart svg { width: 100%; height: auto; display: block; }
+.ovr-grid { stroke: var(--line); stroke-width: 1; }
+.ovr-nine { stroke: var(--gold); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.7; }
+.ovr-axis { fill: var(--ink-3); font-size: 10px; font-family: var(--font-ui); }
+.ovr-line { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ovr-line.ovr { stroke: var(--accent); }
+.ovr-line.bat { stroke: var(--ink-2); stroke-width: 1.25; opacity: 0.7; }
+.ovr-line.bowl { stroke: var(--series-b); stroke-width: 1.25; opacity: 0.75; }
+.ovr-dot { fill: var(--bg-surface); stroke: var(--accent); stroke-width: 1.4; }
+.ovr-dot.nine { fill: var(--gold); stroke: var(--gold); }
+.ovr-cap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  margin: 8px 0 0;
+  font-size: var(--t-caption);
+  color: var(--ink-2);
+}
+.ovr-key { display: inline-flex; align-items: center; gap: 6px; }
+.ovr-key i {
+  width: 12px;
+  height: 2px;
+  background: var(--accent);
+  display: inline-block;
+}
+.ovr-key.bat i { background: var(--ink-2); }
+.ovr-key.bowl i { background: var(--series-b); }
+.ovr-club {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0 0 24px;
+}
+.ovr-club a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-panel);
+  text-decoration: none;
+  color: inherit;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.ovr-club a:hover { box-shadow: 0 0 0 1px var(--gold); }
+.ovr-club .n {
+  font-family: var(--font-display);
+  font-size: var(--t-h2);
+  color: var(--gold);
+  min-width: 2ch;
+}
+.ovr-club .who { font-weight: 700; }
+.ovr-club .side { display: block; font-size: 11px; color: var(--ink-3); }
 .form-kicker {
   font-size: var(--t-caption);
   letter-spacing: 0.08em;
@@ -2499,6 +2615,7 @@ a.cell-clip {
   .mix-row { grid-template-columns: 72px 1fr 2.4em; }
   .port-lg { width: 96px; height: 128px; }
   .form-block { flex-direction: column; align-items: flex-start; }
+  .ovr-head { flex-direction: column; }
   .stats-toolbar { align-items: stretch; flex-direction: column; }
   .view-options { justify-content: flex-start; }
 }

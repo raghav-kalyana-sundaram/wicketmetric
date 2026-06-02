@@ -11,10 +11,15 @@
 <body>
   <header class="topbar">
     <a class="wordmark" href="#/">Wicket Metric</a>
-    <nav class="util">
+    <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="util-nav" aria-label="Menu">Menu</button>
+    <nav class="util" id="util-nav">
       <a href="#/stats" data-nav="stats">Stats</a>
+      <a href="#/records" data-nav="records">Records</a>
       <a href="#/best" data-nav="best">Best</a>
       <a href="#/compare" data-nav="compare">Compare</a>
+      <a href="#/standings" data-nav="standings">Standings</a>
+      <a href="#/wowy" data-nav="wowy">WOWY</a>
+      <a href="#/grounds" data-nav="grounds">Grounds</a>
       <a href="#/build" data-nav="build">Build</a>
       <a href="#/resources" data-nav="resources">Resources</a>
       <button type="button" class="search-toggle" id="search-toggle" hidden aria-expanded="false">Search</button>
@@ -26,13 +31,13 @@
 
   <div class="shell" id="query-shell">
     <div id="home-hero" hidden>
-      <p class="lede">Search a knock, or open Stats.</p>
+      <p class="lede">Search a knock, a series, or a match.</p>
     </div>
     <div class="query-wrap hero" id="query-wrap">
       <div class="query-box">
         <div class="query-highlight" id="query-highlight" aria-hidden="true"></div>
         <input class="query-input" id="query-input" type="text" autocomplete="off" spellcheck="false"
-               placeholder="Player, or a score: kohli 89" aria-label="Search">
+               placeholder="Sachin Tendulkar New Zealand 94" aria-label="Search">
       </div>
       <div class="ghost" id="query-ghost" hidden></div>
       <div class="ac" id="ac" role="listbox"></div>
