@@ -17,7 +17,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("rebuild-metrics", help="Recompute T20 metrics from the warehouse")
     sub.add_parser("metrics", help="Alias of rebuild-metrics")
-    sub.add_parser("rebuild-form", help="Recompute rolling Test/ODI/T20I form ratings")
+    sub.add_parser("rebuild-form", help="Recompute rolling Test/ODI/T20I/T20 form ratings")
     sub.add_parser("form", help="Alias of rebuild-form")
     sub.add_parser(
         "ingest-cricbase",
