@@ -1,7 +1,7 @@
 import { highlightHTML, heuristic, upsertToken, trailingScore, inningsIntent, parseBare } from "./querybox.js";
 import {
   initChrome, setDocTitle, favList, renderFavStar, trayAdd,
-  formBlock, overallBadge, overallBlock, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
+  formBlock, overallBadge, overallBlock, bindOverallChart, wowyVisual, scatterSVG, fowBeads, pctBar, copyText, toast,
   portrait, warmPortraits, ribbon, almanacBlock, mixBars,
   manhattan, progression, performerCards, statCards, recentList, recentPush, ledger,
 } from "./chrome.js";
@@ -822,15 +822,15 @@ async function showHomeSnapshot() {
         </div>
       </section>`
     : "";
-  const nines = (formBoard.rows || []).filter((r) => r.is_99 || r.overall === 99).slice(0, 5);
+  const nines = (formBoard.rows || []).filter((r) => r.is_99).slice(0, 5);
   const nineBlock = nines.length
     ? `<section class="ovr-club-wrap">
         <h2 class="section">99 club · ${esc(formBoard.as_of ? String(formBoard.as_of).slice(0, 7) : "now")}</h2>
-        <p class="caption">At most five at once, batters and bowlers together. Test + ODI + T20I form.</p>
+        <p class="caption">At most five at once, batters and bowlers together. Test + ODI + T20I form on an absolute scale.</p>
         <div class="ovr-club">${nines.map((r) => `
           <a href="#/player/${esc(r.slug)}">
             ${portrait(r.slug, r.display_name, "xs")}
-            <span class="n">99</span>
+            <span class="n">${r.form ?? r.overall ?? 99}</span>
             <span><span class="who">${esc(r.display_name)}</span><span class="side">${r.primary === "bowl" ? "Bowl" : "Bat"}${r.bat && r.bowl ? ` · ${r.primary === "bowl" ? r.bowl : r.bat}` : ""}</span></span>
           </a>`).join("")}</div>
       </section>`
@@ -1946,6 +1946,7 @@ async function showPlayer(key) {
   $("add-tray")?.addEventListener("click", () => trayAdd(p.slug, p.display_name));
   $("print-player")?.addEventListener("click", () => window.print());
   bindShare("share-player");
+  bindOverallChart(main);
   main.querySelectorAll("[data-jump]").forEach((b) => {
     b.addEventListener("click", () => {
       main.querySelectorAll(".player-jump [data-jump]").forEach((button) => button.classList.toggle("active", button === b));
@@ -2949,7 +2950,7 @@ async function showRankings() {
     main.innerHTML = `
       <h1 class="page-title">Rankings</h1>
       <p class="lede">${state.metric === "overall"
-        ? "Rolling Test + ODI + T20I form. A 40–99 rating, not a percentile. At most five 99s per gender."
+        ? "Rolling Test + ODI + T20I form. A 40–99 rating on an absolute all-time scale, not a percentile. Franchise T20 is a separate line. At most five 99-club badges per gender."
         : "One leaderboard at a time. Pick the metric, the competition, and the qualifying floor."}</p>
       ${leaderboardNav("rankings")}
       <div id="rk-body"><div class="skel"></div><div class="skel"></div></div>`;

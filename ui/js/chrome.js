@@ -10,6 +10,7 @@ export const GLOSSARY = [
   { id: "wowy", term: "WOWY", body: "With or without you. Team results only from the player’s first XI for that side — matches before they existed don’t count as “without.”" },
   { id: "pressure", term: "Pressure", body: "0–1: required rate vs expected remaining rate in chases, and overs 16+ in the first innings. Impact = RAE × (1 + pressure)." },
   { id: "pct", term: "Percentile", body: "Share of the filtered set you sit above. A 92 vs 98 still means something — fat-tail innings are not pinned at 99." },
+  { id: "form", term: "Form overall", body: "A 40–99 rating from recent Test, ODI and T20I counting stats against full-member sides — not a percentile, not T20 WAR. Franchise T20 is a separate line. The number is absolute across eras; at most five active players per gender wear a 99-club badge. Retired players show their peak." },
   { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 use Cricinfo scorecards where Cricsheet has no file; ball-by-ball (and fastest fifties/hundreds) is Cricsheet." },
   { id: "manhattan", term: "Manhattan", body: "One bar per over, height is runs off that over. A dot above the bar marks a wicket in it. Useful for finding where an innings turned." },
   { id: "chase_pct", term: "Chase %", body: "Share of decided matches at a ground won by the side batting second. Above 55% and the toss is worth having." },
@@ -427,12 +428,14 @@ function fmtOvrDate(iso) {
 }
 
 export function overallBadge(form) {
-  const cur = form?.current;
-  if (!cur || cur.overall == null) return "";
-  const ovr = Number(cur.overall);
+  const cur = form?.hero || form?.current;
+  if (!cur) return "";
+  const ovr = Number(cur.form ?? cur.overall);
+  if (!Number.isFinite(ovr)) return "";
   const rank = form.rank && form.field ? `#${form.rank} of ${form.field}` : "";
+  const kicker = form.retired ? "Peak" : (cur.is_99 ? "99 club" : "Overall");
   return `<div class="ovr-badge ovr-${ovrTone(ovr)}" title="${esc(form.caption || "Form overall")}">
-    <div class="ovr-kicker">${cur.is_99 ? "99 club" : "Overall"}</div>
+    <div class="ovr-kicker">${kicker}</div>
     <div class="ovr-n">${ovr}</div>
     <div class="ovr-split">
       ${cur.bat != null ? `<span>Bat ${cur.bat}</span>` : ""}
@@ -442,8 +445,43 @@ export function overallBadge(form) {
   </div>`;
 }
 
+const OVR_LINES = [
+  { key: "form", cls: "ovr", label: "Overall", fallback: "overall" },
+  { key: "test", cls: "test", label: "Test" },
+  { key: "odi", cls: "odi", label: "ODI" },
+  { key: "t20i", cls: "t20i", label: "T20I" },
+  { key: "t20", cls: "t20", label: "T20" },
+];
+const OVR_GAP_MS = 140 * 86400000;
+
+function ovrVal(p, key, fallback) {
+  const n = p?.[key] ?? (fallback ? p?.[fallback] : null);
+  return n == null || n === "" ? null : Number(n);
+}
+
+function gappedPath(pts, key, fallback, X, Y) {
+  let d = "";
+  let prevT = null;
+  for (const p of pts) {
+    const n = ovrVal(p, key, fallback);
+    if (n == null || !Number.isFinite(n)) {
+      prevT = null;
+      continue;
+    }
+    const t = new Date(p.as_of).getTime();
+    const x = X(t).toFixed(1);
+    const y = Y(n).toFixed(1);
+    if (prevT != null && t - prevT <= OVR_GAP_MS) d += ` L${x} ${y}`;
+    else d += `${d ? " " : ""}M${x} ${y}`;
+    prevT = t;
+  }
+  return d;
+}
+
 export function overallChart(series, { width = 720, height = 220 } = {}) {
-  const pts = (series || []).filter((p) => p && p.overall != null && p.as_of);
+  const pts = (series || []).filter((p) => p && p.as_of && (
+    ovrVal(p, "form", "overall") != null || OVR_LINES.some((s) => ovrVal(p, s.key, s.fallback) != null)
+  ));
   if (pts.length < 2) return "";
   const pad = { l: 36, r: 14, t: 16, b: 28 };
   const times = pts.map((p) => new Date(p.as_of).getTime());
@@ -454,22 +492,29 @@ export function overallChart(series, { width = 720, height = 220 } = {}) {
   const yMax = 99;
   const X = (t) => pad.l + ((t - t0) / span) * (width - pad.l - pad.r);
   const Y = (n) => pad.t + (1 - (Math.max(yMin, Math.min(yMax, Number(n))) - yMin) / (yMax - yMin)) * (height - pad.t - pad.b);
-  const line = (key, cls) => {
-    const kept = pts.filter((p) => p[key] != null);
-    if (kept.length < 2) return "";
-    const d = kept.map((p) => `${X(new Date(p.as_of).getTime()).toFixed(1)},${Y(p[key]).toFixed(1)}`).join(" ");
-    return `<polyline class="${cls}" fill="none" points="${d}"/>`;
-  };
-  const marks = pts.filter((_, i) => i === 0 || i === pts.length - 1 || i % Math.ceil(pts.length / 18) === 0);
   const years = [];
   const startY = new Date(t0).getFullYear();
   const endY = new Date(t1).getFullYear();
   const step = endY - startY > 16 ? 4 : endY - startY > 8 ? 2 : 1;
   for (let y = startY; y <= endY; y += step) years.push(y);
   const yTicks = [50, 70, 85, 99];
-  const last = pts[pts.length - 1];
-  return `<figure class="ovr-chart">
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Form overall against time">
+  const last = [...pts].reverse().find((p) => ovrVal(p, "form", "overall") != null) || pts[pts.length - 1];
+  const lastN = ovrVal(last, "form", "overall");
+  const payload = pts.map((p) => ({
+    as_of: p.as_of,
+    form: ovrVal(p, "form", "overall"),
+    test: ovrVal(p, "test"),
+    odi: ovrVal(p, "odi"),
+    t20i: ovrVal(p, "t20i"),
+    t20: ovrVal(p, "t20"),
+    bat: ovrVal(p, "bat"),
+    bowl: ovrVal(p, "bowl"),
+    is_99: Boolean(p.is_99),
+  }));
+  const nines = payload.filter((p) => p.is_99 && p.form != null);
+  const active = OVR_LINES.filter((s) => payload.some((p) => p[s.key] != null));
+  return `<figure class="ovr-chart" data-ovr="${esc(JSON.stringify({ pad, width, height, yMin, yMax, t0, t1, pts: payload }))}">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Form against time">
       ${yTicks.map((t) => `<line class="ovr-grid" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${width - pad.r}" y2="${Y(t).toFixed(1)}"/>
         <text class="ovr-axis" x="${pad.l - 6}" y="${(Y(t) + 3).toFixed(1)}" text-anchor="end">${t}</text>`).join("")}
       ${years.map((y) => {
@@ -477,30 +522,107 @@ export function overallChart(series, { width = 720, height = 220 } = {}) {
         return `<text class="ovr-axis" x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle">${y}</text>`;
       }).join("")}
       <line class="ovr-nine" x1="${pad.l}" y1="${Y(99).toFixed(1)}" x2="${width - pad.r}" y2="${Y(99).toFixed(1)}"/>
-      ${line("bat", "ovr-line bat")}
-      ${line("bowl", "ovr-line bowl")}
-      ${line("overall", "ovr-line ovr")}
-      ${marks.map((p) => `<circle class="ovr-dot${p.is_99 ? " nine" : ""}" cx="${X(new Date(p.as_of).getTime()).toFixed(1)}" cy="${Y(p.overall).toFixed(1)}" r="${p.is_99 ? 3.4 : 2.4}"><title>${esc(fmtOvrDate(p.as_of))} · ${p.overall}${p.bat != null ? ` · bat ${p.bat}` : ""}${p.bowl != null ? ` · bowl ${p.bowl}` : ""}</title></circle>`).join("")}
+      ${active.map((s) => {
+        const d = gappedPath(payload, s.key, s.fallback, X, Y);
+        return d ? `<path class="ovr-line ${s.cls}" fill="none" d="${d}"/>` : "";
+      }).join("")}
+      ${nines.map((p) => `<circle class="ovr-dot nine" cx="${X(new Date(p.as_of).getTime()).toFixed(1)}" cy="${Y(p.form).toFixed(1)}" r="3.2"/>`).join("")}
+      <line class="ovr-cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}"/>
+      <circle class="ovr-hover-dot" r="4"/>
+      <rect class="ovr-hit" x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" fill="transparent"/>
     </svg>
+    <div class="ovr-tip" hidden></div>
     <figcaption class="ovr-cap">
-      <span class="ovr-key ovr"><i></i>Overall</span>
-      ${pts.some((p) => p.bat != null) ? `<span class="ovr-key bat"><i></i>Bat</span>` : ""}
-      ${pts.some((p) => p.bowl != null) ? `<span class="ovr-key bowl"><i></i>Bowl</span>` : ""}
-      <span class="caption">Latest ${last.overall} on ${esc(fmtOvrDate(last.as_of))}</span>
+      ${active.map((s) => `<span class="ovr-key ${s.cls}"><i></i>${s.label}</span>`).join("")}
+      <span class="caption ovr-latest">Latest ${lastN ?? "—"} on ${esc(fmtOvrDate(last.as_of))}</span>
     </figcaption>
   </figure>`;
 }
 
+export function bindOverallChart(root = document) {
+  root.querySelectorAll("figure.ovr-chart").forEach((fig) => {
+    if (fig.dataset.bound === "1") return;
+    const raw = fig.dataset.ovr;
+    if (!raw) return;
+    let meta;
+    try { meta = JSON.parse(raw); } catch { return; }
+    const { pad, width, height, yMin, yMax, t0, t1, pts } = meta;
+    if (!pts?.length) return;
+    fig.dataset.bound = "1";
+    const svg = fig.querySelector("svg");
+    const hit = fig.querySelector(".ovr-hit");
+    const cross = fig.querySelector(".ovr-cross");
+    const dot = fig.querySelector(".ovr-hover-dot");
+    const tip = fig.querySelector(".ovr-tip");
+    const span = Math.max(t1 - t0, 1);
+    const X = (t) => pad.l + ((t - t0) / span) * (width - pad.l - pad.r);
+    const Y = (n) => pad.t + (1 - (Math.max(yMin, Math.min(yMax, Number(n))) - yMin) / (yMax - yMin)) * (height - pad.t - pad.b);
+    const hide = () => {
+      if (cross) { cross.style.visibility = "hidden"; }
+      if (dot) { dot.style.visibility = "hidden"; }
+      if (tip) { tip.hidden = true; tip.innerHTML = ""; }
+    };
+    const show = (event) => {
+      const rect = svg.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * width;
+      let best = pts[0];
+      let bestD = Infinity;
+      for (const p of pts) {
+        const dx = Math.abs(X(new Date(p.as_of).getTime()) - x);
+        if (dx < bestD) { best = p; bestD = dx; }
+      }
+      const t = new Date(best.as_of).getTime();
+      const px = X(t);
+      const py = Y(best.form ?? 70);
+      if (cross) {
+        cross.style.visibility = "visible";
+        cross.setAttribute("x1", px.toFixed(1));
+        cross.setAttribute("x2", px.toFixed(1));
+      }
+      if (dot && best.form != null) {
+        dot.style.visibility = "visible";
+        dot.setAttribute("cx", px.toFixed(1));
+        dot.setAttribute("cy", py.toFixed(1));
+      }
+      const rows = [
+        ["Overall", best.form],
+        ["Test", best.test],
+        ["ODI", best.odi],
+        ["T20I", best.t20i],
+        ["T20", best.t20],
+        ["Bat", best.bat],
+        ["Bowl", best.bowl],
+      ].filter(([, n]) => n != null);
+      if (tip) {
+        tip.hidden = false;
+        tip.innerHTML = `<strong>${esc(fmtOvrDate(best.as_of))}</strong>${rows.map(([lab, n]) =>
+          `<span>${lab} <em>${n}</em></span>`).join("")}`;
+        const figRect = fig.getBoundingClientRect();
+        const left = (px / width) * fig.querySelector("svg").getBoundingClientRect().width;
+        tip.style.left = `${Math.max(8, Math.min(left + 12, figRect.width - 168))}px`;
+        tip.style.top = "8px";
+      }
+    };
+    hit?.addEventListener("mousemove", show);
+    hit?.addEventListener("mouseleave", hide);
+    svg?.addEventListener("mouseleave", hide);
+  });
+}
+
 export function overallBlock(form) {
-  if (!form?.current || form.current.overall == null) return "";
-  const cur = form.current;
+  const cur = form?.hero || form?.current;
+  if (!cur || (cur.form == null && cur.overall == null)) return "";
   const fmts = [
-    ["Test", cur.bat_test, cur.bowl_test],
-    ["ODI", cur.bat_odi, cur.bowl_odi],
-    ["T20I", cur.bat_t20i, cur.bowl_t20i],
-  ].filter(([, bat, bowl]) => bat != null || bowl != null);
-  const peak = form.peak && form.peak.overall != null
-    ? `Peak ${form.peak.overall} in ${fmtOvrDate(form.peak.as_of)}`
+    ["Test", cur.test, cur.bat_test, cur.bowl_test],
+    ["ODI", cur.odi, cur.bat_odi, cur.bowl_odi],
+    ["T20I", cur.t20i, cur.bat_t20i, cur.bowl_t20i],
+    ["T20", cur.t20, cur.bat_t20, cur.bowl_t20],
+  ].filter(([, ovr, bat, bowl]) => ovr != null || bat != null || bowl != null);
+  const peak = form.peak && (form.peak.form ?? form.peak.overall) != null
+    ? `Peak ${form.peak.form ?? form.peak.overall} in ${fmtOvrDate(form.peak.as_of)}`
+    : "";
+  const last = form.current && form.retired
+    ? `Last window ${form.current.form ?? form.current.overall} on ${fmtOvrDate(form.current.as_of)}`
     : "";
   return `<section class="profile-section ovr-panel" id="profile-form">
     <div class="ovr-head">
@@ -508,15 +630,17 @@ export function overallBlock(form) {
       <div class="ovr-copy">
         <h2 class="section">Form overall</h2>
         <p class="caption">${esc(form.caption || "")}</p>
-        ${fmts.length ? `<div class="ovr-fmts">${fmts.map(([lab, bat, bowl]) =>
-          `<span><strong>${lab}</strong> ${bat != null ? `bat ${bat}` : ""}${bat != null && bowl != null ? " · " : ""}${bowl != null ? `bowl ${bowl}` : ""}</span>`
+        ${fmts.length ? `<div class="ovr-fmts">${fmts.map(([lab, ovr, bat, bowl]) =>
+          `<span><strong>${lab}</strong> ${ovr != null ? ovr : ""}${bat != null ? ` · bat ${bat}` : ""}${bowl != null ? ` · bowl ${bowl}` : ""}</span>`
         ).join("")}</div>` : ""}
         ${peak ? `<p class="caption">${esc(peak)}</p>` : ""}
+        ${last ? `<p class="caption">${esc(last)}</p>` : ""}
       </div>
     </div>
     ${overallChart(form.series || [])}
   </section>`;
 }
+
 
 export function formBlock(innings, { n = 10, careerAvg = null, kind = "bat", careerEcon = null } = {}) {
   const last = (innings || []).slice(0, n);
