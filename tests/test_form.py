@@ -8,7 +8,7 @@ import pandas as pd
 
 from cricwarehouse.app.form import (
     apply_nines,
-    blend_formats,
+    best_format,
     piecewise,
     player_overall,
     score_batting_window,
@@ -99,10 +99,15 @@ def test_small_samples_do_not_qualify():
     assert score_bowling_window(fmt="test", inns=10, wickets=4, runs=280, balls=200) is None
 
 
-def test_format_blend_weights_recent_volume():
-    blended = blend_formats({"test": 90, "t20i": 70}, {"test": 16, "t20i": 8})
-    assert 82 < blended < 90
-    assert blend_formats({"odi": 80}, {"odi": 2}) is None
+def test_overall_is_the_best_international_format():
+    rating, fmt = best_format({"test": 90, "t20i": 70, "t20": 99})
+    assert fmt == "test"
+    assert rating == 90
+    # Ties keep Test ahead of later families.
+    tied, tied_fmt = best_format({"test": 85, "odi": 85, "t20i": 85})
+    assert tied == 85
+    assert tied_fmt == "test"
+    assert best_format({}) == (None, None)
 
 
 def test_all_rounder_bump_cannot_mint_a_99():
@@ -249,6 +254,25 @@ def test_stale_tests_do_not_dilute_current_odi_form():
     assert row["overall"] >= 80
 
 
+def test_test_goat_is_not_diluted_by_weaker_white_ball():
+    from cricwarehouse.app.form import _prepare_lines
+
+    as_of = date(2024, 12, 31)
+    bat_rows = []
+    for n in range(14):
+        day = as_of - timedelta(days=20 + n * 16)
+        bat_rows.append(_inn("goat", day, "test", runs=120, balls=220, not_out=n % 3 == 0))
+        bat_rows.append(_inn("goat", day, "odi", runs=35, balls=50))
+    bat = _prepare_lines(pd.DataFrame(bat_rows), "bat")
+    scored = score_snapshot(bat, pd.DataFrame(), as_of)
+    row = next(r for r in scored if r["person_id"] == "goat")
+    assert row["test"] is not None
+    assert row["odi"] is not None
+    assert row["test"] > row["odi"] + 8
+    assert abs(row["raw_overall"] - row["test"]) < 0.01
+    assert abs(row["bat"] - row["bat_test"]) < 0.01
+
+
 def test_franchise_t20_does_not_feed_international_overall():
     from cricwarehouse.app.form import _prepare_lines
 
@@ -266,11 +290,9 @@ def test_franchise_t20_does_not_feed_international_overall():
     assert row["bat_t20"] is not None
     # Overall is the T20I rating, not a blend with IPL.
     assert abs(row["raw_overall"] - row["t20i"]) < 0.6
-    mixed = blend_formats(
-        {"t20i": 70, "t20": 95},
-        {"t20i": 10, "t20": 20},
-    )
+    mixed, fam = best_format({"t20i": 70, "t20": 95})
     assert mixed == 70
+    assert fam == "t20i"
 
 
 def test_t20_family_uses_the_t20i_curve():

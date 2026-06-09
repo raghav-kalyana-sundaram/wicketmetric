@@ -1,10 +1,11 @@
 """Rolling cross-format form ratings, 2K-style.
 
-Published form is a 40–99 integer on an absolute all-time scale: recent Test,
-ODI, and T20I counting stats against full-member sides. It is not a percentile
-and it does not use the T20 resource model (RAA, WAR, TSR, TE). Tests and ODIs
-have no advanced inputs at all. Franchise T20 (IPL/WPL/BBL/WBBL) is scored on
-its own line and never blended into the international overall.
+Published form is a 40–99 integer on an absolute all-time scale: the best of
+recent Test, ODI, and T20I counting stats against full-member sides. It is not
+a blend, not a percentile, and it does not use the T20 resource model (RAA,
+WAR, TSR, TE). Tests and ODIs have no advanced inputs at all. A Test
+specialist is scored as a Test player. Franchise T20 (IPL/WPL/BBL/WBBL) is
+scored on its own line and never feeds the international overall.
 
 About five active players per gender wear a 99-club badge at any snapshot;
 the badge does not flatten the number. Retired profiles show peak form.
@@ -25,7 +26,7 @@ from cricwarehouse.competitions import GENDER_LABEL
 from cricwarehouse.paths import WAREHOUSE
 from cricwarehouse.teams import WTC_TEAMS, WOMEN_TEST_TEAMS
 
-FORM_VERSION = "form-v1.1.1"
+FORM_VERSION = "form-v1.2.0"
 # Families scored. `t20` is franchise leagues (IPL/WPL/BBL/WBBL), separate from T20I.
 FAMILIES = ("test", "odi", "t20i", "t20")
 INTL_FAMILIES = ("test", "odi", "t20i")
@@ -54,17 +55,16 @@ FORM_TEAMS = {
 # Lookback and half-life in days. Tests are sparse, so they keep older knocks.
 WINDOW = {"test": 730, "odi": 540, "t20i": 365, "t20": 365}
 HALF_LIFE = {"test": 400, "odi": 280, "t20i": 180, "t20": 180}
-# A format drops out of the blend if they have not played it recently.
-# Stale Test residue should not drag down current ODI or T20I form.
+# A format drops out of the overall if they have not played it recently.
+# Stale Test residue should not keep a retired-from-Tests white-ball player
+# pinned to an old Test number — and the reverse.
 FRESH = {"test": 450, "odi": 300, "t20i": 200, "t20": 200}
-PRESTIGE = {"test": 1.15, "odi": 1.0, "t20i": 1.0, "t20": 0.9}
 
 MIN_BAT_INNS = {"test": 5.0, "odi": 6.0, "t20i": 6.0, "t20": 6.0}
 MIN_BAT_RUNS = {"test": 100.0, "odi": 150.0, "t20i": 120.0, "t20": 120.0}
 MIN_BOWL_INNS = {"test": 6.0, "odi": 8.0, "t20i": 8.0, "t20": 8.0}
 MIN_BOWL_WKTS = {"test": 10.0, "odi": 10.0, "t20i": 8.0, "t20": 8.0}
 MIN_BOWL_BALLS = {"test": 240.0, "odi": 180.0, "t20i": 96.0, "t20": 96.0}
-BLEND_INNS = 4.0
 SHRINK_INNS = 4.0
 SHRINK_UNTIL = 8.0
 
@@ -265,29 +265,26 @@ def score_bowling_window(
     }
 
 
-def blend_formats(
+def best_format(
     parts: dict[str, float],
-    inns: dict[str, float],
     families: tuple[str, ...] = INTL_FAMILIES,
-) -> float | None:
-    """Volume-weighted blend of format ratings. Tests carry a small prestige tilt.
+) -> tuple[float | None, str | None]:
+    """Highest rating among the given families. Ties keep the earlier family.
 
     Default families are internationals only — franchise T20 stays off the overall.
+    A Test goat is not averaged down by weaker ODI or T20I form.
     """
-    allowed = set(families)
-    num = 0.0
-    den = 0.0
-    for fmt, rating in parts.items():
-        if rating is None or fmt not in allowed:
+    best_r: float | None = None
+    best_f: str | None = None
+    for fmt in families:
+        rating = parts.get(fmt)
+        if rating is None:
             continue
-        w = max(float(inns.get(fmt) or 0.0), 0.0) * PRESTIGE[fmt]
-        if w < BLEND_INNS * PRESTIGE[fmt] and w < BLEND_INNS:
-            continue
-        num += rating * w
-        den += w
-    if den <= 0:
-        return None
-    return num / den
+        n = float(rating)
+        if best_r is None or n > best_r:
+            best_r = n
+            best_f = fmt
+    return best_r, best_f
 
 
 def player_overall(bat: float | None, bowl: float | None) -> tuple[float | None, str | None]:
@@ -514,13 +511,19 @@ def score_snapshot(bat: pd.DataFrame, bowl: pd.DataFrame, as_of) -> list[dict]:
 
     out = []
     for rec in players.values():
-        bat_r = blend_formats(rec["bat_parts"], rec["bat_inns"])
-        bowl_r = blend_formats(rec["bowl_parts"], rec["bowl_inns"])
-        raw, primary = player_overall(bat_r, bowl_r)
         fmt_ovr = {
             fam: player_overall(rec["bat_parts"].get(fam), rec["bowl_parts"].get(fam))[0]
             for fam in FAMILIES
         }
+        _, best_fam = best_format(fmt_ovr, INTL_FAMILIES)
+        if best_fam is None:
+            bat_r = None
+            bowl_r = None
+            raw, primary = None, None
+        else:
+            bat_r = rec["bat_parts"].get(best_fam)
+            bowl_r = rec["bowl_parts"].get(best_fam)
+            raw, primary = player_overall(bat_r, bowl_r)
         if raw is None and all(v is None for v in fmt_ovr.values()):
             continue
         if primary is None:
@@ -878,7 +881,7 @@ def latest_board(*, gender: str | None = "male", limit: int = 80) -> dict[str, A
             "metric": "overall",
             "n99": n99,
             "scope": (
-                f"{GENDER_LABEL.get(gender, gender)} · Test + ODI + T20I form "
+                f"{GENDER_LABEL.get(gender, gender)} · best of Test, ODI, T20I form "
                 f"as of {_fmt_as_of(as_of)} · {n99} on the 99 club"
             ),
         }
@@ -896,8 +899,8 @@ def _caption(
     peak: dict | None = None,
 ) -> str:
     bits = [
-        "Recent Test, ODI and T20I counting stats against full-member sides — not a percentile, not T20 WAR.",
-        "Franchise T20 (IPL, WPL, BBL, WBBL) is its own line and does not feed the overall.",
+        "Best of recent Test, ODI and T20I counting stats against full-member sides — not a blend, not a percentile, not T20 WAR.",
+        "A Test specialist is scored as a Test player. Franchise T20 (IPL, WPL, BBL, WBBL) is its own line and does not feed the overall.",
         "At most five 99-club badges at once, batters and bowlers together. The number itself is absolute.",
     ]
     if retired and peak:

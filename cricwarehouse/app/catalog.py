@@ -135,6 +135,19 @@ def master_stats(
         if gender:
             game_w.append("m.gender = ?")
             gparams.append(gender)
+        from cricwarehouse.app.form import form_ready
+        if form_ready():
+            form_cte = """frm AS (
+          SELECT person_id, COALESCE(form, overall) AS form, is_99
+          FROM form_ratings
+          WHERE as_of = (SELECT MAX(as_of) FROM form_ratings)
+        ),"""
+            form_select = "frm.form, frm.is_99,"
+            form_join = "LEFT JOIN frm ON frm.person_id = j.person_id"
+        else:
+            form_cte = ""
+            form_select = "NULL AS form, FALSE AS is_99,"
+            form_join = ""
         sql = f"""
         WITH bat AS (
           SELECT b.person_id,
@@ -199,6 +212,7 @@ def master_stats(
           WHERE {' AND '.join(game_w)}
           GROUP BY 1
         ),
+        {form_cte}
         joined AS (
           SELECT COALESCE(bat.person_id, bowl.person_id) AS person_id,
                  COALESCE(bat.matches, 0) AS matches,
@@ -221,6 +235,7 @@ def master_stats(
                CASE WHEN j.wickets > 0 THEN ROUND(j.bowl_runs * 1.0 / j.wickets, 1) END AS bowl_avg,
                CASE WHEN j.legal_balls > 0 THEN ROUND(j.bowl_runs * 6.0 / j.legal_balls, 2) END AS econ,
                CASE WHEN j.legal_balls > j.balls THEN 'bowl' ELSE 'bat' END AS primary_role,
+               {form_select}
                v.war, v.wpa, v.pressure, v.seasons,
                v.war_bat, v.war_bowl, v.raa_bat, v.raa_bowl,
                v.raa100_bat, v.raa_over_bowl, v.bf, v.lb,
@@ -237,6 +252,7 @@ def master_stats(
         JOIN people p ON p.person_id = j.person_id
         LEFT JOIN val v ON v.person_id = j.person_id
         LEFT JOIN games g ON g.person_id = j.person_id
+        {form_join}
         WHERE (j.inns >= ? OR j.wickets >= ?)
         """
         floor = max(int(min_inns), 1)
@@ -289,6 +305,8 @@ def master_stats(
             "te": "te",
             "twr_bat": "twr_bat",
             "twr_bowl": "twr_bowl",
+            "form": "form",
+            "overall": "form",
         }.get(sort, "runs")
         reverse = key not in {"bowl_avg", "econ", "te", "twr_bat"}
 

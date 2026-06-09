@@ -826,7 +826,7 @@ async function showHomeSnapshot() {
   const nineBlock = nines.length
     ? `<section class="ovr-club-wrap">
         <h2 class="section">99 club · ${esc(formBoard.as_of ? String(formBoard.as_of).slice(0, 7) : "now")}</h2>
-        <p class="caption">At most five at once, batters and bowlers together. Test + ODI + T20I form on an absolute scale.</p>
+        <p class="caption">At most five at once, batters and bowlers together. Best of Test, ODI and T20I form on an absolute scale.</p>
         <div class="ovr-club">${nines.map((r) => `
           <a href="#/player/${esc(r.slug)}">
             ${portrait(r.slug, r.display_name, "xs")}
@@ -2099,6 +2099,7 @@ function resourcePanel(d) {
 // associate-level T20Is otherwise fill the top of every rate table.
 const STAT_PRESETS = [
   { label: "T20 value", hint: "Career WAR across T20Is and the IPL", state: { comp: "t20i_ipl", role: "all", sort: "war", min_inns: 8, wtc: false } },
+  { label: "Form overall", hint: "Best of recent Test, ODI and T20I form — not T20 WAR", state: { comp: "t20i_ipl", role: "all", sort: "form", min_inns: 8, wtc: false } },
   { label: "Batting value", hint: "Batting runs above average per 100 balls, Test nations", state: { comp: "t20i_ipl", role: "bat", sort: "raa100_bat", min_inns: 20, wtc: true } },
   { label: "Bowling value", hint: "Bowling runs above average per over, Test nations", state: { comp: "t20i_ipl", role: "bowl", sort: "raa_over_bowl", min_inns: 20, wtc: true } },
   { label: "Run scorers", hint: "Most runs in T20Is and the IPL", state: { comp: "t20i_ipl", role: "bat", sort: "runs", min_inns: 20, wtc: false } },
@@ -2197,6 +2198,7 @@ async function showStats() {
       { key: "player", label: "Player", align: "left", link: "player", sortable: false },
       { key: "primary_role", label: "Role", align: "left", sortable: false },
       { key: "matches", label: "M", align: "right", numeric: true, sortable: false, help: "Matches played" },
+      { key: "form", label: "Ovr", align: "right", numeric: true, help: "Form overall: best of recent Test, ODI and T20I counting stats against full-member sides. Not T20 WAR." },
       { key: "war", label: "WAR", align: "right", numeric: true, help: "Career wins above replacement in this filtered pool" },
       { key: "war_per_game", label: "WAR/g", align: "right", numeric: true, help: "WAR per match; shown after 20 matches" },
     ];
@@ -2950,7 +2952,7 @@ async function showRankings() {
     main.innerHTML = `
       <h1 class="page-title">Rankings</h1>
       <p class="lede">${state.metric === "overall"
-        ? "Rolling Test + ODI + T20I form. A 40–99 rating on an absolute all-time scale, not a percentile. Franchise T20 is a separate line. At most five 99-club badges per gender."
+        ? "Best of rolling Test, ODI and T20I form. A 40–99 rating on an absolute all-time scale — not a blend, not a percentile. Franchise T20 is a separate line. At most five 99-club badges per gender."
         : "One leaderboard at a time. Pick the metric, the competition, and the qualifying floor."}</p>
       ${leaderboardNav("rankings")}
       <div id="rk-body"><div class="skel"></div><div class="skel"></div></div>`;
@@ -2983,7 +2985,7 @@ async function showRankings() {
       </div>
       <div class="stats-toolbar">
         <div class="filters">
-          ${state.metric === "overall" ? `<p class="caption">International form only — Tests, ODIs, T20Is.</p>` : `<label>Competition
+          ${state.metric === "overall" ? `<p class="caption">International form only — best of Tests, ODIs, T20Is.</p>` : `<label>Competition
             <select id="rk-comp">${COMP_CHOICES.slice(0, 8).map(([k, l]) => `<option value="${k}" ${state.comp === k ? "selected" : ""}>${l || "All"}</option>`).join("")}</select>
           </label>`}
           <label>Gender

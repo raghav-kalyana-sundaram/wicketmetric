@@ -2,8 +2,9 @@
 
 Everything here reads the same Parquet lines the rest of the warehouse uses. Records are
 "in this warehouse": men's Tests from 1877 and ODIs from 1971 come from Cricinfo
-scorecards (no ball-by-ball before late 2001), and Cricsheet covers the ball-by-ball
-era plus the listed T20 leagues. Fastest fifties/hundreds still need deliveries.
+scorecards where Cricsheet has no file (no ball-by-ball on those matches), and
+Cricsheet covers the ball-by-ball era plus the listed T20 leagues. Fastest
+fifties/hundreds still need deliveries.
 """
 
 from __future__ import annotations
