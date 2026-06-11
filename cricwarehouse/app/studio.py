@@ -1197,9 +1197,22 @@ def team_compare(
         con.close()
 
 
-def profile_twin(player: str, *, pool: str | None = None, gender: str | None = None) -> dict[str, Any]:
+def profile_twin(
+    player: str,
+    *,
+    pool: str | None = None,
+    gender: str | None = None,
+    mode: str = "style",
+    min_inns: int | None = None,
+    from_year: int | None = None,
+    to_year: int | None = None,
+    role: str | None = None,
+    full_members: bool = True,
+) -> dict[str, Any]:
     if not warehouse_ready():
         return {"ok": False, "error": "Warehouse not built"}
+    from cricwarehouse.app.twin import find_twins
+
     con = connect()
     try:
         person = resolve_person(con, player)
@@ -1207,121 +1220,18 @@ def profile_twin(player: str, *, pool: str | None = None, gender: str | None = N
             return {"ok": True, "kind": "pick", "people": person["pick"]}
         if not person:
             return {"ok": False, "error": f"No player match for {player}."}
-        pid = person["person_id"]
-        gender = gender or person.get("gender")
-        pool = pool or default_pool(gender)
-        comps = parse_comps(pool) or ["t20i", "ipl"]
-        ph = ",".join(["?"] * len(comps))
-        params: list[Any] = list(comps)
-        gender_sql = ""
-        if gender:
-            gender_sql = " AND mt.gender = ?"
-            params.append(gender)
-        recs = con.execute(
-            f"""
-            SELECT mt.person_id, p.display_name, p.slug, mt.competition, mt.season, mt.gender,
-                   mt.war, mt.rae_bat, mt.rae_bowl, mt.wpa, mt.pressure_impact AS pressure,
-                   mt.balls_bat, mt.balls_bowl, mt.role,
-                   CASE WHEN mt.balls_bowl > mt.balls_bat THEN 'bowl' ELSE 'bat' END AS primary_role
-            FROM metrics_t20 mt
-            JOIN people p ON p.person_id = mt.person_id
-            WHERE mt.competition IN ({ph})
-              AND mt.balls_bat + mt.balls_bowl >= 60
-              {gender_sql}
-            """,
-            params,
-        ).fetchdf()
-        if recs.empty:
-            return {"ok": True, "person": person, "twins": [], "anchor": None}
-
-        mine = recs[recs["person_id"] == pid]
-        if mine.empty:
-            return {"ok": True, "person": person, "twins": [], "anchor": None, "message": "Not enough T20 balls in this pool."}
-        # Anchor = latest high-volume season
-        mine = mine.copy()
-        mine["vol"] = mine["balls_bat"] + mine["balls_bowl"]
-        anchor = mine.sort_values(["season", "vol"], ascending=[False, False]).iloc[0]
-        role = anchor["primary_role"]
-        career = recs.groupby("person_id")[["balls_bat", "balls_bowl"]].sum()
-        career["vol"] = career["balls_bat"] + career["balls_bowl"]
-        seasons_n = recs.groupby("person_id").size()
-        my_vol = float(career.loc[pid, "vol"]) if pid in career.index else float(anchor["vol"])
-        min_vol = max(1000.0, my_vol * 0.35)
-        same_comp = set(recs.loc[recs["competition"] == anchor["competition"], "person_id"])
-        eligible = career[(career["vol"] >= min_vol) & (seasons_n >= 2)].index.intersection(same_comp)
-        pool_df = recs[(recs["primary_role"] == role) & (recs["person_id"].isin(eligible))].copy()
-        feats = ["war", "rae_bat", "rae_bowl", "wpa", "pressure"]
-        for f in feats:
-            mu = pool_df[f].mean()
-            sd = pool_df[f].std() or 1.0
-            pool_df[f"{f}_z"] = (pool_df[f].fillna(mu) - mu) / sd
-        az = pool_df[pool_df["person_id"] == pid]
-        if az.empty:
-            return {"ok": True, "person": person, "twins": [], "anchor": _jsonable([anchor.to_dict()])[0]}
-        # Use mean z of this player's seasons as the profile
-        zcols = [f"{f}_z" for f in feats]
-        target = az[zcols].mean().to_numpy()
-        others = pool_df[pool_df["person_id"] != pid]
-        names = others.groupby("person_id")[["display_name", "slug"]].first()
-        by_p = others.groupby("person_id")[zcols + ["war", "rae_bat", "rae_bowl"]].mean()
-        dist = ((by_p[zcols] - target) ** 2).sum(axis=1).pow(0.5)
-        top = dist.nsmallest(8)
-        twins = []
-        for pid2, d in top.items():
-            row = names.loc[pid2]
-            stats = by_p.loc[pid2]
-            twins.append(
-                {
-                    "person_id": pid2,
-                    "display_name": row["display_name"],
-                    "slug": row["slug"],
-                    "distance": round(float(d), 3),
-                    "match": round(max(0, 100 * (1 - float(d) / 4)), 1),
-                    "war": round(float(stats.get("war") or 0), 2),
-                    "rae_bat": round(float(stats.get("rae_bat") or 0), 1),
-                    "rae_bowl": round(float(stats.get("rae_bowl") or 0), 1),
-                    "primary_role": role,
-                }
-            )
-        # Feature bars vs league mean for anchor vs best twin
-        bars = []
-        best = twins[0] if twins else None
-        twin_rows = others[others["person_id"] == (best["person_id"] if best else "")] if best else others.iloc[0:0]
-        for f, label in (
-            ("war", "WAR"),
-            ("rae_bat", "RAE bat"),
-            ("rae_bowl", "RAE bowl"),
-            ("wpa", "WPA"),
-            ("pressure", "Pressure"),
-        ):
-            mu = float(pool_df[f].mean() or 0)
-            av = float(az[f].mean() or 0)
-            tv = float(twin_rows[f].mean()) if best and not twin_rows.empty else None
-            bars.append(
-                {
-                    "key": f,
-                    "label": label,
-                    "league": round(mu, 2),
-                    "a": round(av, 2),
-                    "a_rel": round(av - mu, 2),
-                    "b": round(tv, 2) if tv is not None else None,
-                    "b_rel": round(tv - mu, 2) if tv is not None else None,
-                }
-            )
-        return {
-            "ok": True,
-            "person": person,
-            "anchor": {
-                "competition": anchor["competition"],
-                "season": str(anchor["season"]),
-                "primary_role": role,
-                "war": round(float(az["war"].mean() or 0), 2),
-            },
-            "pool": pool,
-            "pool_label": POOL_LABELS.get(pool, pool),
-            "twins": twins,
-            "bars": bars,
-        }
+        return find_twins(
+            con,
+            person,
+            pool=pool,
+            mode=mode,
+            min_inns=min_inns,
+            from_year=from_year,
+            to_year=to_year,
+            role=role,
+            gender=gender,
+            full_members=full_members,
+        )
     finally:
         con.close()
 

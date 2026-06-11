@@ -270,9 +270,27 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/twin")
-    def api_twin(player: str, pool: str | None = None):
+    def api_twin(
+        player: str,
+        pool: str | None = None,
+        mode: str = "style",
+        min_inns: int | None = None,
+        from_year: int | None = None,
+        to_year: int | None = None,
+        role: str | None = None,
+        wtc: bool = True,
+    ):
         from cricwarehouse.app import studio
-        return studio.profile_twin(player, pool=pool)
+        return studio.profile_twin(
+            player,
+            pool=pool,
+            mode=mode,
+            min_inns=min_inns,
+            from_year=from_year,
+            to_year=to_year,
+            role=role,
+            full_members=wtc,
+        )
 
     @app.get("/api/shift")
     def api_shift(player: str, team: str | None = None, comp: str | None = None):

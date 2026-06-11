@@ -37,6 +37,8 @@ POOL_COMPS = {
     "wpl": ("wpl",),
     "bbl": ("bbl",),
     "wbbl": ("wbbl",),
+    "odi": ("odi",),
+    "test": ("test",),
     "t20": ("t20i", "ipl", "wpl", "bbl", "wbbl"),
 }
 

@@ -67,7 +67,7 @@ def _destinations(q: str) -> list[dict]:
         {"id": "best", "label": "Best T20", "hint": "Greatest match composites in this warehouse"},
         {"id": "compare", "label": "Compare", "hint": "Two players, side by side"},
         {"id": "teams", "label": "Team compare", "hint": "Two sides, same season"},
-        {"id": "twin", "label": "Profile twin", "hint": "Closest T20 shape in this warehouse"},
+        {"id": "twin", "label": "Profile twin", "hint": "Who plays like this — style first, value as a filter"},
         {"id": "shift", "label": "Stat line shift", "hint": "How teammates change with you"},
     ]
     ql = q.lower()
