@@ -495,7 +495,7 @@ body.search-open #query-shell.docked #query-wrap .query-box {
 }
 .twin-row {
   display: grid;
-  grid-template-columns: 90px 1fr 56px 56px;
+  grid-template-columns: 11rem 1fr 3.25rem 3.25rem;
   gap: 10px;
   align-items: center;
   margin: 8px 0;
@@ -529,8 +529,26 @@ body.search-open #query-shell.docked #query-wrap .query-box {
   background: var(--accent);
 }
 .series-swatch.b { background: var(--series-b); }
-.twin-card .caption { display: flex; align-items: center; }
+.twin-card .caption { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .twin-neighbours th:first-child, .twin-neighbours td:first-child { text-align: left; }
+.twin-note {
+  margin: 0 0 var(--space-2);
+  font-size: var(--t-body);
+  color: var(--ink);
+}
+.twin-note .kicker {
+  font-size: var(--t-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-right: var(--space-2);
+}
+.badge.tier-A { background: var(--accent-tint); color: var(--accent); }
+.badge.tier-B { color: var(--ink-2); }
+.twin-filters input[type="number"] {
+  min-width: 5.5rem;
+  width: 5.5rem;
+}
 .team-edge {
   margin: 0 0 2px;
   font-family: var(--font-display);

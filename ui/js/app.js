@@ -3683,78 +3683,158 @@ async function showTwin() {
   setHero(false);
   setDocTitle("Profile twin");
   const player = hashParam("player") || hashParam("q") || "";
+  const pool = hashParam("pool") || hashParam("comp") || "";
+  const mode = hashParam("mode") === "value" ? "value" : "style";
+  const minInns = hashParam("min") || "";
+  const fromYear = hashParam("from") || "";
+  const toYear = hashParam("to") || "";
+  const role = hashParam("role") || "";
+  const wtc = hashParam("wtc") !== "false" && hashParam("wtc") !== "0";
+  const pools = [["", "Auto"], ...shiftFormats()];
+  const poolOpts = pools.map(([k, l]) => `<option value="${k}" ${pool === k ? "selected" : ""}>${l}</option>`).join("");
   main.innerHTML = `
     <h1 class="page-title">Profile twin</h1>
-    <p class="lede">Closest T20 shapes in this warehouse — league-relative WAR, RAE, WPA, and pressure. Not a clone, a neighbour.</p>
-    <div class="filters">
-      <label>Player <input type="text" id="tw-p" value="${esc(player)}" placeholder="Bumrah"></label>
+    <p class="lede">Who plays like this. Style is the distance; value is a column. Not a clone, a neighbour.</p>
+    <div class="filters twin-filters">
+      <label>Player <input type="text" id="tw-p" value="${esc(player)}" placeholder="Jayawardene"></label>
+      <label>Format <select id="tw-pool">${poolOpts}</select></label>
+      <label>Look for
+        <select id="tw-mode">
+          <option value="style" ${mode === "style" ? "selected" : ""}>Style twin</option>
+          <option value="value" ${mode === "value" ? "selected" : ""}>Value twin</option>
+        </select>
+      </label>
+      <label>Role
+        <select id="tw-role">
+          <option value="" ${!role ? "selected" : ""}>Auto</option>
+          <option value="bat" ${role === "bat" ? "selected" : ""}>Batter</option>
+          <option value="bowl" ${role === "bowl" ? "selected" : ""}>Bowler</option>
+        </select>
+      </label>
+      <label>Min inns <input type="number" id="tw-min" min="3" max="80" value="${esc(minInns)}" placeholder="15"></label>
+      <label>From <input type="number" id="tw-from" min="1877" max="2026" value="${esc(fromYear)}" placeholder="year"></label>
+      <label>To <input type="number" id="tw-to" min="1877" max="2026" value="${esc(toYear)}" placeholder="year"></label>
+      <label class="check" title="Internationals must be full-member vs full-member. League matches are unchanged."><input type="checkbox" id="tw-wtc" ${wtc ? "checked" : ""}> Full members</label>
       <button class="btn primary" id="tw-go">Find twin</button>
     </div>
     <div id="tw-out"></div>`;
+  const readFilters = () => ({
+    q: $("tw-p").dataset.resolved || $("tw-p").value.trim(),
+    pool: $("tw-pool").value,
+    mode: $("tw-mode").value,
+    role: $("tw-role").value,
+    min: $("tw-min").value,
+    from: $("tw-from").value,
+    to: $("tw-to").value,
+    wtc: $("tw-wtc")?.checked !== false,
+  });
+  const go = () => {
+    const f = readFilters();
+    if (!f.q) return;
+    const qs = new URLSearchParams({ player: f.q, mode: f.mode });
+    if (f.pool) qs.set("pool", f.pool);
+    if (f.role) qs.set("role", f.role);
+    if (f.min) qs.set("min", f.min);
+    if (f.from) qs.set("from", f.from);
+    if (f.to) qs.set("to", f.to);
+    qs.set("wtc", f.wtc ? "true" : "false");
+    location.hash = `#/twin?${qs}`;
+  };
   const run = async () => {
-    const q = $("tw-p").dataset.resolved || $("tw-p").value.trim();
-    if (!q) return;
-    location.hash = `#/twin?player=${encodeURIComponent(q)}`;
-    const d = await (await fetch(`/api/twin?player=${encodeURIComponent(q)}`)).json();
+    const f = readFilters();
+    if (!f.q) return;
+    const qs = new URLSearchParams({ player: f.q, mode: f.mode });
+    if (f.pool) qs.set("pool", f.pool);
+    if (f.role) qs.set("role", f.role);
+    if (f.min) qs.set("min_inns", f.min);
+    if (f.from) qs.set("from_year", f.from);
+    if (f.to) qs.set("to_year", f.to);
+    qs.set("wtc", f.wtc ? "true" : "false");
+    const d = await (await fetch(`/api/twin?${qs}`)).json();
     if (d.kind === "pick") {
       $("tw-out").innerHTML = pickList(d.people, "a player");
       $("tw-out").querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => {
-        $("tw-p").value = b.dataset.go; run();
+        $("tw-p").value = b.dataset.go; go();
       }));
       return;
     }
     if (!d.ok) { $("tw-out").innerHTML = `<div class="error">${esc(d.error)}</div>`; return; }
-    $("tw-p").value = d.person?.display_name || q;
-    const twin = (d.twins || [])[0];
-    const profileBar = (value, max, who) => {
-      if (value == null) return `<div class="twin-track twin-axis"></div>`;
-      const magnitude = max ? Math.abs(Number(value)) / max * 50 : 0;
-      return `<div class="twin-track twin-axis">
-        <span class="twin-zero"></span>
-        <span class="twin-fill ${who} ${Number(value) < 0 ? "neg" : "pos"}" style="--mag:${magnitude}%"></span>
-      </div>`;
-    };
-    const bars = (d.bars || []).map((bar) => {
-      const max = Math.max(Math.abs(Number(bar.a) || 0), Math.abs(Number(bar.b) || 0));
+    $("tw-p").value = d.person?.display_name || f.q;
+    if (d.pool && $("tw-pool")) {
+      const opt = [...$("tw-pool").options].some((o) => o.value === d.pool);
+      if (opt) $("tw-pool").value = d.pool;
+    }
+    if (!d.twins?.length) {
+      const also = (d.also_played || []).map((r) => `${esc(r.competition)} (${r.inns})`).join(", ");
+      $("tw-out").innerHTML = `<div class="empty"><p>${esc(d.message || "No neighbour in this pool.")}</p>${
+        also ? `<p class="caption">Also in this warehouse: ${also}</p>` : ""
+      }</div>`;
+      return;
+    }
+    const twin = d.twins[0];
+    const roleLabel = (r) => (r === "bowl" ? "Bowler" : "Batter");
+    const tierBadge = (t, inns) => `<span class="badge tier-${esc(t || "B")}" title="${t === "A" ? "Ball-by-ball features" : "Scorecard features — reduced set"}">Tier ${esc(t || "B")}</span> <span class="caption">${inns ?? "–"} inns</span>`;
+    const pctBarPair = (bar) => {
+      const a = bar.a_pct;
+      const b = bar.b_pct;
+      if (a == null && b == null) return "";
+      const track = (pct, who) => pct == null
+        ? `<div class="twin-track"></div>`
+        : `<div class="twin-track"><span class="twin-fill ${who}" style="width:${Math.max(0, Math.min(100, pct))}%"></span></div>`;
       return `<div class="twin-row">
         <span>${esc(bar.label)}</span>
-        <div class="twin-bars">
-          ${profileBar(bar.a, max, "a")}
-          ${profileBar(bar.b, max, "b")}
-        </div>
-        <span class="fig">${bar.a}</span>
-        <span class="fig">${bar.b ?? "–"}</span>
+        <div class="twin-bars">${track(a, "a")}${track(b, "b")}</div>
+        <span class="fig">${a == null ? "–" : `P${a}`}</span>
+        <span class="fig">${b == null ? "–" : `P${b}`}</span>
       </div>`;
-    }).join("");
+    };
+    const noteLine = (label, items) => {
+      if (!items?.length) return "";
+      return `<p class="twin-note"><span class="kicker">${esc(label)}</span> ${items.map((item) => esc(item.label)).join(", ")}</p>`;
+    };
+    const wall = d.coverage?.wall ? `Ball-by-ball from ${d.coverage.wall}. ` : "";
+    const explain = d.explain || {};
     $("tw-out").innerHTML = `
       <div class="duel">
         <div class="duel-card twin-card">
           <h2>${portrait(d.person.slug, d.person.display_name, "sm")}<a href="#/player/${esc(d.person.slug)}">${esc(d.person.display_name)}</a></h2>
-          <p class="caption"><span class="series-swatch a"></span>${esc(d.pool_label || "")} · ${d.anchor?.primary_role === "bowl" ? "Bowler" : "Batter"} · WAR ${d.anchor?.war ?? "–"}</p>
+          <p class="caption"><span class="series-swatch a"></span>${esc(d.pool_label || "")} · ${roleLabel(d.role)} · ${tierBadge(d.anchor?.tier, d.anchor?.inns)}</p>
         </div>
-        <div class="duel-mid"><p class="page-title">${twin ? `${twin.match}%` : "–"}</p><p class="caption">profile match<br>100% = identical shape</p></div>
+        <div class="duel-mid">
+          <p class="page-title">${twin.match}%</p>
+          <p class="caption">${d.mode === "value" ? "value match" : "style match"}<br>${twin.match_lo}–${twin.match_hi} · 50% is a typical pair</p>
+        </div>
         <div class="duel-card twin-card">
-          <h2>${twin ? `${portrait(twin.slug, twin.display_name, "sm")}<a href="#/player/${esc(twin.slug)}">${esc(twin.display_name)}</a>` : "—"}</h2>
-          <p class="caption">${twin ? `<span class="series-swatch b"></span>${esc(d.pool_label || "")} · ${twin.primary_role === "bowl" ? "Bowler" : "Batter"} · WAR ${twin.war}` : "No neighbour yet"}</p>
+          <h2>${portrait(twin.slug, twin.display_name, "sm")}<a href="#/player/${esc(twin.slug)}">${esc(twin.display_name)}</a></h2>
+          <p class="caption"><span class="series-swatch b"></span>${esc(d.pool_label || "")} · ${roleLabel(twin.primary_role)} · ${tierBadge(twin.tier, twin.inns)}</p>
         </div>
       </div>
-      <p class="caption">Bars plot the displayed career-profile values on a shared zero axis within each metric. Shape can match even when overall quality differs.</p>
-      ${bars}
+      ${noteLine("Matches on", explain.matches)}
+      ${noteLine("Diverges on", explain.diverges)}
+      <p class="caption">${wall}Bars are percentiles among the same role in this pool. Empty rows are features one player does not have — they are never imputed.</p>
+      ${(d.bars || []).map(pctBarPair).join("")}
       <h2 class="section">Also close</h2>
       <table class="data twin-neighbours">
-        <thead><tr><th>Player</th><th>Role</th><th class="num">Match</th><th class="num">WAR</th><th>Action</th></tr></thead>
+        <thead><tr><th>Player</th><th>Role</th><th>Tier</th><th class="num">Inns</th><th class="num">Match</th>${d.kind === "t20" ? `<th class="num">WAR</th>` : ""}<th>Action</th></tr></thead>
         <tbody>${(d.twins || []).map((t) => `<tr>
           <td><a href="#/player/${esc(t.slug)}">${esc(t.display_name)}</a></td>
-          <td>${t.primary_role === "bowl" ? "Bowler" : "Batter"}</td>
+          <td>${roleLabel(t.primary_role)}</td>
+          <td><span class="badge tier-${esc(t.tier)}">Tier ${esc(t.tier)}</span>${t.tier === "B" ? ` <span class="caption">reduced</span>` : ""}</td>
+          <td class="num">${t.inns}</td>
           <td class="num">${t.match}%</td>
-          <td class="num">${t.war}</td>
+          ${d.kind === "t20" ? `<td class="num">${t.war ?? "–"}</td>` : ""}
           <td><a href="#/compare?a=${encodeURIComponent(d.person.slug)}&b=${encodeURIComponent(t.slug)}&pool=${encodeURIComponent(d.pool || "")}">Compare</a></td>
         </tr>`).join("")}</tbody>
       </table>`;
     bindTable("");
     warmPortraits($("tw-out"));
   };
-  $("tw-go").addEventListener("click", run);
+  $("tw-go").addEventListener("click", () => {
+    const before = location.hash;
+    go();
+    if (location.hash === before) run();
+  });
+  ["tw-pool", "tw-mode", "tw-role", "tw-wtc"].forEach((id) => $(id)?.addEventListener("change", () => { if (readFilters().q) go(); }));
   bindFieldAutocomplete("tw-p", "people");
   if (player) run();
 }
