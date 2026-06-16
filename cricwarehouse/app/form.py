@@ -7,14 +7,13 @@ WAR, TSR, TE). Tests and ODIs have no advanced inputs at all. A Test
 specialist is scored as a Test player. Franchise T20 (IPL/WPL/BBL/WBBL) is
 scored on its own line and never feeds the international overall.
 
-About five active players per gender wear a 99-club badge at any snapshot;
-the badge does not flatten the number. Retired profiles show peak form.
+Published form is one decimal on that scale, with a small lift so Bradman's
+peak Test window prints 99.0. Retired profiles show peak form.
 """
 
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -26,7 +25,7 @@ from cricwarehouse.competitions import GENDER_LABEL
 from cricwarehouse.paths import WAREHOUSE
 from cricwarehouse.teams import WTC_TEAMS, WOMEN_TEST_TEAMS
 
-FORM_VERSION = "form-v1.2.0"
+FORM_VERSION = "form-v1.3.0"
 # Families scored. `t20` is franchise leagues (IPL/WPL/BBL/WBBL), separate from T20I.
 FAMILIES = ("test", "odi", "t20i", "t20")
 INTL_FAMILIES = ("test", "odi", "t20i")
@@ -41,8 +40,9 @@ FAMILY = {
     "wbbl": "t20",
 }
 FORMATS = FAMILIES
-MAX_NINES = 5
-NINE_THRESHOLD = 82.0
+# Add this after scoring so Don Bradman's peak raw (~97.67) publishes as 99.0.
+# Anyone above that (Imran's all-rounder bump) can print 99.1–99.9.
+FORM_LIFT = 1.332
 ACTIVE_DAYS = 270
 RETIRED_AFTER = 365
 PRIOR_OVR = 74.0
@@ -305,37 +305,47 @@ def player_overall(bat: float | None, bowl: float | None) -> tuple[float | None,
     return overall, primary
 
 
-def apply_nines(rows: list[dict], *, max_nines: int = MAX_NINES, threshold: float = NINE_THRESHOLD) -> list[dict]:
-    """Badge at most five active players per gender. The published number stays absolute."""
-    by_gender: dict[str, list[dict]] = defaultdict(list)
+RATING_KEYS = (
+    "bat",
+    "bowl",
+    "test",
+    "odi",
+    "t20i",
+    "t20",
+    "bat_test",
+    "bat_odi",
+    "bat_t20i",
+    "bat_t20",
+    "bowl_test",
+    "bowl_odi",
+    "bowl_t20i",
+    "bowl_t20",
+)
+
+
+def publish_score(raw: float | None) -> float | None:
+    """One decimal, 40.0–99.9, with the Bradman lift applied."""
+    if raw is None:
+        return None
+    try:
+        n = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if n != n:
+        return None
+    return round(min(99.9, max(40.0, n + FORM_LIFT)), 1)
+
+
+def apply_nines(rows: list[dict], **_unused) -> list[dict]:
+    """Publish lifted one-decimal scores. Kept the name; there is no 99 club."""
     for row in rows:
-        by_gender[row.get("gender") or ""].append(row)
-    for group in by_gender.values():
-        eligible = [
-            r
-            for r in group
-            if r.get("active") and r.get("raw_overall") is not None and r["raw_overall"] >= threshold
-        ]
-        eligible.sort(
-            key=lambda r: (
-                -float(r["raw_overall"]),
-                -float(r.get("bat") or 0),
-                -float(r.get("bowl") or 0),
-                r.get("person_id") or "",
-            )
-        )
-        winners = {id(r) for r in eligible[:max_nines]}
-        for row in group:
-            raw = row.get("raw_overall")
-            if raw is None:
-                row["form"] = None
-                row["overall"] = None
-                row["is_99"] = False
-                continue
-            score = int(max(40, min(99, round(float(raw)))))
-            row["form"] = score
-            row["overall"] = score
-            row["is_99"] = id(row) in winners
+        row["is_99"] = False
+        raw = row.get("raw_overall")
+        row["form"] = publish_score(raw)
+        row["overall"] = row["form"]
+        for key in RATING_KEYS:
+            if row.get(key) is not None:
+                row[key] = publish_score(row[key])
     return rows
 
 
@@ -456,6 +466,12 @@ def score_snapshot(bat: pd.DataFrame, bowl: pd.DataFrame, as_of) -> list[dict]:
                 "bowl_parts": {},
                 "bat_inns": {},
                 "bowl_inns": {},
+                "bat_avg": {},
+                "bat_sr": {},
+                "bat_runs": {},
+                "bowl_avg": {},
+                "bowl_sr": {},
+                "bowl_wkts": {},
                 "last_date": None,
                 "runs": 0.0,
                 "wickets": 0.0,
@@ -483,6 +499,9 @@ def score_snapshot(bat: pd.DataFrame, bowl: pd.DataFrame, as_of) -> list[dict]:
         rec = slot(row.person_id, row.gender)
         rec["bat_parts"][row.family] = scored["rating"]
         rec["bat_inns"][row.family] = scored["inns"]
+        rec["bat_avg"][row.family] = scored["avg"]
+        rec["bat_sr"][row.family] = scored["sr"]
+        rec["bat_runs"][row.family] = scored["runs"]
         rec["runs"] += float(row.runs)
         rec["bat_n"] += scored["inns"]
         if rec["last_date"] is None or last > rec["last_date"]:
@@ -504,6 +523,9 @@ def score_snapshot(bat: pd.DataFrame, bowl: pd.DataFrame, as_of) -> list[dict]:
         rec = slot(row.person_id, row.gender)
         rec["bowl_parts"][row.family] = scored["rating"]
         rec["bowl_inns"][row.family] = scored["inns"]
+        rec["bowl_avg"][row.family] = scored["avg"]
+        rec["bowl_sr"][row.family] = scored["sr"]
+        rec["bowl_wkts"][row.family] = scored["wickets"]
         rec["wickets"] += float(row.wickets)
         rec["bowl_n"] += scored["inns"]
         if rec["last_date"] is None or last > rec["last_date"]:
@@ -560,6 +582,38 @@ def score_snapshot(bat: pd.DataFrame, bowl: pd.DataFrame, as_of) -> list[dict]:
                 "bowl_inns": float(rec["bowl_n"]),
                 "runs": float(rec["runs"]),
                 "wickets": float(rec["wickets"]),
+                **{
+                    f"bat_avg_{fam}": rec["bat_avg"].get(fam)
+                    for fam in FAMILIES
+                },
+                **{
+                    f"bat_sr_{fam}": rec["bat_sr"].get(fam)
+                    for fam in FAMILIES
+                },
+                **{
+                    f"bat_runs_{fam}": rec["bat_runs"].get(fam)
+                    for fam in FAMILIES
+                },
+                **{
+                    f"bat_inns_{fam}": rec["bat_inns"].get(fam)
+                    for fam in FAMILIES
+                },
+                **{
+                    f"bowl_avg_{fam}": rec["bowl_avg"].get(fam)
+                    for fam in FAMILIES
+                },
+                **{
+                    f"bowl_sr_{fam}": rec["bowl_sr"].get(fam)
+                    for fam in FAMILIES
+                },
+                **{
+                    f"bowl_wkts_{fam}": rec["bowl_wkts"].get(fam)
+                    for fam in FAMILIES
+                },
+                **{
+                    f"bowl_inns_{fam}": rec["bowl_inns"].get(fam)
+                    for fam in FAMILIES
+                },
                 "form_version": FORM_VERSION,
             }
         )
@@ -649,7 +703,6 @@ def rebuild_form(*, step_months: int = 1) -> dict[str, Any]:
         "built_at": datetime.now(timezone.utc).isoformat(),
         "snapshots": len(stamps),
         "rows": len(packed),
-        "max_nines": MAX_NINES,
         "formats": list(FORMATS),
     }
     (WAREHOUSE / "form_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -660,45 +713,49 @@ def rebuild_form(*, step_months: int = 1) -> dict[str, Any]:
 def _pack_rows(rows: list[dict]) -> list[dict]:
     packed = []
     for r in rows:
-        packed.append(
-            {
-                "as_of": r["as_of"],
-                "person_id": r["person_id"],
-                "gender": r["gender"],
-                "form": r.get("form"),
-                "overall": r.get("overall"),
-                "bat": _maybe_int(r.get("bat")),
-                "bowl": _maybe_int(r.get("bowl")),
-                "test": _maybe_int(r.get("test")),
-                "odi": _maybe_int(r.get("odi")),
-                "t20i": _maybe_int(r.get("t20i")),
-                "t20": _maybe_int(r.get("t20")),
-                "bat_test": _maybe_int(r.get("bat_test")),
-                "bat_odi": _maybe_int(r.get("bat_odi")),
-                "bat_t20i": _maybe_int(r.get("bat_t20i")),
-                "bat_t20": _maybe_int(r.get("bat_t20")),
-                "bowl_test": _maybe_int(r.get("bowl_test")),
-                "bowl_odi": _maybe_int(r.get("bowl_odi")),
-                "bowl_t20i": _maybe_int(r.get("bowl_t20i")),
-                "bowl_t20": _maybe_int(r.get("bowl_t20")),
-                "primary": r.get("primary"),
-                "is_99": bool(r.get("is_99")),
-                "raw_overall": None if r.get("raw_overall") is None else round(float(r["raw_overall"]), 3),
-                "active": bool(r.get("active")),
-                "bat_inns": None if r.get("bat_inns") is None else round(float(r["bat_inns"]), 2),
-                "bowl_inns": None if r.get("bowl_inns") is None else round(float(r["bowl_inns"]), 2),
-                "runs": None if r.get("runs") is None else round(float(r["runs"]), 1),
-                "wickets": None if r.get("wickets") is None else round(float(r["wickets"]), 1),
-                "form_version": FORM_VERSION,
-            }
-        )
+        item = {
+            "as_of": r["as_of"],
+            "person_id": r["person_id"],
+            "gender": r["gender"],
+            "form": r.get("form"),
+            "overall": r.get("overall"),
+            "primary": r.get("primary"),
+            "is_99": False,
+            "raw_overall": None if r.get("raw_overall") is None else round(float(r["raw_overall"]), 3),
+            "active": bool(r.get("active")),
+            "form_version": FORM_VERSION,
+        }
+        for key in RATING_KEYS:
+            item[key] = _maybe_score(r.get(key))
+        item["form"] = _maybe_score(r.get("form"))
+        item["overall"] = item["form"]
+        item["bat_inns"] = _maybe_num(r.get("bat_inns"), 2)
+        item["bowl_inns"] = _maybe_num(r.get("bowl_inns"), 2)
+        item["runs"] = _maybe_num(r.get("runs"), 1)
+        item["wickets"] = _maybe_num(r.get("wickets"), 1)
+        for fam in FAMILIES:
+            item[f"bat_avg_{fam}"] = _maybe_num(r.get(f"bat_avg_{fam}"), 2)
+            item[f"bat_sr_{fam}"] = _maybe_num(r.get(f"bat_sr_{fam}"), 1)
+            item[f"bat_runs_{fam}"] = _maybe_num(r.get(f"bat_runs_{fam}"), 1)
+            item[f"bat_inns_{fam}"] = _maybe_num(r.get(f"bat_inns_{fam}"), 2)
+            item[f"bowl_avg_{fam}"] = _maybe_num(r.get(f"bowl_avg_{fam}"), 2)
+            item[f"bowl_sr_{fam}"] = _maybe_num(r.get(f"bowl_sr_{fam}"), 1)
+            item[f"bowl_wkts_{fam}"] = _maybe_num(r.get(f"bowl_wkts_{fam}"), 1)
+            item[f"bowl_inns_{fam}"] = _maybe_num(r.get(f"bowl_inns_{fam}"), 2)
+        packed.append(item)
     return packed
 
 
-def _maybe_int(value) -> int | None:
+def _maybe_score(value) -> float | None:
     if value is None or (isinstance(value, float) and not np.isfinite(value)):
         return None
-    return int(round(value))
+    return round(float(value), 1)
+
+
+def _maybe_num(value, digits: int) -> float | None:
+    if value is None or (isinstance(value, float) and not np.isfinite(value)):
+        return None
+    return round(float(value), digits)
 
 
 def form_ready() -> bool:
@@ -713,16 +770,16 @@ def _rating_cols(con) -> tuple[str, str]:
     return "overall", "overall, is_99, raw_overall"
 
 
-def _score_of(row: dict | None) -> int:
+def _score_of(row: dict | None) -> float:
     if not row:
-        return 0
+        return 0.0
     n = row.get("form")
     if n is None:
         n = row.get("overall")
     try:
-        return int(n or 0)
+        return float(n or 0)
     except (TypeError, ValueError):
-        return 0
+        return 0.0
 
 
 def _as_date(iso) -> date | None:
@@ -837,7 +894,110 @@ def current_gender(rows: list[dict]) -> str | None:
     return None
 
 
-def latest_board(*, gender: str | None = "male", limit: int = 80) -> dict[str, Any]:
+FMT_LABEL = {"test": "Tests", "odi": "ODI", "t20i": "T20I", "t20": "T20"}
+BOARD_SORTS = ("overall", "test", "odi", "t20i", "t20")
+
+
+def _finite(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    if n != n:
+        return None
+    return n
+
+
+def _fmt_rating(value) -> str | None:
+    n = _finite(value)
+    if n is None:
+        return None
+    return f"{n:.1f}"
+
+
+def _fmt_stat(value, digits: int, suffix: str) -> str | None:
+    n = _finite(value)
+    if n is None:
+        return None
+    return f"{n:.{digits}f} {suffix}"
+
+
+def cause_of(row: dict[str, Any], family: str | None = None) -> dict[str, Any]:
+    """Name the format and window pile that produced the sorted number."""
+    fam = family if family in FAMILIES else None
+    if fam is None or row.get(fam) is None:
+        rated = [(name, row.get(name)) for name in INTL_FAMILIES if row.get(name) is not None]
+        if not rated:
+            return {"format": None, "format_ovr": None, "line": ""}
+        fam, val = max(rated, key=lambda item: (float(item[1]), -INTL_FAMILIES.index(item[0])))
+    else:
+        val = row.get(fam)
+    primary = row.get("primary") or "bat"
+    if fam and row.get(f"bowl_{fam}") is not None and (
+        row.get(f"bat_{fam}") is None or float(row.get(f"bowl_{fam}") or 0) >= float(row.get(f"bat_{fam}") or 0)
+    ):
+        primary = "bowl"
+    if fam and row.get(f"bat_{fam}") is not None and (
+        row.get(f"bowl_{fam}") is None or float(row.get(f"bat_{fam}") or 0) > float(row.get(f"bowl_{fam}") or 0)
+    ):
+        primary = "bat"
+    bat = row.get(f"bat_{fam}")
+    bowl = row.get(f"bowl_{fam}")
+    parts = [FMT_LABEL[fam]]
+    if bat is not None:
+        parts.append(f"bat {_fmt_rating(bat)}")
+    if bowl is not None:
+        parts.append(f"bowl {_fmt_rating(bowl)}")
+    if primary == "bowl":
+        parts.append(_fmt_stat(row.get(f"bowl_avg_{fam}"), 1, "avg"))
+        parts.append(_fmt_stat(row.get(f"bowl_sr_{fam}"), 1, "SR"))
+        wkts = _finite(row.get(f"bowl_wkts_{fam}")) or _finite(row.get("wickets"))
+        inns = _finite(row.get(f"bowl_inns_{fam}")) or _finite(row.get("bowl_inns"))
+        if wkts:
+            parts.append(f"{int(round(wkts))} wkts")
+        if inns:
+            parts.append(f"{int(round(inns))} inns")
+    else:
+        parts.append(_fmt_stat(row.get(f"bat_avg_{fam}"), 1, "avg"))
+        sr = _finite(row.get(f"bat_sr_{fam}"))
+        cap = {"test": 100.0, "odi": 175.0, "t20i": 280.0, "t20": 280.0}.get(fam, 200.0)
+        if sr is not None and sr <= cap:
+            parts.append(_fmt_stat(sr, 1, "SR"))
+        runs = _finite(row.get(f"bat_runs_{fam}")) or _finite(row.get("runs"))
+        inns = _finite(row.get(f"bat_inns_{fam}")) or _finite(row.get("bat_inns"))
+        if runs:
+            parts.append(f"{int(round(runs)):,} runs")
+        if inns:
+            parts.append(f"{int(round(inns))} inns")
+    line = " · ".join(p for p in parts if p)
+    return {"format": fam, "format_ovr": _finite(val), "line": line}
+
+
+def _decorate_board(rows: list[dict[str, Any]], family: str | None = None) -> list[dict[str, Any]]:
+    for i, row in enumerate(rows, start=1):
+        row["rank"] = i
+        row["player"] = row.get("display_name")
+        if row.get("form") is None:
+            row["form"] = row.get("overall")
+        if row.get("overall") is None:
+            row["overall"] = row.get("form")
+        cause = cause_of(row, family=family)
+        row["cause"] = cause["line"]
+        row["cause_format"] = cause["format"]
+        row["peak_date"] = _fmt_as_of(row.get("as_of"))
+        row.pop("peak_rk", None)
+    return rows
+
+
+def _sort_col(con, sort: str | None) -> tuple[str, str]:
+    score_expr, _ = _rating_cols(con)
+    key = sort if sort in BOARD_SORTS else "overall"
+    return key, (score_expr if key == "overall" else key)
+
+
+def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | None = "overall") -> dict[str, Any]:
     if not form_ready():
         return {
             "rows": [],
@@ -853,36 +1013,80 @@ def latest_board(*, gender: str | None = "male", limit: int = 80) -> dict[str, A
         ).fetchone()[0]
         if not as_of:
             return {"rows": [], "scope": "No form snapshots", "metric": "overall", "as_of": None}
-        score_expr, _ = _rating_cols(con)
+        key, col = _sort_col(con, sort)
         recs = con.execute(
             f"""
             SELECT f.*, p.display_name, p.slug, p.unique_name
             FROM form_ratings f
             JOIN people p ON p.person_id = f.person_id
             WHERE f.as_of = ? AND f.gender = ?
-              AND {score_expr} IS NOT NULL
-            ORDER BY {score_expr} DESC, f.raw_overall DESC, p.display_name
+              AND {col} IS NOT NULL
+            ORDER BY {col} DESC, f.raw_overall DESC, p.display_name
             LIMIT ?
             """,
             [as_of, gender, max(int(limit), 5)],
         ).fetchdf()
-        rows = _records(recs)
-        for i, row in enumerate(rows, start=1):
-            row["rank"] = i
-            row["player"] = row.get("display_name")
-            if row.get("form") is None:
-                row["form"] = row.get("overall")
-            if row.get("overall") is None:
-                row["overall"] = row.get("form")
-        n99 = sum(1 for r in rows if r.get("is_99"))
+        family = None if key == "overall" else key
+        rows = _decorate_board(_records(recs), family=family)
+        label = FMT_LABEL.get(key, "overall")
         return {
             "rows": rows,
             "as_of": as_of,
             "metric": "overall",
-            "n99": n99,
+            "sort": key,
+            "n99": 0,
             "scope": (
-                f"{GENDER_LABEL.get(gender, gender)} · best of Test, ODI, T20I form "
-                f"as of {_fmt_as_of(as_of)} · {n99} on the 99 club"
+                f"{GENDER_LABEL.get(gender, gender)} · {label} form "
+                f"as of {_fmt_as_of(as_of)}"
+            ),
+        }
+    finally:
+        con.close()
+
+
+def peak_board(*, gender: str | None = "male", limit: int = 80, sort: str | None = "overall") -> dict[str, Any]:
+    """One row per player at their career-high in the sorted column."""
+    if not form_ready():
+        return {
+            "rows": [],
+            "scope": "Form ratings not built yet. Run: python -m cricwarehouse rebuild-form",
+            "metric": "peak",
+            "as_of": None,
+        }
+    gender = gender if gender in {"male", "female"} else "male"
+    con = connect()
+    try:
+        key, col = _sort_col(con, sort)
+        recs = con.execute(
+            f"""
+            SELECT f.*, p.display_name, p.slug, p.unique_name
+            FROM (
+              SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY person_id
+                ORDER BY {col} DESC NULLS LAST, as_of DESC
+              ) AS peak_rk
+              FROM form_ratings
+              WHERE gender = ? AND {col} IS NOT NULL
+            ) f
+            JOIN people p ON p.person_id = f.person_id
+            WHERE f.peak_rk = 1
+            ORDER BY {col} DESC, f.raw_overall DESC, p.display_name
+            LIMIT ?
+            """,
+            [gender, max(int(limit), 5)],
+        ).fetchdf()
+        family = None if key == "overall" else key
+        rows = _decorate_board(_records(recs), family=family)
+        label = FMT_LABEL.get(key, "overall")
+        return {
+            "rows": rows,
+            "as_of": None,
+            "metric": "peak",
+            "sort": key,
+            "n99": 0,
+            "scope": (
+                f"{GENDER_LABEL.get(gender, gender)} · career-high {label}, one snapshot each. "
+                "Other format columns are from that month."
             ),
         }
     finally:
@@ -893,7 +1097,7 @@ def _caption(
     current: dict,
     rank: int | None,
     field: int,
-    n99: int,
+    n99: int = 0,
     *,
     retired: bool = False,
     peak: dict | None = None,
@@ -901,12 +1105,12 @@ def _caption(
     bits = [
         "Best of recent Test, ODI and T20I counting stats against full-member sides — not a blend, not a percentile, not T20 WAR.",
         "A Test specialist is scored as a Test player. Franchise T20 (IPL, WPL, BBL, WBBL) is its own line and does not feed the overall.",
-        "At most five 99-club badges at once, batters and bowlers together. The number itself is absolute.",
+        "One decimal, 40.0–99.9. Bradman's peak Test window is 99.0; anyone above that can print 99.1–99.9.",
     ]
     if retired and peak:
         bits.append(
-            f"Peak {_score_of(peak)} on {_fmt_as_of(peak.get('as_of'))}."
-            f" Last window {_score_of(current)} on {_fmt_as_of(current.get('as_of'))}."
+            f"Peak {_fmt_rating(_score_of(peak))} on {_fmt_as_of(peak.get('as_of'))}."
+            f" Last window {_fmt_rating(_score_of(current))} on {_fmt_as_of(current.get('as_of'))}."
         )
         if rank and field:
             bits.append(f"#{rank} of {field} qualified {current.get('gender') or 'players'} at that peak.")
@@ -914,10 +1118,6 @@ def _caption(
         bits.append(
             f"#{rank} of {field} qualified {current.get('gender') or 'players'} on {_fmt_as_of(current.get('as_of'))}."
         )
-        if current.get("is_99"):
-            bits.append("One of the 99 club.")
-        elif n99:
-            bits.append(f"{n99} players on the 99 club right now.")
     return " ".join(bits)
 
 

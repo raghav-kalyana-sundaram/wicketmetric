@@ -9,8 +9,10 @@ import pandas as pd
 from cricwarehouse.app.form import (
     apply_nines,
     best_format,
+    cause_of,
     piecewise,
     player_overall,
+    publish_score,
     score_batting_window,
     score_bowling_window,
     score_snapshot,
@@ -119,64 +121,21 @@ def test_all_rounder_bump_cannot_mint_a_99():
     assert role == "bat"
 
 
-def test_five_nines_shared_by_batters_and_bowlers():
-    rows = []
-    for i in range(8):
-        rows.append(
-            {
-                "person_id": f"bat-{i}",
-                "gender": "male",
-                "raw_overall": 98.5 - i * 0.1,
-                "bat": 98 - i,
-                "bowl": None,
-                "active": True,
-            }
-        )
-    for i in range(4):
-        rows.append(
-            {
-                "person_id": f"bowl-{i}",
-                "gender": "male",
-                "raw_overall": 98.7 - i * 0.05,
-                "bat": None,
-                "bowl": 98 - i,
-                "active": True,
-            }
-        )
-    rows.append(
-        {
-            "person_id": "idle",
-            "gender": "male",
-            "raw_overall": 99.0,
-            "bat": 99,
-            "bowl": None,
-            "active": False,
-        }
-    )
-    apply_nines(rows)
-    nines = [r for r in rows if r.get("is_99")]
-    assert len(nines) == 5
-    assert all(r["active"] for r in nines)
-    assert any(r["person_id"].startswith("bowl") for r in nines)
-    assert any(r["person_id"].startswith("bat") for r in nines)
-    idle = next(r for r in rows if r["person_id"] == "idle")
-    assert idle.get("is_99") is False
-    assert idle["form"] == 99
-    # The badge does not flatten the published number.
-    assert all(r["form"] == max(40, min(99, round(r["raw_overall"]))) for r in rows)
-
-
-def test_nines_are_capped_separately_by_gender():
+def test_publish_score_puts_bradman_on_99_and_keeps_decimals():
+    assert publish_score(97.668) == 99.0
+    assert publish_score(98.029) == 99.4
+    assert publish_score(90.891) == 92.2
+    assert publish_score(40) == 41.3
     rows = [
-        {"person_id": f"m{i}", "gender": "male", "raw_overall": 98, "active": True, "bat": 98, "bowl": None}
-        for i in range(6)
-    ] + [
-        {"person_id": f"w{i}", "gender": "female", "raw_overall": 98, "active": True, "bat": 98, "bowl": None}
-        for i in range(6)
+        {"person_id": "a", "raw_overall": 97.668, "bat": 97.668, "bowl": None, "active": False},
+        {"person_id": "b", "raw_overall": 90.891, "bat": None, "bowl": 90.891, "active": True},
     ]
     apply_nines(rows)
-    assert sum(1 for r in rows if r["gender"] == "male" and r.get("is_99")) == 5
-    assert sum(1 for r in rows if r["gender"] == "female" and r.get("is_99")) == 5
+    assert all(r.get("is_99") is False for r in rows)
+    assert rows[0]["form"] == 99.0
+    assert rows[0]["bat"] == 99.0
+    assert rows[1]["form"] == 92.2
+    assert rows[1]["bowl"] == 92.2
 
 
 def _inn(pid, day, comp, *, runs=0, balls=0, not_out=False, wickets=0, legal_balls=0, gender="male"):
@@ -207,7 +166,7 @@ def test_snapshot_prefers_recent_form_and_caps_nines():
     for n in range(12):
         bat_rows.append(_inn("cold", cold - timedelta(days=n * 10), "test", runs=150, balls=280))
 
-    # One current fast bowler so the 99 club is mixed.
+    # One current fast bowler in the mix.
     for n in range(14):
         day = as_of - timedelta(days=15 + n * 14)
         bowl_rows.append(_inn("quick", day, "test", wickets=4, legal_balls=120, runs=70))
@@ -223,15 +182,11 @@ def test_snapshot_prefers_recent_form_and_caps_nines():
     assert by_id["star-5"]["overall"] >= by_id["star-0"]["overall"]
     if "cold" in by_id:
         assert by_id["cold"]["overall"] < by_id["star-5"]["overall"]
-    nines = [r for r in scored if r.get("is_99")]
-    assert 1 <= len(nines) <= 5
-    assert all(r["active"] for r in nines)
-    # Traditional inputs only — snapshot rows never carry a resource-model field.
+    assert all(r.get("is_99") is False for r in scored)
     assert all("raa" not in r and "war" not in r for r in scored)
-    # Absolute scale: overall equals rounded raw, even for the 99 club.
     for r in scored:
         if r.get("raw_overall") is not None:
-            assert r["form"] == max(40, min(99, round(r["raw_overall"])))
+            assert r["form"] == publish_score(r["raw_overall"])
             assert r["overall"] == r["form"]
 
 
@@ -269,7 +224,7 @@ def test_test_goat_is_not_diluted_by_weaker_white_ball():
     assert row["test"] is not None
     assert row["odi"] is not None
     assert row["test"] > row["odi"] + 8
-    assert abs(row["raw_overall"] - row["test"]) < 0.01
+    assert abs(row["form"] - row["test"]) < 0.01
     assert abs(row["bat"] - row["bat_test"]) < 0.01
 
 
@@ -289,7 +244,7 @@ def test_franchise_t20_does_not_feed_international_overall():
     assert row["t20i"] is not None
     assert row["bat_t20"] is not None
     # Overall is the T20I rating, not a blend with IPL.
-    assert abs(row["raw_overall"] - row["t20i"]) < 0.6
+    assert abs(row["form"] - row["t20i"]) < 0.6
     mixed, fam = best_format({"t20i": 70, "t20": 95})
     assert mixed == 70
     assert fam == "t20i"
@@ -321,3 +276,44 @@ def test_retired_hero_is_peak_not_last_window():
     live, _, still_in = pick_hero(rows[-1:] + [{"as_of": "2026-08-31", "form": 73, "overall": 73}], "2026-08-31")
     assert still_in is False
     assert live["form"] == 73
+
+
+def test_cause_of_names_the_winning_format_and_window():
+    batter = cause_of(
+        {
+            "test": 86.0,
+            "odi": 72.0,
+            "t20i": None,
+            "bat_test": 86.0,
+            "bowl_test": None,
+            "primary": "bat",
+            "bat_avg_test": 55.21,
+            "bat_sr_test": 48.14,
+            "bat_runs_test": 1840.4,
+            "bat_inns_test": 18.2,
+        }
+    )
+    assert batter["format"] == "test"
+    assert batter["format_ovr"] == 86
+    assert batter["line"] == "Tests · bat 86.0 · 55.2 avg · 48.1 SR · 1,840 runs · 18 inns"
+
+    bowler = cause_of(
+        {
+            "test": 80.0,
+            "odi": 91.0,
+            "t20i": 88.0,
+            "bat_odi": None,
+            "bowl_odi": 91.0,
+            "primary": "bowl",
+            "bowl_avg_odi": 18.44,
+            "bowl_sr_odi": 32.1,
+            "bowl_wkts_odi": 42.6,
+            "bowl_inns_odi": 16.4,
+        }
+    )
+    assert bowler["format"] == "odi"
+    assert "ODI" in bowler["line"]
+    assert "bowl 91.0" in bowler["line"]
+    assert "18.4 avg" in bowler["line"]
+    assert "32.1 SR" in bowler["line"]
+    assert "43 wkts" in bowler["line"]
