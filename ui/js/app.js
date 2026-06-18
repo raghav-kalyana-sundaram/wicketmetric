@@ -537,7 +537,10 @@ function table(columns, rows, opts = {}) {
       } else if (c.link === "player") {
         const face = faces ? portrait(r.slug || r.person_id, r.player || r.display_name || val, "xs") : "";
         const tag = c.tagKey && r[c.tagKey] ? `<span class="row-tag">${esc(r[c.tagKey])}</span>` : "";
-        val = `<span class="who">${face}<a class="player-link" href="#/player/${esc(r.slug || r.person_id)}">${esc(r.player || r.display_name || val)}</a>${tag}</span>`;
+        const who = `<span class="who">${face}<a class="player-link" href="#/player/${esc(r.slug || r.person_id)}">${esc(r.player || r.display_name || val)}</a>${tag}</span>`;
+        val = r.cause && c.showCause
+          ? `<span class="who-stack">${who}<span class="row-cause">${esc(r.cause)}</span></span>`
+          : who;
       } else if (c.key === "match" || (c.link === "match")) {
         val = `<a href="#/match/${esc(r.match_id)}">${esc(val || r.opposition || r.match_id)}</a>`;
       } else if (c.link === "venue" && val) {
@@ -779,10 +782,9 @@ async function showHomeSnapshot() {
   try { tier = localStorage.getItem(PULSE_TIER_KEY) || "top"; } catch { /* blocked */ }
   if (!PULSE_TIERS.some(([id]) => id === tier)) tier = "top";
   main.innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
-  const [snap, otd, formBoard] = await Promise.all([
+  const [snap, otd] = await Promise.all([
     fetch("/api/snapshot").then((r) => r.json()).catch(() => ({ rows: [] })),
     fetch("/api/onthisday?limit=5").then((r) => r.json()).catch(() => ({ matches: [], innings: [] })),
-    fetch("/api/form?gender=male&limit=8").then((r) => r.json()).catch(() => ({ rows: [] })),
   ]);
   if (gen !== routeGen) return;
   if (!snap.rows?.length) {
@@ -822,19 +824,6 @@ async function showHomeSnapshot() {
         </div>
       </section>`
     : "";
-  const nines = (formBoard.rows || []).filter((r) => r.is_99).slice(0, 5);
-  const nineBlock = nines.length
-    ? `<section class="ovr-club-wrap">
-        <h2 class="section">99 club · ${esc(formBoard.as_of ? String(formBoard.as_of).slice(0, 7) : "now")}</h2>
-        <p class="caption">At most five at once, batters and bowlers together. Best of Test, ODI and T20I form on an absolute scale.</p>
-        <div class="ovr-club">${nines.map((r) => `
-          <a href="#/player/${esc(r.slug)}">
-            ${portrait(r.slug, r.display_name, "xs")}
-            <span class="n">${r.form ?? r.overall ?? 99}</span>
-            <span><span class="who">${esc(r.display_name)}</span><span class="side">${r.primary === "bowl" ? "Bowl" : "Bat"}${r.bat && r.bowl ? ` · ${r.primary === "bowl" ? r.bowl : r.bat}` : ""}</span></span>
-          </a>`).join("")}</div>
-      </section>`
-    : "";
   main.innerHTML = `
     ${personRail("Pinned", favs)}
     ${personRail("Recently viewed", recent)}
@@ -842,13 +831,13 @@ async function showHomeSnapshot() {
       <a href="#/records">Record book</a>
       <a href="#/stats">Stats table</a>
       <a href="#/rankings?metric=overall">Form overalls</a>
+      <a href="#/rankings?metric=career">Overall</a>
       <a href="#/rankings">Rankings</a>
       <a href="#/best">Best T20</a>
       <a href="#/standings">Standings</a>
       <a href="#/grounds">Grounds</a>
       <a href="#/compare">Compare two players</a>
     </nav>
-    ${nineBlock}
     <div class="pulse-head">
       <h2 class="section">Latest</h2>
       <div class="fmt-row" id="pulse-tier" role="group" aria-label="Which cricket to show">
@@ -1376,6 +1365,7 @@ async function showMatch(id) {
 async function showPlayer(key) {
   const gen = routeGen;
   setHero(false);
+  main.classList.remove("wide");
   main._profileObserver?.disconnect();
   if (!key) {
     main.innerHTML = `<div class="empty"><p>No player selected.</p><button type="button" class="chip" data-home>Back to search</button></div>`;
@@ -2198,7 +2188,7 @@ async function showStats() {
       { key: "player", label: "Player", align: "left", link: "player", sortable: false },
       { key: "primary_role", label: "Role", align: "left", sortable: false },
       { key: "matches", label: "M", align: "right", numeric: true, sortable: false, help: "Matches played" },
-      { key: "form", label: "Ovr", align: "right", numeric: true, help: "Form overall: best of recent Test, ODI and T20I counting stats against full-member sides. Not T20 WAR." },
+      { key: "form", label: "Ovr", align: "right", numeric: true, digits: 1, help: "Form overall: best of recent Test, ODI and T20I counting stats against full-member sides. Not T20 WAR." },
       { key: "war", label: "WAR", align: "right", numeric: true, help: "Career wins above replacement in this filtered pool" },
       { key: "war_per_game", label: "WAR/g", align: "right", numeric: true, help: "WAR per match; shown after 20 matches" },
     ];
@@ -2918,8 +2908,12 @@ async function showTeam(name) {
   $("tm-g")?.addEventListener("change", reload);
 }
 
+const OVR_METRICS = [
+  ["overall", "Form", "Current window. Live players only."],
+  ["career", "Overall", "The overall overall: better half of monthly form, retirees included."],
+  ["peak", "Peak", "Best single month."],
+];
 const RANK_METRICS = [
-  ["overall", "Form overall"],
   ["runs", "Most runs"],
   ["wickets", "Most wickets"],
   ["avg", "Best batting average"],
@@ -2937,27 +2931,47 @@ async function showRankings() {
   setHero(false);
   main.classList.add("wide");
   setDocTitle("Rankings");
+  const FORM_SORTS = [["overall", "Overall"], ["test", "Test"], ["odi", "ODI"], ["t20i", "T20I"], ["t20", "T20"]];
   const state = {
     metric: hashParam("metric") || "runs",
     comp: hashParam("comp") || "t20i",
     gender: hashParam("gender") || "male",
     min: Number(hashParam("min") || 20),
+    sort: hashParam("sort") || "overall",
+    role: hashParam("role") || "all",
   };
   const paint = async () => {
+    const formBoard = state.metric === "overall" || state.metric === "peak" || state.metric === "career";
     const qs = new URLSearchParams({
-      metric: state.metric, gender: state.gender, min_inns: String(state.min),
+      metric: state.metric, gender: state.gender,
     });
-    if (state.comp) qs.set("comp", state.comp);
+    if (formBoard) {
+      if (state.sort && state.sort !== "overall") qs.set("sort", state.sort);
+      if (state.role && state.role !== "all") qs.set("role", state.role);
+    } else {
+      qs.set("min_inns", String(state.min));
+      if (state.comp) qs.set("comp", state.comp);
+    }
     history.replaceState(null, "", `#/rankings?${qs}`);
     main.innerHTML = `
       <h1 class="page-title">Rankings</h1>
-      <p class="lede">${state.metric === "overall"
-        ? "Best of rolling Test, ODI and T20I form. A 40–99 rating on an absolute all-time scale — not a blend, not a percentile. Franchise T20 is a separate line. At most five 99-club badges per gender."
+      <p class="lede">${state.metric === "peak"
+        ? "Career-high form, one snapshot per player. Sort by overall or by a format — the date is when that number peaked. The line under each name is average, strike rate, and the window that set it."
+        : state.metric === "career"
+        ? "The overall overall — who they were, not one hot month and not the last window. Mean of the better half of monthly form, at least 24 months. Retirees included. Filter by format, role, and gender."
+        : state.metric === "overall"
+        ? "Live international form. Filter by format, role, and gender. Franchise T20 is listed and does not set the overall."
         : "One leaderboard at a time. Pick the metric, the competition, and the qualifying floor."}</p>
       ${leaderboardNav("rankings")}
       <div id="rk-body"><div class="skel"></div><div class="skel"></div></div>`;
     const d = await fetch(`/api/rankings?${qs}`).then((r) => r.json()).catch(() => ({ rows: [] }));
     const rows = (d.rows || []).map((r, i) => ({ ...r, rank: i + 1, player: r.player || r.display_name }));
+    const formExtra = [
+      { key: "test", label: "Test", align: "right", numeric: true, digits: 1 },
+      { key: "odi", label: "ODI", align: "right", numeric: true, digits: 1 },
+      { key: "t20i", label: "T20I", align: "right", numeric: true, digits: 1 },
+      { key: "t20", label: "T20", align: "right", numeric: true, digits: 1 },
+    ];
     const extra = {
       runs: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "avg", label: "Avg", align: "right", numeric: true, digits: 1 }, { key: "sr", label: "SR", align: "right", numeric: true, digits: 1 }],
       hundreds: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "runs", label: "Runs", align: "right", numeric: true }],
@@ -2967,25 +2981,41 @@ async function showRankings() {
       wickets: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 }],
       econ: [{ key: "wickets", label: "W", align: "right", numeric: true }],
       te: [{ key: "wickets", label: "W", align: "right", numeric: true }, { key: "econ", label: "Econ", align: "right", numeric: true, digits: 2 }],
-      overall: [{ key: "bat", label: "Bat", align: "right", numeric: true }, { key: "bowl", label: "Bowl", align: "right", numeric: true }, { key: "primary", label: "Side", align: "left" }],
+      overall: formExtra,
+      career: [{ key: "span", label: "When", align: "left" }, ...formExtra],
+      peak: [{ key: "peak_date", label: "When", align: "left" }, ...formExtra],
       war: [{ key: "matches", label: "M", align: "right", numeric: true }],
       raa_bat: [{ key: "inns", label: "Inns", align: "right", numeric: true }, { key: "tsr", label: "TSR", align: "right", numeric: true, digits: 2 }],
       raa_bowl: [{ key: "wickets", label: "W", align: "right", numeric: true }, { key: "te", label: "TE", align: "right", numeric: true, digits: 2 }],
     }[state.metric] || [];
     const metricCol = {
-      key: state.metric,
-      label: (RANK_METRICS.find(([k]) => k === state.metric) || ["", state.metric])[1].replace(/^(Most|Best) /, ""),
+      key: formBoard ? "overall" : state.metric,
+      label: state.metric === "peak" ? "Peak" : formBoard ? "Overall" : (RANK_METRICS.find(([k]) => k === state.metric) || ["", state.metric])[1].replace(/^(Most|Best) /, ""),
       align: "right",
       numeric: true,
-      digits: ["avg", "sr"].includes(state.metric) ? 1 : ["econ", "tsr", "te", "war", "raa_bat", "raa_bowl"].includes(state.metric) ? 2 : 0,
+      digits: formBoard || ["avg", "sr"].includes(state.metric) ? 1 : ["econ", "tsr", "te", "war", "raa_bat", "raa_bowl"].includes(state.metric) ? 2 : 0,
     };
+    const sortCol = formBoard && state.sort !== "overall" ? state.sort : (formBoard ? "overall" : state.metric);
     $("rk-body").innerHTML = `
+      <div class="record-tabs" role="group" aria-label="Overall">
+        <span class="fmt-label">Overall</span>
+        ${OVR_METRICS.map(([k, l, hint]) => `<button type="button" class="chip ${k === state.metric ? "on" : ""}" data-metric="${k}" title="${esc(hint)}">${l}</button>`).join("")}
+      </div>
       <div class="record-tabs" role="group" aria-label="Metric">
         ${RANK_METRICS.map(([k, l]) => `<button type="button" class="chip ${k === state.metric ? "on" : ""}" data-metric="${k}">${l}</button>`).join("")}
       </div>
       <div class="stats-toolbar">
-        <div class="filters">
-          ${state.metric === "overall" ? `<p class="caption">International form only — best of Tests, ODIs, T20Is.</p>` : `<label>Competition
+        <div class="filters" aria-label="Filters">
+          ${formBoard ? `<label>Format
+            <select id="rk-sort">${FORM_SORTS.map(([k, l]) => `<option value="${k}" ${state.sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+          </label>
+          <label>Role
+            <select id="rk-role">
+              <option value="all" ${state.role === "all" ? "selected" : ""}>All roles</option>
+              <option value="bat" ${state.role === "bat" ? "selected" : ""}>Batters</option>
+              <option value="bowl" ${state.role === "bowl" ? "selected" : ""}>Bowlers</option>
+            </select>
+          </label>` : `<label>Competition
             <select id="rk-comp">${COMP_CHOICES.slice(0, 8).map(([k, l]) => `<option value="${k}" ${state.comp === k ? "selected" : ""}>${l || "All"}</option>`).join("")}</select>
           </label>`}
           <label>Gender
@@ -2994,7 +3024,7 @@ async function showRankings() {
               <option value="female" ${state.gender === "female" ? "selected" : ""}>Women</option>
             </select>
           </label>
-          ${state.metric === "overall" ? "" : `<label>Min innings <input type="number" id="rk-min" min="1" max="500" value="${state.min}"></label>`}
+          ${formBoard ? "" : `<label>Min innings <input type="number" id="rk-min" min="1" max="500" value="${state.min}"></label>`}
         </div>
         <div class="view-options">${shareButton("rk-share")}</div>
       </div>
@@ -3002,12 +3032,25 @@ async function showRankings() {
       ${table(
         [
           { key: "rank", label: "#", align: "right", numeric: true, sortable: false },
-          { key: "player", label: "Player", align: "left", link: "player" },
+          { key: "player", label: "Player", align: "left", link: "player", showCause: formBoard, help: formBoard ? "Average and strike rate are from the format that set this row’s number, plus the decay-weighted window." : "" },
           metricCol,
           ...extra,
         ],
         rows,
-        { faces: true, heat: state.metric, searchable: true, searchLabel: "Find a player" },
+        {
+          faces: true,
+          heat: formBoard ? sortCol : state.metric,
+          sortKey: formBoard ? sortCol : "",
+          sortDir: "desc",
+          searchable: true,
+          searchLabel: "Find a player",
+          onSort: formBoard ? (key) => {
+            if (["overall", "test", "odi", "t20i", "t20"].includes(key)) {
+              state.sort = key;
+              paint();
+            }
+          } : undefined,
+        },
       )}`;
     bindTable("");
     warmPortraits(main);
@@ -3017,6 +3060,8 @@ async function showRankings() {
       paint();
     }));
     $("rk-comp")?.addEventListener("change", (e) => { state.comp = e.target.value; paint(); });
+    $("rk-sort")?.addEventListener("change", (e) => { state.sort = e.target.value; paint(); });
+    $("rk-role")?.addEventListener("change", (e) => { state.role = e.target.value; paint(); });
     $("rk-g")?.addEventListener("change", (e) => { state.gender = e.target.value; paint(); });
     $("rk-min")?.addEventListener("change", (e) => { state.min = Number(e.target.value) || 1; paint(); });
   };

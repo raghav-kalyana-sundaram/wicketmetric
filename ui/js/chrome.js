@@ -10,7 +10,8 @@ export const GLOSSARY = [
   { id: "wowy", term: "WOWY", body: "With or without you. Team results only from the player’s first XI for that side — matches before they existed don’t count as “without.”" },
   { id: "pressure", term: "Pressure", body: "0–1: required rate vs expected remaining rate in chases, and overs 16+ in the first innings. Impact = RAE × (1 + pressure)." },
   { id: "pct", term: "Percentile", body: "Share of the filtered set you sit above. A 92 vs 98 still means something — fat-tail innings are not pinned at 99." },
-  { id: "form", term: "Form overall", body: "A 40–99 rating from the best of recent Test, ODI and T20I counting stats against full-member sides — not a blend, not a percentile, not T20 WAR. A Test specialist is scored as a Test player. Franchise T20 is a separate line. The number is absolute across eras; at most five active players per gender wear a 99-club badge. Retired players show their peak." },
+  { id: "form", term: "Form overall", body: "A 40.0–99.9 rating from the best of recent Test, ODI and T20I counting stats against full-member sides — not a blend, not a percentile, not T20 WAR. One decimal. Bradman's peak Test window is 99.0. A Test specialist is scored as a Test player. Franchise T20 is a separate line. Current boards hide retirees." },
+  { id: "career", term: "Overall", body: "The overall overall: who they were, not one hot month and not the last window. Mean of the better half of monthly form, needing at least 24 months. Retired badges show this number. The current Form board stays live-only." },
   { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 use Cricinfo scorecards where Cricsheet has no file; ball-by-ball (and fastest fifties/hundreds) is Cricsheet." },
   { id: "manhattan", term: "Manhattan", body: "One bar per over, height is runs off that over. A dot above the bar marks a wicket in it. Useful for finding where an innings turned." },
   { id: "chase_pct", term: "Chase %", body: "Share of decided matches at a ground won by the side batting second. Above 55% and the toss is worth having." },
@@ -427,22 +428,80 @@ function fmtOvrDate(iso) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export function overallBadge(form) {
-  const cur = form?.hero || form?.current;
-  if (!cur) return "";
-  const ovr = Number(cur.form ?? cur.overall);
+function fmtOvr(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  return v.toFixed(1);
+}
+
+function ovrCard({ kicker, n, bat, bowl, rank, title }) {
+  const ovr = Number(n);
   if (!Number.isFinite(ovr)) return "";
-  const rank = form.rank && form.field ? `#${form.rank} of ${form.field}` : "";
-  const kicker = form.retired ? "Peak" : (cur.is_99 ? "99 club" : "Overall");
-  return `<div class="ovr-badge ovr-${ovrTone(ovr)}" title="${esc(form.caption || "Form overall")}">
-    <div class="ovr-kicker">${kicker}</div>
-    <div class="ovr-n">${ovr}</div>
+  return `<div class="ovr-badge ovr-${ovrTone(ovr)}" title="${esc(title || kicker)}">
+    <div class="ovr-kicker">${esc(kicker)}</div>
+    <div class="ovr-n">${fmtOvr(ovr)}</div>
     <div class="ovr-split">
-      ${cur.bat != null ? `<span>Bat ${cur.bat}</span>` : ""}
-      ${cur.bowl != null ? `<span>Bowl ${cur.bowl}</span>` : ""}
+      ${bat != null ? `<span>Bat ${fmtOvr(bat)}</span>` : ""}
+      ${bowl != null ? `<span>Bowl ${fmtOvr(bowl)}</span>` : ""}
     </div>
     ${rank ? `<div class="ovr-rank">${esc(rank)}</div>` : ""}
   </div>`;
+}
+
+export function overallBadge(form) {
+  const cur = form?.hero || form?.current;
+  const peak = form?.peak;
+  const career = form?.career;
+  const rank = form.rank && form.field ? `#${form.rank} of ${form.field}` : "";
+  const cards = [];
+  if (form?.retired) {
+    const peakSrc = peak?.form != null || peak?.overall != null ? peak : cur;
+    const peakN = peakSrc?.form ?? peakSrc?.overall;
+    const peakCard = ovrCard({
+      kicker: "Peak",
+      n: peakN,
+      bat: cur?.bat,
+      bowl: cur?.bowl,
+      title: form.caption || "Peak form",
+    });
+    if (peakCard) cards.push(peakCard);
+    const ovrN = career?.form ?? career?.overall;
+    if (ovrN != null && Number(ovrN) !== Number(peakN)) {
+      const ovrHtml = ovrCard({
+        kicker: "Overall",
+        n: ovrN,
+        bat: career?.bat,
+        bowl: career?.bowl,
+        rank,
+        title: "Career overall — better half of monthly form",
+      });
+      if (ovrHtml) cards.push(ovrHtml);
+    }
+  } else {
+    if (!cur) return "";
+    const live = ovrCard({
+      kicker: "Overall",
+      n: cur.form ?? cur.overall,
+      bat: cur.bat,
+      bowl: cur.bowl,
+      rank,
+      title: form.caption || "Form overall",
+    });
+    if (live) cards.push(live);
+    const careerN = career?.form ?? career?.overall;
+    if (careerN != null) {
+      const careerCard = ovrCard({
+        kicker: "Career",
+        n: careerN,
+        bat: career?.bat,
+        bowl: career?.bowl,
+        title: "Career overall — better half of monthly form",
+      });
+      if (careerCard) cards.push(careerCard);
+    }
+  }
+  if (!cards.length) return "";
+  return cards.length === 1 ? cards[0] : `<div class="ovr-stack">${cards.join("")}</div>`;
 }
 
 const OVR_LINES = [
@@ -478,7 +537,7 @@ function gappedPath(pts, key, fallback, X, Y) {
   return d;
 }
 
-export function overallChart(series, { width = 720, height = 220 } = {}) {
+export function overallChart(series, { width = 720, height = 220, career = null } = {}) {
   const pts = (series || []).filter((p) => p && p.as_of && (
     ovrVal(p, "form", "overall") != null || OVR_LINES.some((s) => ovrVal(p, s.key, s.fallback) != null)
   ));
@@ -489,7 +548,7 @@ export function overallChart(series, { width = 720, height = 220 } = {}) {
   const t1 = Math.max(...times);
   const span = Math.max(t1 - t0, 1);
   const yMin = 50;
-  const yMax = 99;
+  const yMax = 99.9;
   const X = (t) => pad.l + ((t - t0) / span) * (width - pad.l - pad.r);
   const Y = (n) => pad.t + (1 - (Math.max(yMin, Math.min(yMax, Number(n))) - yMin) / (yMax - yMin)) * (height - pad.t - pad.b);
   const years = [];
@@ -509,9 +568,8 @@ export function overallChart(series, { width = 720, height = 220 } = {}) {
     t20: ovrVal(p, "t20"),
     bat: ovrVal(p, "bat"),
     bowl: ovrVal(p, "bowl"),
-    is_99: Boolean(p.is_99),
+    is_99: false,
   }));
-  const nines = payload.filter((p) => p.is_99 && p.form != null);
   const active = OVR_LINES.filter((s) => payload.some((p) => p[s.key] != null));
   return `<figure class="ovr-chart" data-ovr="${esc(JSON.stringify({ pad, width, height, yMin, yMax, t0, t1, pts: payload }))}">
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Form against time">
@@ -522,11 +580,11 @@ export function overallChart(series, { width = 720, height = 220 } = {}) {
         return `<text class="ovr-axis" x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle">${y}</text>`;
       }).join("")}
       <line class="ovr-nine" x1="${pad.l}" y1="${Y(99).toFixed(1)}" x2="${width - pad.r}" y2="${Y(99).toFixed(1)}"/>
+      ${Number.isFinite(Number(career)) ? `<line class="ovr-career" x1="${pad.l}" y1="${Y(Number(career)).toFixed(1)}" x2="${width - pad.r}" y2="${Y(Number(career)).toFixed(1)}"/>` : ""}
       ${active.map((s) => {
         const d = gappedPath(payload, s.key, s.fallback, X, Y);
         return d ? `<path class="ovr-line ${s.cls}" fill="none" d="${d}"/>` : "";
       }).join("")}
-      ${nines.map((p) => `<circle class="ovr-dot nine" cx="${X(new Date(p.as_of).getTime()).toFixed(1)}" cy="${Y(p.form).toFixed(1)}" r="3.2"/>`).join("")}
       <line class="ovr-cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}"/>
       <circle class="ovr-hover-dot" r="4"/>
       <rect class="ovr-hit" x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" fill="transparent"/>
@@ -534,7 +592,8 @@ export function overallChart(series, { width = 720, height = 220 } = {}) {
     <div class="ovr-tip" hidden></div>
     <figcaption class="ovr-cap">
       ${active.map((s) => `<span class="ovr-key ${s.cls}"><i></i>${s.label}</span>`).join("")}
-      <span class="caption ovr-latest">Latest ${lastN ?? "—"} on ${esc(fmtOvrDate(last.as_of))}</span>
+      ${Number.isFinite(Number(career)) ? `<span class="caption ovr-latest">Career ${fmtOvr(career)}</span>` : ""}
+      <span class="caption ovr-latest">Latest ${lastN != null ? fmtOvr(lastN) : "—"} on ${esc(fmtOvrDate(last.as_of))}</span>
     </figcaption>
   </figure>`;
 }
@@ -596,7 +655,7 @@ export function bindOverallChart(root = document) {
       if (tip) {
         tip.hidden = false;
         tip.innerHTML = `<strong>${esc(fmtOvrDate(best.as_of))}</strong>${rows.map(([lab, n]) =>
-          `<span>${lab} <em>${n}</em></span>`).join("")}`;
+          `<span>${lab} <em>${fmtOvr(n)}</em></span>`).join("")}`;
         const figRect = fig.getBoundingClientRect();
         const left = (px / width) * fig.querySelector("svg").getBoundingClientRect().width;
         tip.style.left = `${Math.max(8, Math.min(left + 12, figRect.width - 168))}px`;
@@ -611,33 +670,36 @@ export function bindOverallChart(root = document) {
 
 export function overallBlock(form) {
   const cur = form?.hero || form?.current;
+  const career = form?.career;
   if (!cur || (cur.form == null && cur.overall == null)) return "";
+  const useCareerFmts = Boolean(form.retired && career);
+  const src = useCareerFmts ? career : cur;
   const fmts = [
-    ["Test", cur.test, cur.bat_test, cur.bowl_test],
-    ["ODI", cur.odi, cur.bat_odi, cur.bowl_odi],
-    ["T20I", cur.t20i, cur.bat_t20i, cur.bowl_t20i],
-    ["T20", cur.t20, cur.bat_t20, cur.bowl_t20],
+    ["Test", src.test, useCareerFmts ? null : src.bat_test, useCareerFmts ? null : src.bowl_test],
+    ["ODI", src.odi, useCareerFmts ? null : src.bat_odi, useCareerFmts ? null : src.bowl_odi],
+    ["T20I", src.t20i, useCareerFmts ? null : src.bat_t20i, useCareerFmts ? null : src.bowl_t20i],
+    ["T20", src.t20, useCareerFmts ? null : src.bat_t20, useCareerFmts ? null : src.bowl_t20],
   ].filter(([, ovr, bat, bowl]) => ovr != null || bat != null || bowl != null);
+  const careerLine = career && career.form != null
+    ? `Career ${fmtOvr(career.form)}${career.span ? ` · ${career.span}` : ""}${career.kept && career.n ? ` · better half of ${career.n} months` : ""}${career.cause ? ` · ${career.cause}` : ""}`
+    : "";
   const peak = form.peak && (form.peak.form ?? form.peak.overall) != null
-    ? `Peak ${form.peak.form ?? form.peak.overall} in ${fmtOvrDate(form.peak.as_of)}`
+    ? `Peak ${fmtOvr(form.peak.form ?? form.peak.overall)} in ${fmtOvrDate(form.peak.as_of)}`
     : "";
   const last = form.current && form.retired
-    ? `Last window ${form.current.form ?? form.current.overall} on ${fmtOvrDate(form.current.as_of)}`
+    ? `Last window ${fmtOvr(form.current.form ?? form.current.overall)} on ${fmtOvrDate(form.current.as_of)}`
     : "";
   return `<section class="profile-section ovr-panel" id="profile-form">
-    <div class="ovr-head">
-      ${overallBadge(form)}
-      <div class="ovr-copy">
-        <h2 class="section">Form overall</h2>
-        <p class="caption">${esc(form.caption || "")}</p>
-        ${fmts.length ? `<div class="ovr-fmts">${fmts.map(([lab, ovr, bat, bowl]) =>
-          `<span><strong>${lab}</strong> ${ovr != null ? ovr : ""}${bat != null ? ` · bat ${bat}` : ""}${bowl != null ? ` · bowl ${bowl}` : ""}</span>`
-        ).join("")}</div>` : ""}
-        ${peak ? `<p class="caption">${esc(peak)}</p>` : ""}
-        ${last ? `<p class="caption">${esc(last)}</p>` : ""}
-      </div>
-    </div>
-    ${overallChart(form.series || [])}
+    <h2 class="section">Form overall</h2>
+    <p class="caption">${esc(form.caption || "")}</p>
+    ${fmts.length ? `<div class="ovr-fmts">${fmts.map(([lab, ovr, bat, bowl]) =>
+      `<span><strong>${lab}</strong> ${ovr != null ? fmtOvr(ovr) : ""}${bat != null ? ` · bat ${fmtOvr(bat)}` : ""}${bowl != null ? ` · bowl ${fmtOvr(bowl)}` : ""}</span>`
+    ).join("")}</div>` : ""}
+    ${careerLine ? `<p class="caption">${esc(careerLine)} · <a href="#/rankings?metric=career">Overalls</a></p>` : ""}
+    ${peak ? `<p class="caption">${esc(peak)} · <a href="#/rankings?metric=peak">Peak overalls</a></p>` : ""}
+    ${last ? `<p class="caption">${esc(last)}</p>` : ""}
+    <p class="caption"><a href="#/rankings?metric=overall">Current overalls</a></p>
+    ${overallChart(form.series || [], { career: career?.form })}
   </section>`;
 }
 
@@ -1037,6 +1099,7 @@ export async function openPalette() {
     <button type="button" data-hash="#/stats">Stats</button>
     <button type="button" data-hash="#/records">Record book</button>
     <button type="button" data-hash="#/rankings?metric=overall">Form overalls</button>
+    <button type="button" data-hash="#/rankings?metric=career">Overall</button>
     <button type="button" data-hash="#/rankings">Rankings</button>
     <button type="button" data-hash="#/standings">Standings</button>
     <button type="button" data-hash="#/grounds">Grounds</button>
