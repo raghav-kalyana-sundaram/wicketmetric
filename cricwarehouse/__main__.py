@@ -17,8 +17,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("rebuild-metrics", help="Recompute T20 metrics from the warehouse")
     sub.add_parser("metrics", help="Alias of rebuild-metrics")
-    sub.add_parser("rebuild-form", help="Recompute rolling Test/ODI/T20I/T20 form ratings")
+    sub.add_parser("rebuild-form", help="Recompute Test RAA ratings and rolling ODI/T20 form")
     sub.add_parser("form", help="Alias of rebuild-form")
+    sub.add_parser("judgments", help="Run the 50 Test-rating judgments against the warehouse")
     sub.add_parser(
         "ingest-cricbase",
         help="Append Cricinfo Test/ODI scorecards from cricbase.sqlite for matches Cricsheet does not have",
@@ -50,6 +51,12 @@ def main(argv: list[str] | None = None) -> int:
 
         rebuild_form()
         return 0
+    if args.cmd == "judgments":
+        from cricwarehouse.app.judgments import format_report, run_judgments
+
+        report = run_judgments()
+        print(format_report(report))
+        return 0 if report.get("ok") and report.get("failed", 1) == 0 else 1
     if args.cmd == "ingest-cricbase":
         from cricwarehouse.app.cricbase import merge_historical
 

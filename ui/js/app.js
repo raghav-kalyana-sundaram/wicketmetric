@@ -2909,9 +2909,9 @@ async function showTeam(name) {
 }
 
 const OVR_METRICS = [
-  ["overall", "Form", "Current window. Live players only."],
-  ["career", "Overall", "The overall overall: better half of monthly form, retirees included."],
-  ["peak", "Peak", "Best single month."],
+  ["overall", "Form", "Current Test form, 0–10. Live players only."],
+  ["career", "Overall", "Test career RAA blended with peak, Bradman = 99."],
+  ["peak", "Peak", "Best 24-month-plus window, same 50–99 scale as overall."],
 ];
 const RANK_METRICS = [
   ["runs", "Most runs"],
@@ -2956,11 +2956,11 @@ async function showRankings() {
     main.innerHTML = `
       <h1 class="page-title">Rankings</h1>
       <p class="lede">${state.metric === "peak"
-        ? "Career-high form, one snapshot per player. Sort by overall or by a format — the date is when that number peaked. The line under each name is average, strike rate, and the window that set it."
+        ? "Best Test peak: a window of at least 24 months and 20 innings (40 wickets for bowlers), shrunk, on the Bradman=99 scale."
         : state.metric === "career"
-        ? "The overall overall — who they were, not one hot month and not the last window. Mean of the better half of monthly form, at least 24 months. Retirees included. Filter by format, role, and gender."
+        ? "Test overall — career RAA blended with peak rate. Bradman is 99, a replacement regular is 50. Retirees included. ODI/T20I still use counting-stat curves when you sort by those formats."
         : state.metric === "overall"
-        ? "Live international form. Filter by format, role, and gender. Franchise T20 is listed and does not set the overall."
+        ? "Current Test form on a 0–10 scale, 12-month half-life, shrunk toward each player's own career rate. Not comparable to overall. Live players only."
         : "One leaderboard at a time. Pick the metric, the competition, and the qualifying floor."}</p>
       ${leaderboardNav("rankings")}
       <div id="rk-body"><div class="skel"></div><div class="skel"></div></div>`;
@@ -2990,7 +2990,7 @@ async function showRankings() {
     }[state.metric] || [];
     const metricCol = {
       key: formBoard ? "overall" : state.metric,
-      label: state.metric === "peak" ? "Peak" : formBoard ? "Overall" : (RANK_METRICS.find(([k]) => k === state.metric) || ["", state.metric])[1].replace(/^(Most|Best) /, ""),
+      label: state.metric === "peak" ? "Peak" : state.metric === "overall" ? "Form" : formBoard ? "Overall" : (RANK_METRICS.find(([k]) => k === state.metric) || ["", state.metric])[1].replace(/^(Most|Best) /, ""),
       align: "right",
       numeric: true,
       digits: formBoard || ["avg", "sr"].includes(state.metric) ? 1 : ["econ", "tsr", "te", "war", "raa_bat", "raa_bowl"].includes(state.metric) ? 2 : 0,

@@ -10,8 +10,8 @@ export const GLOSSARY = [
   { id: "wowy", term: "WOWY", body: "With or without you. Team results only from the player’s first XI for that side — matches before they existed don’t count as “without.”" },
   { id: "pressure", term: "Pressure", body: "0–1: required rate vs expected remaining rate in chases, and overs 16+ in the first innings. Impact = RAE × (1 + pressure)." },
   { id: "pct", term: "Percentile", body: "Share of the filtered set you sit above. A 92 vs 98 still means something — fat-tail innings are not pinned at 99." },
-  { id: "form", term: "Form overall", body: "A 40.0–99.9 rating from the best of recent Test, ODI and T20I counting stats against full-member sides — not a blend, not a percentile, not T20 WAR. One decimal. Bradman's peak Test window is 99.0. A Test specialist is scored as a Test player. Franchise T20 is a separate line. Current boards hide retirees." },
-  { id: "career", term: "Overall", body: "The overall overall: who they were, not one hot month and not the last window. Mean of the better half of monthly form, needing at least 24 months. Retired badges show this number. The current Form board stays live-only." },
+  { id: "form", term: "Form", body: "A 0–10 Test rating from recency-weighted runs above replacement, shrunk toward that player's own career rate — not the pack. Half-life 12 months. Not comparable to overall (50–99). ODI/T20I form is still a counting-stat curve." },
+  { id: "career", term: "Overall", body: "Test career value: 50/50 blend of accumulated RAA and a shrunk peak rate, linearly mapped so Bradman is 99 and a replacement regular is 50. Peak is the same scale over a window of at least 24 months and 20 innings." },
   { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 use Cricinfo scorecards where Cricsheet has no file; ball-by-ball (and fastest fifties/hundreds) is Cricsheet." },
   { id: "manhattan", term: "Manhattan", body: "One bar per over, height is runs off that over. A dot above the bar marks a wicket in it. Useful for finding where an innings turned." },
   { id: "chase_pct", term: "Chase %", body: "Share of decided matches at a ground won by the side batting second. Above 55% and the toss is worth having." },
@@ -414,6 +414,12 @@ export function sparkline(values, { width = 168, height = 36, key = "runs" } = {
 
 function ovrTone(n) {
   const v = Number(n);
+  if (v <= 10) {
+    if (v >= 8.5) return "gold";
+    if (v >= 7) return "hot";
+    if (v >= 5.5) return "good";
+    return "mid";
+  }
   if (v >= 99) return "gold";
   if (v >= 90) return "hot";
   if (v >= 80) return "good";
@@ -454,18 +460,20 @@ export function overallBadge(form) {
   const career = form?.career;
   const rank = form.rank && form.field ? `#${form.rank} of ${form.field}` : "";
   const cards = [];
+  const formN = cur?.form;
+  const liveIsForm = formN != null && Number(formN) <= 10 && (career?.overall != null || cur?.overall > 10);
   if (form?.retired) {
     const peakSrc = peak?.form != null || peak?.overall != null ? peak : cur;
-    const peakN = peakSrc?.form ?? peakSrc?.overall;
+    const peakN = peakSrc?.overall ?? peakSrc?.form;
     const peakCard = ovrCard({
       kicker: "Peak",
       n: peakN,
-      bat: cur?.bat,
-      bowl: cur?.bowl,
-      title: form.caption || "Peak form",
+      bat: career?.bat ?? cur?.bat,
+      bowl: career?.bowl ?? cur?.bowl,
+      title: form.caption || "Peak",
     });
     if (peakCard) cards.push(peakCard);
-    const ovrN = career?.form ?? career?.overall;
+    const ovrN = career?.overall ?? career?.form;
     if (ovrN != null && Number(ovrN) !== Number(peakN)) {
       const ovrHtml = ovrCard({
         kicker: "Overall",
@@ -473,29 +481,40 @@ export function overallBadge(form) {
         bat: career?.bat,
         bowl: career?.bowl,
         rank,
-        title: "Career overall — better half of monthly form",
+        title: "Career overall — Test RAA, Bradman = 99",
       });
       if (ovrHtml) cards.push(ovrHtml);
     }
   } else {
-    if (!cur) return "";
-    const live = ovrCard({
-      kicker: "Overall",
-      n: cur.form ?? cur.overall,
-      bat: cur.bat,
-      bowl: cur.bowl,
-      rank,
-      title: form.caption || "Form overall",
-    });
-    if (live) cards.push(live);
-    const careerN = career?.form ?? career?.overall;
+    if (liveIsForm) {
+      const formCard = ovrCard({
+        kicker: "Form",
+        n: formN,
+        bat: cur?.bat,
+        bowl: cur?.bowl,
+        title: form.caption || "Current Test form, 0–10",
+      });
+      if (formCard) cards.push(formCard);
+    } else if (cur) {
+      const live = ovrCard({
+        kicker: "Overall",
+        n: cur.form ?? cur.overall,
+        bat: cur.bat,
+        bowl: cur.bowl,
+        rank,
+        title: form.caption || "Form overall",
+      });
+      if (live) cards.push(live);
+    }
+    const careerN = career?.overall ?? career?.form;
     if (careerN != null) {
       const careerCard = ovrCard({
-        kicker: "Career",
+        kicker: "Overall",
         n: careerN,
         bat: career?.bat,
         bowl: career?.bowl,
-        title: "Career overall — better half of monthly form",
+        rank: liveIsForm ? rank : "",
+        title: "Career overall — Test RAA, Bradman = 99",
       });
       if (careerCard) cards.push(careerCard);
     }

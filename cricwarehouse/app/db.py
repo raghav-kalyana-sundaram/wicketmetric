@@ -35,6 +35,9 @@ TABLES = (
     "unscored_exposure",
     "chase_distortion",
     "form_ratings",
+    "test_ratings",
+    "test_innings_raa",
+    "test_rating_series",
 )
 
 # Cricsheet writes the same ground several ways depending on when the file was
@@ -178,6 +181,12 @@ CREATE OR REPLACE VIEW v_form_ratings AS
   SELECT f.*, p.display_name, p.unique_name, p.slug
   FROM form_ratings f
   JOIN people p ON p.person_id = f.person_id;
+CREATE OR REPLACE VIEW v_test_ratings AS
+  SELECT t.*, p.display_name AS people_name, p.slug AS people_slug
+  FROM test_ratings t
+  JOIN people p ON p.person_id = t.person_id;
+CREATE OR REPLACE VIEW v_test_innings_raa AS SELECT * FROM test_innings_raa;
+CREATE OR REPLACE VIEW v_test_rating_series AS SELECT * FROM test_rating_series;
 """
 
 DOCUMENTED_VIEWS = [
@@ -205,6 +214,9 @@ DOCUMENTED_VIEWS = [
     "v_unscored_exposure",
     "v_chase_distortion",
     "v_form_ratings",
+    "v_test_ratings",
+    "v_test_innings_raa",
+    "v_test_rating_series",
 ]
 
 

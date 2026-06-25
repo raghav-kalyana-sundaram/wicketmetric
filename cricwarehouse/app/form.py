@@ -1,14 +1,12 @@
-"""Rolling cross-format form ratings, 2K-style.
+"""Test RAA overall / peak / form, plus rolling ODI/T20 counting-stat form.
 
-Published form is a 40–99 integer on an absolute all-time scale: the best of
-recent Test, ODI, and T20I counting stats against full-member sides. It is not
-a blend, not a percentile, and it does not use the T20 resource model (RAA,
-WAR, TSR, TE). Tests and ODIs have no advanced inputs at all. A Test
-specialist is scored as a Test player. Franchise T20 (IPL/WPL/BBL/WBBL) is
-scored on its own line and never feeds the international overall.
+Test ratings are runs above replacement: per-innings context (venue-era pitch,
+then opposition), career volume blended with a shrunk peak rate, calibrated so
+Bradman is 99 and a replacement regular is 50. Form is a recency-weighted rate
+on a 0–10 scale so it cannot be read against overall.
 
-Published form is one decimal on that scale, with a small lift so Bradman's
-peak Test window prints 99.0. Retired profiles show peak form.
+ODI, T20I and franchise T20 still use counting-stat curves. Those families
+never feed the Test overall. Rebuild with `python -m cricwarehouse rebuild-form`.
 """
 
 from __future__ import annotations
@@ -25,7 +23,7 @@ from cricwarehouse.competitions import GENDER_LABEL
 from cricwarehouse.paths import WAREHOUSE
 from cricwarehouse.teams import WTC_TEAMS, WOMEN_TEST_TEAMS
 
-FORM_VERSION = "form-v1.3.0"
+FORM_VERSION = "form-v2.0.0"
 # Families scored. `t20` is franchise leagues (IPL/WPL/BBL/WBBL), separate from T20I.
 FAMILIES = ("test", "odi", "t20i", "t20")
 INTL_FAMILIES = ("test", "odi", "t20i")
@@ -45,6 +43,9 @@ FORMATS = FAMILIES
 FORM_LIFT = 1.332
 ACTIVE_DAYS = 270
 RETIRED_AFTER = 365
+# Career identity: mean of the better half of monthly snapshots.
+CAREER_MIN_MONTHS = 24
+CAREER_KEEP_MIN = 12
 PRIOR_OVR = 74.0
 # Full-member internationals only. Associate T20Is mint fake 90s. Leagues pass through.
 FORM_TEAMS = {
@@ -668,7 +669,10 @@ def _load_lines(con) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def rebuild_form(*, step_months: int = 1) -> dict[str, Any]:
-    """Walk month-ends that had scored cricket and write form_ratings."""
+    """Rebuild Test RAA ratings, then walk month-ends for ODI/T20 counting-stat form."""
+    from cricwarehouse.app.test_value import rebuild as rebuild_test
+
+    test_meta = rebuild_test()
     if not warehouse_ready():
         raise RuntimeError("Warehouse not built yet.")
     con = connect()
@@ -704,6 +708,7 @@ def rebuild_form(*, step_months: int = 1) -> dict[str, Any]:
         "snapshots": len(stamps),
         "rows": len(packed),
         "formats": list(FORMATS),
+        "test_value": test_meta,
     }
     (WAREHOUSE / "form_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"Form ratings written: {len(packed):,} rows", flush=True)
@@ -801,7 +806,7 @@ def is_retired(as_of, warehouse_max, *, after: int = RETIRED_AFTER) -> bool:
 
 
 def pick_hero(rows: list[dict], warehouse_max) -> tuple[dict, dict, bool]:
-    """Return (hero, peak, retired). Retired players show peak form, not the last window."""
+    """Return (hero, peak, retired). Hero is peak for retirees without a career number."""
     rated = [r for r in rows if _score_of(r)]
     current = rated[-1] if rated else rows[-1]
     peak = max(rows, key=lambda r: (_score_of(r), r.get("as_of") or ""))
@@ -809,9 +814,105 @@ def pick_hero(rows: list[dict], warehouse_max) -> tuple[dict, dict, bool]:
     return (peak if retired else current), peak, retired
 
 
-def player_form(person_id: str) -> dict[str, Any] | None:
-    if not form_ready():
+def _row_score(row: dict, key: str = "form") -> float | None:
+    if key == "form":
+        return _finite(row.get("form") if row.get("form") is not None else row.get("overall"))
+    return _finite(row.get(key))
+
+
+def career_of(rows: list[dict], *, key: str = "form") -> dict[str, Any] | None:
+    """Mean of the better half of monthly form. Not the peak month, not the last window."""
+    rated: list[tuple[float, dict]] = []
+    for row in rows:
+        n = _row_score(row, key)
+        if n is None:
+            continue
+        rated.append((n, row))
+    if len(rated) < CAREER_MIN_MONTHS:
         return None
+    rated.sort(key=lambda item: (-item[0], item[1].get("as_of") or ""))
+    kept_n = max(CAREER_KEEP_MIN, len(rated) // 2)
+    kept = rated[:kept_n]
+    score = round(sum(v for v, _ in kept) / kept_n, 1)
+    closest = min(abs(v - score) for v, _ in kept)
+    typical = [item for item in kept if abs(item[0] - score) <= closest + 1e-9]
+    _, rep = max(typical, key=lambda item: item[1].get("as_of") or "")
+    first = min((r.get("as_of") or "" for _, r in kept), default="")
+    last = max((r.get("as_of") or "" for _, r in kept), default="")
+    return {
+        "score": score,
+        "form": score,
+        "overall": score,
+        "n": len(rated),
+        "kept": kept_n,
+        "from": first or None,
+        "to": last or None,
+        "as_of": rep.get("as_of"),
+        "row": rep,
+    }
+
+
+def _year_span(start, end) -> str:
+    a = str(start)[:4] if start else ""
+    b = str(end)[:4] if end else ""
+    if a and b and a != b:
+        return f"{a}–{b}"
+    return a or b
+
+
+def _career_public(career: dict[str, Any], *, family: str | None = None) -> dict[str, Any]:
+    row = career["row"]
+    cause = cause_of(row, family=family)
+    return {
+        "form": career["score"],
+        "overall": career["score"],
+        "from": career["from"],
+        "to": career["to"],
+        "n": career["n"],
+        "kept": career["kept"],
+        "as_of": career["as_of"],
+        "span": _year_span(career["from"], career["to"]),
+        "cause": cause["line"],
+        "primary": row.get("primary"),
+        "bat": _maybe_score(row.get("bat")),
+        "bowl": _maybe_score(row.get("bowl")),
+    }
+
+
+def _career_rank(con, gender: str, score: float, *, key: str = "form") -> tuple[int | None, int]:
+    col = "COALESCE(form, overall)" if key == "form" else key
+    recs = con.execute(
+        f"""
+        WITH scored AS (
+          SELECT person_id, {col} AS score,
+            ROW_NUMBER() OVER (
+              PARTITION BY person_id
+              ORDER BY {col} DESC NULLS LAST, as_of DESC
+            ) AS rk,
+            COUNT(*) OVER (PARTITION BY person_id) AS n
+          FROM form_ratings
+          WHERE gender = ? AND {col} IS NOT NULL
+        )
+        SELECT AVG(score) AS career
+        FROM scored
+        WHERE n >= {CAREER_MIN_MONTHS}
+          AND rk <= GREATEST({CAREER_KEEP_MIN}, CAST(n AS BIGINT) // 2)
+        GROUP BY person_id
+        """,
+        [gender],
+    ).fetchdf()
+    if recs is None or recs.empty:
+        return None, 0
+    field = int(len(recs))
+    published = recs["career"].astype(float).round(1)
+    rank = int((published > round(float(score), 1)).sum()) + 1
+    return rank, field
+
+
+def player_form(person_id: str) -> dict[str, Any] | None:
+    test_payload = _test_player(person_id)
+    if not form_ready():
+        return test_payload
     con = connect()
     try:
         recs = con.execute(
@@ -825,17 +926,26 @@ def player_form(person_id: str) -> dict[str, Any] | None:
             [person_id],
         ).fetchdf()
         if recs is None or recs.empty:
-            return None
+            return test_payload
         rows = _records(recs)
         warehouse_max = con.execute("SELECT MAX(as_of) FROM form_ratings").fetchone()[0]
         hero, peak, retired = pick_hero(rows, warehouse_max)
         last = next((r for r in reversed(rows) if _score_of(r)), rows[-1])
         as_of = hero.get("as_of")
         gender = hero.get("gender") or last.get("gender") or current_gender(rows)
+        career = career_of(rows)
+        career_out = None
+        if career:
+            career_out = _career_public(career)
+            for fam in FAMILIES:
+                piece = career_of(rows, key=fam)
+                career_out[fam] = piece["score"] if piece else None
         rank = None
         n99 = 0
         field = 0
-        if gender and as_of:
+        if retired and career and gender:
+            rank, field = _career_rank(con, gender, career["score"])
+        elif gender and as_of:
             score_expr, _ = _rating_cols(con)
             board = con.execute(
                 f"""
@@ -853,7 +963,7 @@ def player_form(person_id: str) -> dict[str, Any] | None:
                 ids = list(board["person_id"])
                 if person_id in ids:
                     rank = ids.index(person_id) + 1
-        return {
+        payload = {
             "current": last,
             "hero": hero,
             "peak": {
@@ -861,6 +971,7 @@ def player_form(person_id: str) -> dict[str, Any] | None:
                 "overall": peak.get("overall") if peak.get("overall") is not None else peak.get("form"),
                 "as_of": peak.get("as_of"),
             },
+            "career": career_out,
             "retired": retired,
             "series": [
                 {
@@ -880,11 +991,136 @@ def player_form(person_id: str) -> dict[str, Any] | None:
             "rank": rank,
             "field": field,
             "n99": n99,
-            "caption": _caption(last, rank, field, n99, retired=retired, peak=peak),
+            "caption": _caption(
+                last, rank, field, n99, retired=retired, peak=peak, career=career_out
+            ),
+            "version": FORM_VERSION,
+        }
+        return _merge_test_player(payload, test_payload)
+    finally:
+        con.close()
+
+
+def _test_player(person_id: str) -> dict[str, Any] | None:
+    if not _test_ready():
+        return None
+    con = connect()
+    try:
+        recs = con.execute(
+            """
+            SELECT t.*, COALESCE(t.display_name, p.display_name) AS display_name,
+                   COALESCE(t.slug, p.slug) AS slug,
+                   COALESCE(t.unique_name, p.unique_name) AS unique_name
+            FROM test_ratings t
+            JOIN people p ON p.person_id = t.person_id
+            WHERE t.person_id = ?
+            """,
+            [person_id],
+        ).fetchdf()
+        if recs is None or recs.empty:
+            return None
+        row = _records(recs)[0]
+        series_df = con.execute(
+            "SELECT as_of, overall, career_raa FROM test_rating_series WHERE person_id = ? ORDER BY as_of",
+            [person_id],
+        ).fetchdf()
+        series = _records(series_df) if series_df is not None else []
+        gender = row.get("gender")
+        rank = field = None
+        if gender:
+            board = con.execute(
+                """
+                SELECT person_id FROM test_ratings
+                WHERE gender = ? AND overall IS NOT NULL
+                ORDER BY overall DESC, career_raa DESC
+                """,
+                [gender],
+            ).fetchdf()
+            if board is not None and not board.empty:
+                field = int(len(board))
+                ids = list(board["person_id"])
+                if person_id in ids:
+                    rank = ids.index(person_id) + 1
+        retired = not bool(row.get("active"))
+        current = {
+            "form": row.get("form"),
+            "overall": row.get("overall"),
+            "bat": row.get("bat"),
+            "bowl": row.get("bowl"),
+            "test": row.get("overall"),
+            "as_of": row.get("form_as_of") or row.get("last_date"),
+            "primary": row.get("primary"),
+        }
+        peak = {
+            "form": row.get("peak"),
+            "overall": row.get("peak"),
+            "as_of": row.get("peak_end"),
+        }
+        career = {
+            "form": row.get("overall"),
+            "overall": row.get("overall"),
+            "from": row.get("first_date"),
+            "to": row.get("last_date"),
+            "span": _year_span(row.get("first_date"), row.get("last_date")),
+            "cause": _test_cause(row),
+            "primary": row.get("primary"),
+            "bat": row.get("bat"),
+            "bowl": row.get("bowl"),
+            "test": row.get("overall"),
+        }
+        caption = (
+            "Test overall is career RAA blended with a shrunk peak rate, Bradman = 99, replacement = 50. "
+            "Form is a 0–10 recency-weighted rate shrunk toward this player's own career, not the pack. "
+            f"{_test_cause(row)}."
+        )
+        if rank and field:
+            caption += f" #{rank} of {field} qualified careers."
+        if peak.get("overall") is not None:
+            caption += f" Peak {_fmt_rating(peak['overall'])} ending {_fmt_as_of(peak.get('as_of'))}."
+        return {
+            "current": current,
+            "hero": current if not retired else {**current, "form": row.get("overall"), "overall": row.get("overall")},
+            "peak": peak,
+            "career": career,
+            "retired": retired,
+            "series": [
+                {
+                    "as_of": s.get("as_of"),
+                    "form": s.get("overall"),
+                    "overall": s.get("overall"),
+                    "test": s.get("overall"),
+                    "odi": None,
+                    "t20i": None,
+                    "t20": None,
+                    "is_99": False,
+                }
+                for s in series
+            ],
+            "rank": rank,
+            "field": field,
+            "n99": 0,
+            "caption": caption,
             "version": FORM_VERSION,
         }
     finally:
         con.close()
+
+
+def _merge_test_player(payload: dict[str, Any], test: dict[str, Any] | None) -> dict[str, Any]:
+    if not test:
+        return payload
+    payload["career"] = test.get("career") or payload.get("career")
+    payload["peak"] = test.get("peak") or payload.get("peak")
+    payload["caption"] = test.get("caption") or payload.get("caption")
+    payload["rank"] = test.get("rank") if test.get("rank") is not None else payload.get("rank")
+    payload["field"] = test.get("field") if test.get("field") is not None else payload.get("field")
+    payload["retired"] = test.get("retired", payload.get("retired"))
+    payload["hero"] = test.get("hero") or payload.get("hero")
+    if test.get("series"):
+        payload["series"] = test["series"]
+    if test.get("current"):
+        payload["current"] = test["current"]
+    return payload
 
 
 def current_gender(rows: list[dict]) -> str | None:
@@ -997,7 +1233,133 @@ def _sort_col(con, sort: str | None) -> tuple[str, str]:
     return key, (score_expr if key == "overall" else key)
 
 
-def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | None = "overall") -> dict[str, Any]:
+def _role_sql(role: str | None, *, alias: str = "f") -> tuple[str, list]:
+    if role not in {"bat", "bowl"}:
+        return "", []
+    col = f'{alias}."primary"' if alias else '"primary"'
+    return f" AND {col} = ?", [role]
+
+
+def _who(gender: str, role: str | None) -> str:
+    label = GENDER_LABEL.get(gender, gender)
+    if role == "bat":
+        return f"{label} batters"
+    if role == "bowl":
+        return f"{label} bowlers"
+    return label
+
+
+def _test_ready() -> bool:
+    from cricwarehouse.app.test_value import ratings_ready
+
+    return ratings_ready()
+
+
+def _test_cause(row: dict[str, Any]) -> str:
+    parts = ["Tests"]
+    if row.get("bat") is not None:
+        parts.append(f"bat {_fmt_rating(row['bat'])}")
+    if row.get("bowl") is not None:
+        parts.append(f"bowl {_fmt_rating(row['bowl'])}")
+    tests = row.get("tests")
+    if tests:
+        parts.append(f"{int(tests)} Tests")
+    raa = row.get("career_raa")
+    if raa is not None:
+        parts.append(f"{int(round(float(raa))):+,} RAA")
+    return " · ".join(parts)
+
+
+def _test_role_ok(row: dict, role: str | None) -> bool:
+    if role not in {"bat", "bowl"}:
+        return True
+    primary = row.get("primary")
+    if role == "bowl":
+        return primary in {"bowl", "allround"} or bool(row.get("is_frontline_bowl"))
+    return primary in {"bat", "allround"} or not bool(row.get("is_frontline_bowl"))
+
+
+def _test_board_rows(con, *, gender: str, limit: int, role: str | None, sort_col: str) -> list[dict[str, Any]]:
+    recs = con.execute(
+        f"""
+        SELECT t.*, COALESCE(t.display_name, p.display_name) AS display_name,
+               COALESCE(t.slug, p.slug) AS slug,
+               COALESCE(t.unique_name, p.unique_name) AS unique_name
+        FROM test_ratings t
+        JOIN people p ON p.person_id = t.person_id
+        WHERE t.gender = ? AND t.{sort_col} IS NOT NULL
+        ORDER BY t.{sort_col} DESC, t.career_raa DESC, p.display_name
+        """,
+        [gender],
+    ).fetchdf()
+    rows = _records(recs)
+    if role in {"bat", "bowl"}:
+        rows = [r for r in rows if _test_role_ok(r, role)]
+    cap = max(int(limit), 5)
+    out = []
+    for i, row in enumerate(rows[:cap], start=1):
+        row["rank"] = i
+        row["player"] = row.get("display_name")
+        row["form"] = row.get("form")
+        row["overall"] = row.get("overall")
+        row["test"] = row.get("overall")
+        row["cause"] = _test_cause(row)
+        row["cause_format"] = "test"
+        span_from = str(row.get("first_date") or "")[:4]
+        span_to = str(row.get("last_date") or "")[:4]
+        row["span"] = f"{span_from}–{span_to}" if span_from and span_to else span_from or span_to
+        row["peak_date"] = _fmt_as_of(row.get("peak_end") or row.get("last_date"))
+        out.append(row)
+    return out
+
+
+def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | None = "overall", role: str | None = None) -> dict[str, Any]:
+    gender = gender if gender in {"male", "female"} else "male"
+    key = sort if sort in BOARD_SORTS else "overall"
+    if key in {"overall", "test"} and _test_ready():
+        con = connect()
+        try:
+            recs = con.execute(
+                """
+                SELECT t.*, COALESCE(t.display_name, p.display_name) AS display_name,
+                       COALESCE(t.slug, p.slug) AS slug,
+                       COALESCE(t.unique_name, p.unique_name) AS unique_name
+                FROM test_ratings t
+                JOIN people p ON p.person_id = t.person_id
+                WHERE t.gender = ? AND t.form IS NOT NULL AND t.active
+                ORDER BY t.form DESC, t.overall DESC, p.display_name
+                """,
+                [gender],
+            ).fetchdf()
+            rows = _records(recs)
+            if role in {"bat", "bowl"}:
+                rows = [r for r in rows if _test_role_ok(r, role)]
+            cap = max(int(limit), 5)
+            out = []
+            as_of = None
+            for i, row in enumerate(rows[:cap], start=1):
+                row["rank"] = i
+                row["player"] = row.get("display_name")
+                row["overall"] = row.get("form")
+                row["test"] = row.get("form")
+                row["cause"] = _test_cause(row)
+                row["cause_format"] = "test"
+                as_of = row.get("form_as_of") or as_of
+                out.append(row)
+            return {
+                "rows": out,
+                "as_of": as_of,
+                "metric": "overall",
+                "sort": key,
+                "role": role if role in {"bat", "bowl"} else "all",
+                "n99": 0,
+                "scope": (
+                    f"{_who(gender, role)} · Test form (0–10), 12-month half-life, "
+                    f"shrunk toward each player's own career rate. As of {_fmt_as_of(as_of)}."
+                ),
+            }
+        finally:
+            con.close()
     if not form_ready():
         return {
             "rows": [],
@@ -1005,7 +1367,6 @@ def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | No
             "metric": "overall",
             "as_of": None,
         }
-    gender = gender if gender in {"male", "female"} else "male"
     con = connect()
     try:
         as_of = con.execute(
@@ -1014,6 +1375,7 @@ def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | No
         if not as_of:
             return {"rows": [], "scope": "No form snapshots", "metric": "overall", "as_of": None}
         key, col = _sort_col(con, sort)
+        role_sql, role_params = _role_sql(role)
         recs = con.execute(
             f"""
             SELECT f.*, p.display_name, p.slug, p.unique_name
@@ -1021,10 +1383,11 @@ def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | No
             JOIN people p ON p.person_id = f.person_id
             WHERE f.as_of = ? AND f.gender = ?
               AND {col} IS NOT NULL
+              {role_sql}
             ORDER BY {col} DESC, f.raw_overall DESC, p.display_name
             LIMIT ?
             """,
-            [as_of, gender, max(int(limit), 5)],
+            [as_of, gender, *role_params, max(int(limit), 5)],
         ).fetchdf()
         family = None if key == "overall" else key
         rows = _decorate_board(_records(recs), family=family)
@@ -1034,9 +1397,10 @@ def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | No
             "as_of": as_of,
             "metric": "overall",
             "sort": key,
+            "role": role if role in {"bat", "bowl"} else "all",
             "n99": 0,
             "scope": (
-                f"{GENDER_LABEL.get(gender, gender)} · {label} form "
+                f"{_who(gender, role)} · {label} form "
                 f"as of {_fmt_as_of(as_of)}"
             ),
         }
@@ -1044,8 +1408,31 @@ def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | No
         con.close()
 
 
-def peak_board(*, gender: str | None = "male", limit: int = 80, sort: str | None = "overall") -> dict[str, Any]:
+def peak_board(*, gender: str | None = "male", limit: int = 80, sort: str | None = "overall", role: str | None = None) -> dict[str, Any]:
     """One row per player at their career-high in the sorted column."""
+    gender = gender if gender in {"male", "female"} else "male"
+    key = sort if sort in BOARD_SORTS else "overall"
+    if key in {"overall", "test"} and _test_ready():
+        con = connect()
+        try:
+            rows = _test_board_rows(con, gender=gender, limit=limit, role=role, sort_col="peak")
+            for row in rows:
+                row["overall"] = row.get("peak")
+                row["test"] = row.get("peak")
+            return {
+                "rows": rows,
+                "as_of": None,
+                "metric": "peak",
+                "sort": key,
+                "role": role if role in {"bat", "bowl"} else "all",
+                "n99": 0,
+                "scope": (
+                    f"{_who(gender, role)} · Test peak rate over ≥24 months and ≥20 innings "
+                    "(40 wickets for bowlers), shrunk, on the Bradman=99 scale."
+                ),
+            }
+        finally:
+            con.close()
     if not form_ready():
         return {
             "rows": [],
@@ -1057,6 +1444,7 @@ def peak_board(*, gender: str | None = "male", limit: int = 80, sort: str | None
     con = connect()
     try:
         key, col = _sort_col(con, sort)
+        role_sql, role_params = _role_sql(role, alias="")
         recs = con.execute(
             f"""
             SELECT f.*, p.display_name, p.slug, p.unique_name
@@ -1067,13 +1455,14 @@ def peak_board(*, gender: str | None = "male", limit: int = 80, sort: str | None
               ) AS peak_rk
               FROM form_ratings
               WHERE gender = ? AND {col} IS NOT NULL
+                {role_sql}
             ) f
             JOIN people p ON p.person_id = f.person_id
             WHERE f.peak_rk = 1
             ORDER BY {col} DESC, f.raw_overall DESC, p.display_name
             LIMIT ?
             """,
-            [gender, max(int(limit), 5)],
+            [gender, *role_params, max(int(limit), 5)],
         ).fetchdf()
         family = None if key == "overall" else key
         rows = _decorate_board(_records(recs), family=family)
@@ -1083,10 +1472,132 @@ def peak_board(*, gender: str | None = "male", limit: int = 80, sort: str | None
             "as_of": None,
             "metric": "peak",
             "sort": key,
+            "role": role if role in {"bat", "bowl"} else "all",
             "n99": 0,
             "scope": (
-                f"{GENDER_LABEL.get(gender, gender)} · career-high {label}, one snapshot each. "
+                f"{_who(gender, role)} · career-high {label}, one snapshot each. "
                 "Other format columns are from that month."
+            ),
+        }
+    finally:
+        con.close()
+
+
+def career_board(*, gender: str | None = "male", limit: int = 80, sort: str | None = "overall", role: str | None = None) -> dict[str, Any]:
+    """Greatest careers: Test RAA overall, or counting-stat career for other formats."""
+    gender = gender if gender in {"male", "female"} else "male"
+    key = sort if sort in BOARD_SORTS else "overall"
+    if key in {"overall", "test"} and _test_ready():
+        con = connect()
+        try:
+            rows = _test_board_rows(con, gender=gender, limit=limit, role=role, sort_col="overall")
+            return {
+                "rows": rows,
+                "as_of": None,
+                "metric": "career",
+                "sort": key,
+                "role": role if role in {"bat", "bowl"} else "all",
+                "n99": 0,
+                "scope": (
+                    f"{_who(gender, role)} · Test overall: 50/50 blend of career RAA and "
+                    "shrunk peak rate, Bradman = 99, replacement = 50. Retirees included."
+                ),
+            }
+        finally:
+            con.close()
+    if not form_ready():
+        return {
+            "rows": [],
+            "scope": "Form ratings not built yet. Run: python -m cricwarehouse rebuild-form",
+            "metric": "career",
+            "as_of": None,
+        }
+    gender = gender if gender in {"male", "female"} else "male"
+    key = sort if sort in BOARD_SORTS else "overall"
+    col = "form" if key == "overall" else key
+    family = None if key == "overall" else key
+    con = connect()
+    try:
+        recs = con.execute(
+            """
+            SELECT f.*, p.display_name, p.slug, p.unique_name
+            FROM form_ratings f
+            JOIN people p ON p.person_id = f.person_id
+            WHERE f.gender = ?
+            ORDER BY f.person_id, f.as_of
+            """,
+            [gender],
+        ).fetchdf()
+        rows = _records(recs)
+        by_id: dict[str, list[dict]] = {}
+        for row in rows:
+            by_id.setdefault(row["person_id"], []).append(row)
+        scored: list[dict[str, Any]] = []
+        for pid, hist in by_id.items():
+            pieces = {fam: career_of(hist, key=fam) for fam in FAMILIES}
+            pieces["form"] = career_of(hist, key="form")
+            career = pieces[col]
+            if not career:
+                continue
+            head = hist[-1]
+            item = {
+                k: career["row"].get(k)
+                for k in career["row"]
+                if k.startswith("bat_") or k.startswith("bowl_")
+            }
+            for fam in FAMILIES:
+                item[fam] = career["row"].get(fam)
+            item.update({
+                "person_id": pid,
+                "display_name": head.get("display_name"),
+                "slug": head.get("slug"),
+                "unique_name": head.get("unique_name"),
+                "primary": career["row"].get("primary"),
+                "bat": career["row"].get("bat"),
+                "bowl": career["row"].get("bowl"),
+                "form": career["score"],
+                "overall": career["score"],
+                "as_of": career["as_of"],
+                "from": career["from"],
+                "to": career["to"],
+                "n": career["n"],
+                "kept": career["kept"],
+                "span": _year_span(career["from"], career["to"]),
+            })
+            scored.append((item, pieces))
+        rows_ready: list[dict[str, Any]] = [item for item, _ in scored]
+        _decorate_board(rows_ready, family=family)
+        for item, pieces in scored:
+            overall_c = pieces["form"]
+            if overall_c:
+                item["form"] = overall_c["score"]
+                item["overall"] = overall_c["score"]
+            for fam in FAMILIES:
+                piece = pieces[fam]
+                item[fam] = piece["score"] if piece else None
+        sort_field = "overall" if key == "overall" else key
+        rows_ready.sort(
+            key=lambda r: (-(r.get(sort_field) or 0), r.get("display_name") or ""),
+        )
+        if role in {"bat", "bowl"}:
+            rows_ready = [r for r in rows_ready if r.get("primary") == role]
+        scored = rows_ready
+        cap = max(int(limit), 5)
+        rows_out = scored[:cap]
+        for i, row in enumerate(rows_out, start=1):
+            row["rank"] = i
+        label = FMT_LABEL.get(key, "overall")
+        return {
+            "rows": rows_out,
+            "as_of": None,
+            "metric": "career",
+            "sort": key,
+            "role": role if role in {"bat", "bowl"} else "all",
+            "n99": 0,
+            "scope": (
+                f"{_who(gender, role)} · career {label}: mean of the better "
+                f"half of monthly form, at least {CAREER_MIN_MONTHS} months. Not the peak "
+                "month, not the last window. Format columns use the same rule. Retirees included."
             ),
         }
     finally:
@@ -1101,18 +1612,29 @@ def _caption(
     *,
     retired: bool = False,
     peak: dict | None = None,
+    career: dict | None = None,
 ) -> str:
     bits = [
         "Best of recent Test, ODI and T20I counting stats against full-member sides — not a blend, not a percentile, not T20 WAR.",
         "A Test specialist is scored as a Test player. Franchise T20 (IPL, WPL, BBL, WBBL) is its own line and does not feed the overall.",
         "One decimal, 40.0–99.9. Bradman's peak Test window is 99.0; anyone above that can print 99.1–99.9.",
+        "Career overall is the mean of the better half of monthly form — at least 24 months. Not the peak month, not the last window.",
     ]
+    if career:
+        span = career.get("span")
+        when = f" ({span})" if span else ""
+        bits.append(
+            f"Career {_fmt_rating(career.get('form'))}"
+            f" across {career.get('kept')} of {career.get('n')} months{when}."
+        )
     if retired and peak:
         bits.append(
             f"Peak {_fmt_rating(_score_of(peak))} on {_fmt_as_of(peak.get('as_of'))}."
             f" Last window {_fmt_rating(_score_of(current))} on {_fmt_as_of(current.get('as_of'))}."
         )
-        if rank and field:
+        if rank and field and career:
+            bits.append(f"#{rank} of {field} careers.")
+        elif rank and field:
             bits.append(f"#{rank} of {field} qualified {current.get('gender') or 'players'} at that peak.")
     elif rank and field:
         bits.append(
