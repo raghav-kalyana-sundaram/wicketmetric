@@ -87,17 +87,18 @@ def _nanmed(arr, default: float = 30.0) -> float:
 class Params:
     k_ctx: float = 12.0
     k_era: float = 25.0
-    k_peak: float = 18.0
+    k_peak: float = 40.0
     k_form: float = 12.0
+    k_rate: float = 20.0
     repl_bat: float = 0.75
-    repl_bowl: float = 1.05
+    repl_bowl: float = 1.00
     quality_exp: float = 2.0
     quality_lo: float = 0.32
     quality_hi: float = 2.50
-    blend_career: float = 0.45
+    blend_career: float = 0.40
     peak_min_days: int = 730
-    peak_max_days: int = 1460
-    peak_min_tests: int = 15
+    peak_max_days: int = 1825
+    peak_min_tests: int = 20
     peak_min_bat_inns: int = 20
     peak_min_wkts: int = 40
     attack_passes: int = 4
@@ -737,6 +738,9 @@ def aggregate_players(pm: pd.DataFrame, params: Params) -> pd.DataFrame:
     raw = players["peak_rate"].to_numpy(dtype=float)
     shrunk = (n * raw + params.k_peak * pop_mean) / np.maximum(n + params.k_peak, 1.0)
     players["peak_shrunk"] = np.where(n > 0, shrunk, 0.0)
+    n_t = players["tests"].to_numpy(dtype=float)
+    k_r = float(params.k_rate)
+    players["rate_shrunk"] = (n_t * players["career_rate"].to_numpy(dtype=float) + k_r * pop_mean) / np.maximum(n_t + k_r, 1.0)
     players["pop_mean_rate"] = pop_mean
     return players
 
@@ -755,6 +759,11 @@ def _slog(values: np.ndarray) -> np.ndarray:
     return np.sign(arr) * np.log1p(np.abs(arr))
 
 
+def _ssqrt(values: np.ndarray) -> np.ndarray:
+    arr = np.asarray(values, dtype=float)
+    return np.sign(arr) * np.sqrt(np.abs(arr))
+
+
 def calibrate(players: pd.DataFrame, params: Params, *, anchor_name: str = BRADMAN_NAME) -> pd.DataFrame:
     """Phase 5: two-point linear map, Bradman = 99, replacement = 50."""
     if players.empty:
@@ -767,17 +776,20 @@ def calibrate(players: pd.DataFrame, params: Params, *, anchor_name: str = BRADM
     ]
     if pool.empty:
         pool = players
-    z_c, mu_c, sd_c = _z(np.sign(pool["career_raa"].to_numpy(dtype=float)) * np.sqrt(np.abs(pool["career_raa"].to_numpy(dtype=float))))
+    z_c, mu_c, sd_c = _z(_ssqrt(pool["career_raa"].to_numpy(dtype=float)))
+    z_r, mu_r, sd_r = _z(pool["rate_shrunk"].to_numpy(dtype=float) if "rate_shrunk" in pool else pool["career_rate"].to_numpy(dtype=float))
     z_p, mu_p, sd_p = _z(pool["peak_shrunk"].to_numpy())
-    career_sqrt = np.sign(players["career_raa"].to_numpy(dtype=float)) * np.sqrt(np.abs(players["career_raa"].to_numpy(dtype=float)))
-    zc = (career_sqrt - mu_c) / sd_c
+    zc = (_ssqrt(players["career_raa"].to_numpy(dtype=float)) - mu_c) / sd_c
+    zr = ((players["rate_shrunk"] if "rate_shrunk" in players else players["career_rate"]).to_numpy(dtype=float) - mu_r) / sd_r
     zp = (players["peak_shrunk"].to_numpy(dtype=float) - mu_p) / sd_p
     blend = params.blend_career
-    raw = blend * zc + (1.0 - blend) * zp
+    # Career rate (Bradman's outlier) carries more weight than volume, so a
+    # 168-Test pile cannot outrank 99 runs per out.
+    raw = blend * zc + (1.0 - blend) * zr
     players["overall_raw"] = raw
     zc0 = (0.0 - mu_c) / sd_c
-    zp0 = (0.0 - mu_p) / sd_p
-    raw0 = blend * zc0 + (1.0 - blend) * zp0
+    zr0 = (0.0 - mu_r) / sd_r
+    raw0 = blend * zc0 + (1.0 - blend) * zr0
     anchor = players["unique_name"] == anchor_name
     if not anchor.any():
         idx = int(players["career_raa"].idxmax())
@@ -790,13 +802,13 @@ def calibrate(players: pd.DataFrame, params: Params, *, anchor_name: str = BRADM
     a = params.replacement_score
     b = (params.bradman_score - params.replacement_score) / span
     players["overall"] = a + b * (players["overall_raw"] - raw0)
-    peak_raw = 0.25 * zc + 0.75 * zp
+    peak_raw = 0.20 * zc + 0.80 * zp
     players["peak_raw"] = peak_raw
     players["peak"] = a + b * (peak_raw - raw0)
     for src, dest in (("career_raa_bat", "bat"), ("career_raa_bowl", "bowl"),
                       ("career_raa_home", "home_overall"), ("career_raa_away", "away_overall")):
-        z_disc = (np.sign(players[src].to_numpy(dtype=float)) * np.sqrt(np.abs(players[src].to_numpy(dtype=float))) - mu_c) / sd_c
-        disc_raw = blend * z_disc + (1.0 - blend) * zp
+        z_disc = (_ssqrt(players[src].to_numpy(dtype=float)) - mu_c) / sd_c
+        disc_raw = blend * z_disc + (1.0 - blend) * zr
         players[dest] = a + b * (disc_raw - raw0)
     players["cal_a"] = a
     players["cal_b"] = b
@@ -805,6 +817,8 @@ def calibrate(players: pd.DataFrame, params: Params, *, anchor_name: str = BRADM
     players["cal_sd_c"] = sd_c
     players["cal_mu_p"] = mu_p
     players["cal_sd_p"] = sd_p
+    players["cal_mu_r"] = mu_r
+    players["cal_sd_r"] = sd_r
     return players
 
 
@@ -834,6 +848,29 @@ def classify(players: pd.DataFrame) -> pd.DataFrame:
     return players
 
 
+def _map_form_scale(rates: np.ndarray, active: np.ndarray) -> np.ndarray:
+    """0–10 among active players: median 6.5, 90th 8.8, current best 9.6."""
+    out = np.full(len(rates), np.nan)
+    ok = active & np.isfinite(rates)
+    if int(ok.sum()) < 5:
+        return out
+    pool = rates[ok]
+    p10 = float(np.percentile(pool, 10))
+    p50 = float(np.median(pool))
+    p90 = float(np.percentile(pool, 90))
+    hi = float(np.max(pool))
+    r = rates
+    span_lo = max(p50 - p10, 1e-6)
+    span_mid = max(p90 - p50, 1e-6)
+    mapped = np.where(r >= p50, 6.5 + 2.3 * (r - p50) / span_mid, 6.5 + 3.5 * (r - p50) / span_lo)
+    if hi > p90 + 1e-9:
+        mapped = np.where(r >= p90, 8.8 + 0.8 * (r - p90) / (hi - p90), mapped)
+    finite = np.isfinite(r)
+    out[finite] = np.clip(mapped[finite], 1.0, 9.7)
+    out[~ok] = np.nan
+    return out
+
+
 def compute_form(
     pm: pd.DataFrame,
     players: pd.DataFrame,
@@ -841,7 +878,7 @@ def compute_form(
     *,
     as_of=None,
 ) -> pd.DataFrame:
-    """Phase 6: decay-weighted RAA rate, shrunk toward the player's own career."""
+    """Phase 6: decay-weighted RAA per Test, shrunk toward the player's own career."""
     if pm.empty or players.empty:
         players = players.copy()
         players["form"] = np.nan
@@ -864,11 +901,10 @@ def compute_form(
             rows.append({"person_id": pid, "form_rate": None, "form_n": n_recent, "form_as_of": as_of_ts.date().isoformat()})
             continue
         w = np.exp(-LN2 * np.clip(days, 0, None) / max(half, 1.0))
-        inns = (g["bat_inns"] + g["bowl_inns"]).to_numpy(dtype=float)
         raa = g["raa"].to_numpy(dtype=float)
-        den = float(np.sum(w * inns))
+        den = float(np.sum(w))
         rate = float(np.sum(w * raa) / den) if den > 0 else 0.0
-        n_eff = float(np.sum(w * inns))
+        n_eff = den
         prior = float(career.get(pid, 0.0) or 0.0)
         shrunk = (n_eff * rate + params.k_form * prior) / max(n_eff + params.k_form, 1.0)
         rows.append({
@@ -881,17 +917,14 @@ def compute_form(
     form = pd.DataFrame(rows)
     players = players.merge(form, on="person_id", how="left")
     rates = pd.to_numeric(players["form_rate"], errors="coerce")
-    mu = _nanmed(rates.dropna(), 0.0) if rates.notna().any() else 0.0
-    mad = _nanmed(np.abs(rates - mu), 1.0) if rates.notna().any() else 1.0
-    mad = mad if mad > 1e-6 else 1.0
-    z = (rates - mu) / (1.4826 * mad)
-    players["form"] = (5.0 + 4.0 * np.tanh(z / 1.4)).clip(0.0, 10.0)
     last_src = players["last_match"] if "last_match" in players.columns else players.get("last_date")
     if not isinstance(last_src, pd.Series):
         last_src = pd.Series(pd.NaT, index=players.index)
     last = pd.to_datetime(last_src, errors="coerce")
     age = (as_of_ts - last).dt.days
-    players["active"] = rates.notna() & last.notna() & (age <= params.active_days)
+    active = rates.notna() & last.notna() & (age <= params.active_days)
+    players["active"] = active
+    players["form"] = _map_form_scale(rates.to_numpy(dtype=float), active.to_numpy(dtype=bool))
     players.loc[~players["active"].fillna(False), "form"] = np.nan
     return players
 

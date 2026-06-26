@@ -162,7 +162,7 @@ def test_peak_rejects_a_six_match_purple_patch():
             hot_bat.append(_bat(bid, mid, day, 5, innings=2, team="England", home="Australia", away="England"))
     bat = pd.concat([bat, pd.DataFrame(hot_bat)], ignore_index=True)
     bowl = pd.concat([bowl, pd.DataFrame(hot_bowl)], ignore_index=True)
-    params = Params(attack_passes=1, peak_min_days=730, peak_min_bat_inns=20, z_pool_min_tests=5)
+    params = Params(attack_passes=1, peak_min_days=730, peak_min_bat_inns=20, peak_min_tests=12, z_pool_min_tests=5)
     model = run_model(bat, bowl, params)
     star = model["players"].set_index("person_id").loc["star"]
     start_p = pd.Timestamp(star["peak_start"])
