@@ -1354,8 +1354,8 @@ def latest_board(*, gender: str | None = "male", limit: int = 80, sort: str | No
                 "role": role if role in {"bat", "bowl"} else "all",
                 "n99": 0,
                 "scope": (
-                    f"{_who(gender, role)} · Test form (0–10), 12-month half-life, "
-                    f"shrunk toward each player's own career rate. As of {_fmt_as_of(as_of)}."
+                    f"{_who(gender, role)} · current Test form (0–10) among active players "
+                    f"(median ~6.5, world-best ~9.5). As of {_fmt_as_of(as_of)}."
                 ),
             }
         finally:
@@ -1499,8 +1499,8 @@ def career_board(*, gender: str | None = "male", limit: int = 80, sort: str | No
                 "role": role if role in {"bat", "bowl"} else "all",
                 "n99": 0,
                 "scope": (
-                    f"{_who(gender, role)} · Test overall: 50/50 blend of career RAA and "
-                    "shrunk peak rate, Bradman = 99, replacement = 50. Retirees included."
+                    f"{_who(gender, role)} · Test overall: career value blended with "
+                    "rate, Bradman = 99, replacement = 50. Retirees included."
                 ),
             }
         finally:

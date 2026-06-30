@@ -331,13 +331,16 @@ def master_stats(
         con.close()
 
 
-def rankings(*, metric: str = "runs", comp: str | None = None, gender: str | None = None, min_inns: int = 5, sort: str | None = None) -> dict:
+def rankings(*, metric: str = "runs", comp: str | None = None, gender: str | None = None, min_inns: int = 5, sort: str | None = None, role: str | None = None) -> dict:
     if metric == "overall":
         from cricwarehouse.app.form import latest_board
-        return latest_board(gender=gender, limit=200, sort=sort)
+        return latest_board(gender=gender, limit=200, sort=sort, role=role)
     if metric == "peak":
         from cricwarehouse.app.form import peak_board
-        return peak_board(gender=gender, limit=200, sort=sort)
+        return peak_board(gender=gender, limit=200, sort=sort, role=role)
+    if metric == "career":
+        from cricwarehouse.app.form import career_board
+        return career_board(gender=gender, limit=200, sort=sort, role=role)
     if metric == "war":
         return _war_rankings(comp=comp, gender=gender)
     data = master_stats(comp=comp, gender=gender, min_inns=min_inns, role="all", sort=metric)

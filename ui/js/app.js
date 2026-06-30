@@ -830,8 +830,9 @@ async function showHomeSnapshot() {
     <nav class="home-jump" aria-label="Browse">
       <a href="#/records">Record book</a>
       <a href="#/stats">Stats table</a>
-      <a href="#/rankings?metric=overall">Form overalls</a>
       <a href="#/rankings?metric=career">Overall</a>
+      <a href="#/rankings?metric=peak">Peak</a>
+      <a href="#/rankings?metric=overall">Current form</a>
       <a href="#/rankings">Rankings</a>
       <a href="#/best">Best T20</a>
       <a href="#/standings">Standings</a>
@@ -969,7 +970,7 @@ async function showResults(q) {
 // between them, Rankings in particular is only reachable from the palette.
 const LEADERBOARD_PAGES = [
   ["stats", "Stats table", "/stats"],
-  ["rankings", "Rankings", "/rankings"],
+  ["rankings", "Rankings", "/rankings?metric=career"],
   ["records", "Record book", "/records"],
   ["best", "Best T20", "/best"],
   ["model", "Model", "/model"],
@@ -2909,9 +2910,9 @@ async function showTeam(name) {
 }
 
 const OVR_METRICS = [
-  ["overall", "Form", "Current Test form, 0–10. Live players only."],
   ["career", "Overall", "Test career RAA blended with peak, Bradman = 99."],
   ["peak", "Peak", "Best 24-month-plus window, same 50–99 scale as overall."],
+  ["overall", "Form", "Current Test form, 0–10. Live players only — not all-time."],
 ];
 const RANK_METRICS = [
   ["runs", "Most runs"],
@@ -2960,11 +2961,12 @@ async function showRankings() {
         : state.metric === "career"
         ? "Test overall — career RAA blended with peak rate. Bradman is 99, a replacement regular is 50. Retirees included. ODI/T20I still use counting-stat curves when you sort by those formats."
         : state.metric === "overall"
-        ? "Current Test form on a 0–10 scale, 12-month half-life, shrunk toward each player's own career rate. Not comparable to overall. Live players only."
+        ? "Current Test form among active players only, 0–10. Median regular is about 6.5; the best in the world sit around 9.3–9.6. Bradman is not here — open Overall for the all-time list (Bradman = 99)."
         : "One leaderboard at a time. Pick the metric, the competition, and the qualifying floor."}</p>
       ${leaderboardNav("rankings")}
       <div id="rk-body"><div class="skel"></div><div class="skel"></div></div>`;
     const d = await fetch(`/api/rankings?${qs}`).then((r) => r.json()).catch(() => ({ rows: [] }));
+    if (!$("rk-body")) return;
     const rows = (d.rows || []).map((r, i) => ({ ...r, rank: i + 1, player: r.player || r.display_name }));
     const formExtra = [
       { key: "test", label: "Test", align: "right", numeric: true, digits: 1 },

@@ -10,7 +10,7 @@ export const GLOSSARY = [
   { id: "wowy", term: "WOWY", body: "With or without you. Team results only from the player’s first XI for that side — matches before they existed don’t count as “without.”" },
   { id: "pressure", term: "Pressure", body: "0–1: required rate vs expected remaining rate in chases, and overs 16+ in the first innings. Impact = RAE × (1 + pressure)." },
   { id: "pct", term: "Percentile", body: "Share of the filtered set you sit above. A 92 vs 98 still means something — fat-tail innings are not pinned at 99." },
-  { id: "form", term: "Form", body: "A 0–10 Test rating from recency-weighted runs above replacement, shrunk toward that player's own career rate — not the pack. Half-life 12 months. Not comparable to overall (50–99). ODI/T20I form is still a counting-stat curve." },
+  { id: "form", term: "Form", body: "A 0–10 Test rating among active players: recency-weighted RAA per Test, shrunk toward that player's own career. Median current regular is about 6.5; the best in the world sit around 9.3–9.6. Not comparable to overall (50–99)." },
   { id: "career", term: "Overall", body: "Test career value: 50/50 blend of accumulated RAA and a shrunk peak rate, linearly mapped so Bradman is 99 and a replacement regular is 50. Peak is the same scale over a window of at least 24 months and 20 innings." },
   { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 use Cricinfo scorecards where Cricsheet has no file; ball-by-ball (and fastest fifties/hundreds) is Cricsheet." },
   { id: "manhattan", term: "Manhattan", body: "One bar per over, height is runs off that over. A dot above the bar marks a wicket in it. Useful for finding where an innings turned." },
@@ -1117,8 +1117,9 @@ export async function openPalette() {
     ${recents.length ? `<h4>Recently viewed</h4>${recents.map((r) => `<button type="button" data-hash="#/player/${esc(r.slug)}">${portrait(r.slug, r.name, "xs")}<span>${esc(r.name)}</span></button>`).join("")}<h4>Pages</h4>` : ""}
     <button type="button" data-hash="#/stats">Stats</button>
     <button type="button" data-hash="#/records">Record book</button>
-    <button type="button" data-hash="#/rankings?metric=overall">Form overalls</button>
     <button type="button" data-hash="#/rankings?metric=career">Overall</button>
+    <button type="button" data-hash="#/rankings?metric=peak">Peak</button>
+    <button type="button" data-hash="#/rankings?metric=overall">Current form</button>
     <button type="button" data-hash="#/rankings">Rankings</button>
     <button type="button" data-hash="#/standings">Standings</button>
     <button type="button" data-hash="#/grounds">Grounds</button>

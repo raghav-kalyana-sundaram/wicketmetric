@@ -9,6 +9,7 @@ import pandas as pd
 from cricwarehouse.app.form import (
     apply_nines,
     best_format,
+    career_of,
     cause_of,
     piecewise,
     player_overall,
@@ -259,6 +260,24 @@ def test_t20_family_uses_the_t20i_curve():
     )
     assert ipl and intl
     assert abs(ipl["rating"] - intl["rating"]) < 0.01
+
+
+def test_career_is_better_half_not_peak_or_last():
+    rows = (
+        [{"as_of": f"2010-{m:02d}-28", "form": 70, "test": 70} for m in range(1, 13)]
+        + [{"as_of": f"2011-{m:02d}-28", "form": 90, "test": 90} for m in range(1, 13)]
+        + [{"as_of": f"2012-{m:02d}-28", "form": 80, "test": 80} for m in range(1, 13)]
+    )
+    career = career_of(rows)
+    assert career is not None
+    assert career["form"] == 86.7
+    assert career["form"] != 90
+    assert career["form"] != 80
+    assert career["n"] == 36
+    assert career["kept"] == 18
+    assert career["as_of"].startswith("2011-")
+    assert career_of(rows[:23]) is None
+    assert career_of(rows, key="test")["form"] == 86.7
 
 
 def test_retired_hero_is_peak_not_last_window():

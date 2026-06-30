@@ -304,8 +304,9 @@ def create_app() -> FastAPI:
         gender: str | None = None,
         min_inns: int = 5,
         sort: str | None = None,
+        role: str | None = None,
     ):
-        return catalog.rankings(metric=metric, comp=comp or None, gender=gender or None, min_inns=min_inns, sort=sort)
+        return catalog.rankings(metric=metric, comp=comp or None, gender=gender or None, min_inns=min_inns, sort=sort, role=role)
 
     @app.get("/api/form")
     def api_form(gender: str | None = "male", limit: int = 80):
