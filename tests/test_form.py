@@ -1,4 +1,4 @@
-"""Form ratings from counting stats — no warehouse, no T20 resource model."""
+"""Form ratings from counting stats — no application data, no T20 resource model."""
 
 from __future__ import annotations
 

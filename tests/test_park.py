@@ -1,4 +1,4 @@
-"""Park-factor math for the stat-line shift card — no warehouse required."""
+"""Park-factor math for the stat-line shift card — no application data required."""
 
 from __future__ import annotations
 

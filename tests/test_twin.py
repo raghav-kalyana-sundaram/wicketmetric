@@ -1,4 +1,4 @@
-"""Style-twin distance, calibration, and explanation — no warehouse required."""
+"""Style-twin distance, calibration, and explanation — no application data required."""
 
 from __future__ import annotations
 
@@ -122,7 +122,7 @@ def test_jayawardene_style_prefers_sangakkara_over_value_neighbours():
     from cricwarehouse.app.studio import profile_twin
 
     if not warehouse_ready():
-        pytest.skip("Warehouse not built")
+        pytest.skip("Application not built")
     d = profile_twin("Jayawardene", pool="t20i_ipl", mode="style")
     assert d.get("ok")
     names = [t["display_name"] for t in d.get("twins") or []]

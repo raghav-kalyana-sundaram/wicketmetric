@@ -1,4 +1,4 @@
-"""Stats table can sort by form overall when the warehouse is built."""
+"""Stats table can sort by form overall when the application is built."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from cricwarehouse.app.form import form_ready
 
 pytestmark = pytest.mark.skipif(
     not warehouse_ready() or not form_ready(),
-    reason="Warehouse and form ratings are required",
+    reason="Application data and form ratings are required",
 )
 
 

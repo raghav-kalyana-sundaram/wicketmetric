@@ -1,4 +1,4 @@
-"""Synthetic Tests for the Test RAA pipeline — no warehouse required."""
+"""Synthetic Tests for the Test RAA pipeline — no application data required."""
 
 from __future__ import annotations
 

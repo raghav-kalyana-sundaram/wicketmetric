@@ -1,4 +1,4 @@
-"""Warehouse integration for the 50 Test-rating judgments."""
+"""Application integration for the 50 Test-rating judgments."""
 
 from __future__ import annotations
 
