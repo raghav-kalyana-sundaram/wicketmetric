@@ -160,7 +160,7 @@ def load_test_frames(
     own = con is None
     if own:
         if not warehouse_ready():
-            raise RuntimeError("Warehouse not built yet.")
+            raise RuntimeError("Application not built yet.")
         con = connect()
     try:
         gender_sql = "AND m.gender = ?" if gender else ""
@@ -1074,7 +1074,7 @@ def rebuild(
 ) -> dict[str, Any]:
     """Score men's and women's Tests separately and write parquet."""
     if not warehouse_ready():
-        raise RuntimeError("Warehouse not built yet.")
+        raise RuntimeError("Application not built yet.")
     genders = (gender,) if gender in {"male", "female"} else ("male", "female")
     player_parts = []
     inn_parts = []

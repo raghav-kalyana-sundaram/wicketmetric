@@ -674,7 +674,7 @@ def rebuild_form(*, step_months: int = 1) -> dict[str, Any]:
 
     test_meta = rebuild_test()
     if not warehouse_ready():
-        raise RuntimeError("Warehouse not built yet.")
+        raise RuntimeError("Application not built yet.")
     con = connect()
     try:
         bat, bowl = _load_lines(con)
@@ -797,7 +797,7 @@ def _as_date(iso) -> date | None:
 
 
 def is_retired(as_of, warehouse_max, *, after: int = RETIRED_AFTER) -> bool:
-    """True when the last snapshot is more than `after` days behind the warehouse."""
+    """True when the last snapshot is more than `after` days behind the application."""
     last = _as_date(as_of)
     latest = _as_date(warehouse_max)
     if last is None or latest is None:

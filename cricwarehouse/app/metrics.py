@@ -42,7 +42,7 @@ def rebuild_metrics() -> None:
     matches_p = WAREHOUSE / "matches.parquet"
     deliveries_p = WAREHOUSE / "deliveries.parquet"
     if not matches_p.exists() or not deliveries_p.exists():
-        _log("Warehouse not built yet — skip metrics.")
+        _log("Application not built yet — skip metrics.")
         return
 
     con = duckdb.connect(database=":memory:")
@@ -62,7 +62,7 @@ def rebuild_metrics() -> None:
         """
     ).fetchdf()
     if t20.empty:
-        _log("No T20 matches in warehouse.")
+        _log("No T20 matches in the application.")
         write_parquet("metrics_t20", [])
         write_parquet("team_strength", [])
         write_parquet("super_over_stats", [])
@@ -341,7 +341,7 @@ def _bradley_terry(t20) -> dict[tuple, float]:
     Sequential Elo answers "how well has this side done against the sides it
     happens to play", which is not the same question. Associate nations play
     mostly each other, so their ratings drift on a scale that never meets the
-    full members': on this warehouse Elo puts Uganda above Australia. Solving
+    full members': on this application Elo puts Uganda above Australia. Solving
     the whole fixture graph at once instead lets the handful of cross-tier games
     anchor everyone, and the ridge penalty pulls thinly connected sides toward
     the middle rather than letting them run away.

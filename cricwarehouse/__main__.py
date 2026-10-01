@@ -15,11 +15,11 @@ def main(argv: list[str] | None = None) -> int:
     p_build.add_argument("--no-metrics", action="store_true")
     p_build.add_argument("--workers", type=int, default=None)
 
-    sub.add_parser("rebuild-metrics", help="Recompute T20 metrics from the warehouse")
+    sub.add_parser("rebuild-metrics", help="Recompute T20 metrics from the application")
     sub.add_parser("metrics", help="Alias of rebuild-metrics")
     sub.add_parser("rebuild-form", help="Recompute Test RAA ratings and rolling ODI/T20 form")
     sub.add_parser("form", help="Alias of rebuild-form")
-    sub.add_parser("judgments", help="Run the 50 Test-rating judgments against the warehouse")
+    sub.add_parser("judgments", help="Run the 50 Test-rating judgments against the application")
     sub.add_parser(
         "ingest-cricbase",
         help="Append Cricinfo Test/ODI scorecards from cricbase.sqlite for matches Cricsheet does not have",
