@@ -788,7 +788,7 @@ async function showHomeSnapshot() {
   ]);
   if (gen !== routeGen) return;
   if (!snap.rows?.length) {
-    main.innerHTML = `<div class="error">Warehouse not built yet. Run: <code class="cmd">python -m cricwarehouse pull && python -m cricwarehouse build</code> — or open the <a href="#/build">Build</a> page.</div>`;
+    main.innerHTML = `<div class="error">Application not built yet. Run: <code class="cmd">python -m cricwarehouse pull && python -m cricwarehouse build</code> — or open the <a href="#/build">Build</a> page.</div>`;
     return;
   }
   const cols = [
@@ -848,7 +848,7 @@ async function showHomeSnapshot() {
     </div>
     <div id="pulse-box"><div class="skel"></div></div>
     ${otdBlock}
-    <h2 class="section">In the warehouse</h2>
+    <h2 class="section">In the application</h2>
     <p class="scope">${snap.deliveries?.toLocaleString()} deliveries across ${snap.rows.reduce((s, r) => s + Number(r.matches || 0), 0).toLocaleString()} matches</p>
     ${table(cols, snap.rows, { query: "", compact: true })}`;
   const pulseItem = (r, line) =>
@@ -958,7 +958,7 @@ async function showResults(q) {
     ${table(res.columns || [], res.rows || [], { pageIndex: page, total: (res.rows || []).length, query: q, faces: res.kind === "innings", copyLine: res.kind === "innings" })}
     ${res.kind === "standings" && res.playoffs?.length ? playoffBlock(res.playoffs) : ""}
     ${res.kind === "innings" ? `<p class="caption">Date opens the scorecard.</p>` : ""}
-    ${res.wpa != null ? `<p class="caption">WPA when present in T20s: ${signed(res.wpa, 2)} in this warehouse.</p>` : ""}
+    ${res.wpa != null ? `<p class="caption">WPA when present in T20s: ${signed(res.wpa, 2)} in this application.</p>` : ""}
   `;
   bindTable(q);
   main.querySelectorAll("[data-slug]").forEach((b) => {
@@ -1446,9 +1446,9 @@ async function showPlayer(key) {
           ${pctBar(m.rank, m.of)}
         </div>`;
       }).join("")}</div>
-      <p class="caption">Career totals — more games count. TSR and TE are strike rate and economy against the same situation, not the raw rates. In this warehouse, not an official rating.</p>`;
+      <p class="caption">Career totals — more games count. TSR and TE are strike rate and economy against the same situation, not the raw rates. In this application, not an official rating.</p>`;
   } else {
-    cards = `<p class="caption">${bowlerFirst ? "Bowler first — more balls bowled than faced in this warehouse." : "Ball-derived T20 metrics appear when T20I / IPL rows exist (see MODEL.md)."}</p>`;
+    cards = `<p class="caption">${bowlerFirst ? "Bowler first — more balls bowled than faced in this application." : "Ball-derived T20 metrics appear when T20I / IPL rows exist (see MODEL.md)."}</p>`;
   }
   const pf = d.performances?.rows || [];
   const h2h = d.matchups || { as_batter: [], as_bowler: [] };
@@ -2341,7 +2341,7 @@ async function showBest() {
     const compositeInfo = "NRC contributes 55%, WPA translated to runs 35%, and pressure 10%. Each component is standardized within competition, gender, and discipline. Batting and bowling blends from the same match are added. The index is unbounded: 100 is the reference line and each 10 points is one blended standard deviation. It is not raw runs added.";
     main.innerHTML = `
       <h1 class="page-title">Best T20</h1>
-      <p class="lede">The strongest T20 performances in this warehouse, with batting and bowling from the same match counted together.</p>
+      <p class="lede">The strongest T20 performances in this application, with batting and bowling from the same match counted together.</p>
       ${leaderboardNav("best")}
       <div class="filters">
         <label>View
@@ -2581,7 +2581,7 @@ async function showRecords() {
     history.replaceState(null, "", `#/records?${qs}`);
     main.innerHTML = `
       <h1 class="page-title">Record book</h1>
-      <p class="lede">The extremes this warehouse holds. Tests from 1877 and ODIs from 1971 are on the card; fastest fifties and hundreds still need ball-by-ball files.</p>
+      <p class="lede">The extremes this application holds. Tests from 1877 and ODIs from 1971 are on the card; fastest fifties and hundreds still need ball-by-ball files.</p>
       ${leaderboardNav("records")}
       <div id="rec-body"><div class="skel"></div><div class="skel"></div></div>`;
     const d = await fetch(`/api/records?${qs}`).then((r) => r.json()).catch(() => ({ rows: [], kinds: [] }));
@@ -3361,7 +3361,7 @@ const COMPARE_METRIC_HELP = {
   war_bowl: "Bowling wins above replacement, on the same run scale as batting.",
   twr_bat: "True wicket-rate residual: dismissals per 100 balls above expectation. Negative means harder to get out than the situation implies.",
   twr_bowl: "True wicket-rate residual: wickets per 100 balls above expectation. Positive is good.",
-  matches: "Matches played in this format in this warehouse.",
+  matches: "Matches played in this format in this application.",
   inns: "Innings batted.",
   runs: "Career runs.",
   hs: "Highest score.",
@@ -3814,7 +3814,7 @@ async function showTwin() {
     if (!d.twins?.length) {
       const also = (d.also_played || []).map((r) => `${esc(r.competition)} (${r.inns})`).join(", ");
       $("tw-out").innerHTML = `<div class="empty"><p>${esc(d.message || "No neighbour in this pool.")}</p>${
-        also ? `<p class="caption">Also in this warehouse: ${also}</p>` : ""
+        also ? `<p class="caption">Also in this application: ${also}</p>` : ""
       }</div>`;
       return;
     }
@@ -4187,7 +4187,7 @@ async function showBuild() {
   main.innerHTML = `
     <h1 class="page-title">Build</h1>
     <h2 class="section">Status</h2>
-    <p>Last pull: ${esc(s.last_pull_display)} · Source: Cricsheet · Warehouse: ${mb} MB on disk · model ${esc(s.model_version)}</p>
+    <p>Last pull: ${esc(s.last_pull_display)} · Source: Cricsheet · Application: ${mb} MB on disk · model ${esc(s.model_version)}</p>
     <h2 class="section">Counts</h2>
     ${table(
       [
@@ -4200,7 +4200,7 @@ async function showBuild() {
     )}
     <h2 class="section">Actions</h2>
     <button class="btn primary" id="do-pull">Pull updates</button>
-    <button class="btn primary" id="do-build">Build warehouse</button>
+    <button class="btn primary" id="do-build">Build application</button>
     <button class="btn primary" id="do-metrics">Rebuild metrics</button>
     <button class="btn primary" id="do-form">Rebuild form ratings</button>
     <div class="log" id="job-log"></div>

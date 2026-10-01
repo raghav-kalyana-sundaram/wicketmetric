@@ -3,7 +3,7 @@ const DENSITY_KEY = "wm-density";
 const TRAY_KEY = "wm-tray";
 
 export const GLOSSARY = [
-  { id: "war", term: "WAR", body: "Wins above replacement in this warehouse. Replacement is the 20th-percentile qualifier in that competition-season-gender. More games count in the career total; WAR / game is the same pile divided by matches." },
+  { id: "war", term: "WAR", body: "Wins above replacement in this application. Replacement is the 20th-percentile qualifier in that competition-season-gender. More games count in the career total; WAR / game is the same pile divided by matches." },
   { id: "rae", term: "RAE", body: "Runs above expectation. Each ball is judged against the mean in that over-bucket, wickets down, innings, competition, and gender, then tilted by opposition strength. Not “runs added.”" },
   { id: "wpa", term: "WPA", body: "Win probability added. Change in the batting side’s chance of winning on that ball. Batter credit on scoring balls; bowler credit is the negative." },
   { id: "nrc", term: "NRC", body: "Net run contribution. Runs minus expected runs, plus a wicket price from the run-expectancy table. Not-outs keep value because that debit never fires." },
@@ -12,7 +12,7 @@ export const GLOSSARY = [
   { id: "pct", term: "Percentile", body: "Share of the filtered set you sit above. A 92 vs 98 still means something — fat-tail innings are not pinned at 99." },
   { id: "form", term: "Form", body: "A 0–10 Test rating among active players: recency-weighted RAA per Test, shrunk toward that player's own career. Median current regular is about 6.5; the best in the world sit around 9.3–9.6. Not comparable to overall (50–99)." },
   { id: "career", term: "Overall", body: "Test career value: 50/50 blend of accumulated RAA and a shrunk peak rate, linearly mapped so Bradman is 99 and a replacement regular is 50. Peak is the same scale over a window of at least 24 months and 20 innings." },
-  { id: "records", term: "Records", body: "Records here are records in this warehouse. Men's Tests from 1877 and ODIs from 1971 use Cricinfo scorecards where Cricsheet has no file; ball-by-ball (and fastest fifties/hundreds) is Cricsheet." },
+  { id: "records", term: "Records", body: "Records here are records in this application. Men's Tests from 1877 and ODIs from 1971 use Cricinfo scorecards where Cricsheet has no file; ball-by-ball (and fastest fifties/hundreds) is Cricsheet." },
   { id: "manhattan", term: "Manhattan", body: "One bar per over, height is runs off that over. A dot above the bar marks a wicket in it. Useful for finding where an innings turned." },
   { id: "chase_pct", term: "Chase %", body: "Share of decided matches at a ground won by the side batting second. Above 55% and the toss is worth having." },
   { id: "balls_to", term: "Balls to 50 / 100", body: "Balls the batter had faced when the milestone came up, counted from the ball-by-ball rows. No-balls faced count as balls." },
