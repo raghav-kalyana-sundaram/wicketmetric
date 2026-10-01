@@ -440,16 +440,21 @@ function fmtOvr(n) {
   return v.toFixed(1);
 }
 
+function ratingPrimary(form) {
+  return form?.career?.primary || form?.hero?.primary || form?.current?.primary || null;
+}
+
 function ovrCard({ kicker, n, bat, bowl, rank, title }) {
   const ovr = Number(n);
   if (!Number.isFinite(ovr)) return "";
+  const split = [
+    bat != null ? `<span>Bat ${fmtOvr(bat)}</span>` : "",
+    bowl != null ? `<span>Bowl ${fmtOvr(bowl)}</span>` : "",
+  ].join("");
   return `<div class="ovr-badge ovr-${ovrTone(ovr)}" title="${esc(title || kicker)}">
     <div class="ovr-kicker">${esc(kicker)}</div>
     <div class="ovr-n">${fmtOvr(ovr)}</div>
-    <div class="ovr-split">
-      ${bat != null ? `<span>Bat ${fmtOvr(bat)}</span>` : ""}
-      ${bowl != null ? `<span>Bowl ${fmtOvr(bowl)}</span>` : ""}
-    </div>
+    ${split ? `<div class="ovr-split">${split}</div>` : ""}
     ${rank ? `<div class="ovr-rank">${esc(rank)}</div>` : ""}
   </div>`;
 }
@@ -459,6 +464,8 @@ export function overallBadge(form) {
   const peak = form?.peak;
   const career = form?.career;
   const rank = form.rank && form.field ? `#${form.rank} of ${form.field}` : "";
+  const showBowl = ratingPrimary(form) !== "bat";
+  const bowlOf = (row) => (showBowl ? row?.bowl : null);
   const cards = [];
   const formN = cur?.form;
   const liveIsForm = formN != null && Number(formN) <= 10 && (career?.overall != null || cur?.overall > 10);
@@ -469,7 +476,7 @@ export function overallBadge(form) {
       kicker: "Peak",
       n: peakN,
       bat: career?.bat ?? cur?.bat,
-      bowl: career?.bowl ?? cur?.bowl,
+      bowl: bowlOf(career) ?? bowlOf(cur),
       title: form.caption || "Peak",
     });
     if (peakCard) cards.push(peakCard);
@@ -479,7 +486,7 @@ export function overallBadge(form) {
         kicker: "Overall",
         n: ovrN,
         bat: career?.bat,
-        bowl: career?.bowl,
+        bowl: bowlOf(career),
         rank,
         title: "Career overall — Test RAA, Bradman = 99",
       });
@@ -491,7 +498,7 @@ export function overallBadge(form) {
         kicker: "Form",
         n: formN,
         bat: cur?.bat,
-        bowl: cur?.bowl,
+        bowl: bowlOf(cur),
         title: form.caption || "Current Test form, 0–10",
       });
       if (formCard) cards.push(formCard);
@@ -500,7 +507,7 @@ export function overallBadge(form) {
         kicker: "Overall",
         n: cur.form ?? cur.overall,
         bat: cur.bat,
-        bowl: cur.bowl,
+        bowl: bowlOf(cur),
         rank,
         title: form.caption || "Form overall",
       });
@@ -512,7 +519,7 @@ export function overallBadge(form) {
         kicker: "Overall",
         n: careerN,
         bat: career?.bat,
-        bowl: career?.bowl,
+        bowl: bowlOf(career),
         rank: liveIsForm ? rank : "",
         title: "Career overall — Test RAA, Bradman = 99",
       });
@@ -556,7 +563,7 @@ function gappedPath(pts, key, fallback, X, Y) {
   return d;
 }
 
-export function overallChart(series, { width = 720, height = 220, career = null } = {}) {
+export function overallChart(series, { width = 720, height = 220, career = null, showBowl = true } = {}) {
   const pts = (series || []).filter((p) => p && p.as_of && (
     ovrVal(p, "form", "overall") != null || OVR_LINES.some((s) => ovrVal(p, s.key, s.fallback) != null)
   ));
@@ -586,7 +593,7 @@ export function overallChart(series, { width = 720, height = 220, career = null 
     t20i: ovrVal(p, "t20i"),
     t20: ovrVal(p, "t20"),
     bat: ovrVal(p, "bat"),
-    bowl: ovrVal(p, "bowl"),
+    bowl: showBowl ? ovrVal(p, "bowl") : null,
     is_99: false,
   }));
   const active = OVR_LINES.filter((s) => payload.some((p) => p[s.key] != null));
@@ -693,11 +700,12 @@ export function overallBlock(form) {
   if (!cur || (cur.form == null && cur.overall == null)) return "";
   const useCareerFmts = Boolean(form.retired && career);
   const src = useCareerFmts ? career : cur;
+  const showBowl = ratingPrimary(form) !== "bat";
   const fmts = [
-    ["Test", src.test, useCareerFmts ? null : src.bat_test, useCareerFmts ? null : src.bowl_test],
-    ["ODI", src.odi, useCareerFmts ? null : src.bat_odi, useCareerFmts ? null : src.bowl_odi],
-    ["T20I", src.t20i, useCareerFmts ? null : src.bat_t20i, useCareerFmts ? null : src.bowl_t20i],
-    ["T20", src.t20, useCareerFmts ? null : src.bat_t20, useCareerFmts ? null : src.bowl_t20],
+    ["Test", src.test, useCareerFmts ? null : src.bat_test, useCareerFmts || !showBowl ? null : src.bowl_test],
+    ["ODI", src.odi, useCareerFmts ? null : src.bat_odi, useCareerFmts || !showBowl ? null : src.bowl_odi],
+    ["T20I", src.t20i, useCareerFmts ? null : src.bat_t20i, useCareerFmts || !showBowl ? null : src.bowl_t20i],
+    ["T20", src.t20, useCareerFmts ? null : src.bat_t20, useCareerFmts || !showBowl ? null : src.bowl_t20],
   ].filter(([, ovr, bat, bowl]) => ovr != null || bat != null || bowl != null);
   const careerLine = career && career.form != null
     ? `Career ${fmtOvr(career.form)}${career.span ? ` · ${career.span}` : ""}${career.kept && career.n ? ` · better half of ${career.n} months` : ""}${career.cause ? ` · ${career.cause}` : ""}`
@@ -718,7 +726,7 @@ export function overallBlock(form) {
     ${peak ? `<p class="caption">${esc(peak)} · <a href="#/rankings?metric=peak">Peak overalls</a></p>` : ""}
     ${last ? `<p class="caption">${esc(last)}</p>` : ""}
     <p class="caption"><a href="#/rankings?metric=overall">Current overalls</a></p>
-    ${overallChart(form.series || [], { career: career?.form })}
+    ${overallChart(form.series || [], { career: career?.form, showBowl })}
   </section>`;
 }
 

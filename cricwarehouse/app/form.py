@@ -1184,7 +1184,7 @@ def cause_of(row: dict[str, Any], family: str | None = None) -> dict[str, Any]:
     parts = [FMT_LABEL[fam]]
     if bat is not None:
         parts.append(f"bat {_fmt_rating(bat)}")
-    if bowl is not None:
+    if bowl is not None and primary != "bat":
         parts.append(f"bowl {_fmt_rating(bowl)}")
     if primary == "bowl":
         parts.append(_fmt_stat(row.get(f"bowl_avg_{fam}"), 1, "avg"))
@@ -1259,7 +1259,7 @@ def _test_cause(row: dict[str, Any]) -> str:
     parts = ["Tests"]
     if row.get("bat") is not None:
         parts.append(f"bat {_fmt_rating(row['bat'])}")
-    if row.get("bowl") is not None:
+    if row.get("bowl") is not None and row.get("primary") != "bat":
         parts.append(f"bowl {_fmt_rating(row['bowl'])}")
     tests = row.get("tests")
     if tests:
