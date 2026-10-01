@@ -106,7 +106,7 @@ def list_match_composites(
 ) -> dict[str, Any]:
     """One row per player-match: bat and bowl value from the same night, added, then ranked."""
     if not warehouse_ready():
-        return {"rows": [], "caption": "Warehouse not built"}
+        return {"rows": [], "caption": "Application not built"}
     con = connect()
     try:
         if wtc:
@@ -226,7 +226,7 @@ def list_match_composites(
 
 def player_compare(a: str, b: str, *, pool: str | None = None) -> dict[str, Any]:
     if not warehouse_ready():
-        return {"ok": False, "error": "Warehouse not built"}
+        return {"ok": False, "error": "Application not built"}
     con = connect()
     try:
         pa, pb = resolve_person(con, a), resolve_person(con, b)
@@ -747,7 +747,7 @@ def _format_line(con, pid: str, comps: list[str] | None) -> dict[str, Any]:
 
 
 _CLASSIC_COPY = {
-    "matches": "Matches played in this format in this warehouse.",
+    "matches": "Matches played in this format in this application.",
     "inns": "Innings batted.",
     "runs": "Career runs.",
     "hs": "Highest score.",
@@ -892,7 +892,7 @@ def team_compare(
     gender: str = "male",
 ) -> dict[str, Any]:
     if not warehouse_ready():
-        return {"ok": False, "error": "Warehouse not built"}
+        return {"ok": False, "error": "Application not built"}
     con = connect()
     try:
         aliases = {
@@ -1210,7 +1210,7 @@ def profile_twin(
     full_members: bool = True,
 ) -> dict[str, Any]:
     if not warehouse_ready():
-        return {"ok": False, "error": "Warehouse not built"}
+        return {"ok": False, "error": "Application not built"}
     from cricwarehouse.app.twin import find_twins
 
     con = connect()
@@ -1239,7 +1239,7 @@ def profile_twin(
 def stat_shift(player: str, *, team: str | None = None, comp: str | None = None) -> dict[str, Any]:
     """How teammates' bowling/batting lines change with vs without this player."""
     if not warehouse_ready():
-        return {"ok": False, "error": "Warehouse not built"}
+        return {"ok": False, "error": "Application not built"}
     con = connect()
     try:
         person = resolve_person(con, player)

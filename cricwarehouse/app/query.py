@@ -307,7 +307,7 @@ def execute(raw: str) -> dict[str, Any]:
     if not warehouse_ready():
         return {
             "ok": False,
-            "error": "Warehouse not built yet. Run: python -m cricwarehouse pull && python -m cricwarehouse build — or open the Build page.",
+            "error": "Application not built yet. Run: python -m cricwarehouse pull && python -m cricwarehouse build — or open the Build page.",
             "parsed": parsed.__dict__,
         }
     dest_key = (parsed.bare_player or "").strip().lower()
@@ -653,7 +653,7 @@ def _exec_innings(con, parsed: ParsedQuery) -> dict:
             "ok": True,
             "kind": "empty",
             "title": parsed.raw,
-            "message": "Add a player, a score, or a filter — a bare query would dump the whole warehouse." + extra,
+            "message": "Add a player, a score, or a filter — a bare query would dump the whole application." + extra,
             "columns": [],
             "rows": [],
             "people": [],
@@ -935,7 +935,7 @@ def _exec_compare(con, parsed: ParsedQuery) -> dict:
         "right": b,
         "rows": rows,
         "caption": f"Δ = {a['display_name']} − {b['display_name']}",
-        "scope": _scope_line(tokens, 2, "in this warehouse"),
+        "scope": _scope_line(tokens, 2, "in this application"),
         "people": [a, b],
     }
 
@@ -1176,7 +1176,7 @@ def _exec_war(con, parsed: ParsedQuery) -> dict:
     return {
         "ok": True,
         "kind": "war",
-        "title": "WAR — in this warehouse",
+        "title": "WAR — in this application",
         "columns": [
             {"key": "rank", "label": "#", "align": "right", "numeric": True},
             {"key": "player", "label": "Player", "align": "left", "link": "player"},
@@ -1190,7 +1190,7 @@ def _exec_war(con, parsed: ParsedQuery) -> dict:
             {"key": "war", "label": "WAR", "align": "right", "numeric": True},
         ],
         "rows": use,
-        "scope": _scope_line(tokens, len(use), "qualifiers · in this warehouse"),
+        "scope": _scope_line(tokens, len(use), "qualifiers · in this application"),
         "redirect": "metrics",
     }
 
@@ -1340,7 +1340,7 @@ def _exec_split(con, parsed: ParsedQuery) -> dict:
         "rows": rows,
         "wpa": round(float(wpa), 2) if wpa is not None else None,
         "people": people,
-        "scope": _scope_line(tokens, len(recs), "in this warehouse"),
+        "scope": _scope_line(tokens, len(recs), "in this application"),
     }
 
 

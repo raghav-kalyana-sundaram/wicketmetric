@@ -64,7 +64,7 @@ def _destinations(q: str) -> list[dict]:
         {"id": "standings", "label": "Standings", "hint": "League points tables and playoffs"},
         {"id": "grounds", "label": "Grounds", "hint": "Venue records and whether the chase is on"},
         {"id": "wowy", "label": "WOWY", "hint": "With or without a player"},
-        {"id": "best", "label": "Best T20", "hint": "Greatest match composites in this warehouse"},
+        {"id": "best", "label": "Best T20", "hint": "Greatest match composites in this application"},
         {"id": "compare", "label": "Compare", "hint": "Two players, side by side"},
         {"id": "teams", "label": "Team compare", "hint": "Two sides, same season"},
         {"id": "twin", "label": "Profile twin", "hint": "Who plays like this — style first, value as a filter"},
@@ -92,7 +92,7 @@ def master_stats(
     wtc: bool = False,
 ) -> dict[str, Any]:
     if not warehouse_ready():
-        return {"rows": [], "scope": "Warehouse not built"}
+        return {"rows": [], "scope": "Application not built"}
     con = connect()
     try:
         if wtc:
@@ -350,7 +350,7 @@ def rankings(*, metric: str = "runs", comp: str | None = None, gender: str | Non
 
 def _war_rankings(*, comp: str | None, gender: str | None) -> dict:
     if not warehouse_ready():
-        return {"rows": [], "scope": "Warehouse not built", "metric": "war"}
+        return {"rows": [], "scope": "Application not built", "metric": "war"}
     con = connect()
     try:
         where = ["1=1"]
@@ -402,7 +402,7 @@ def _war_rankings(*, comp: str | None, gender: str | None) -> dict:
 
 def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None = None) -> dict[str, Any]:
     if not warehouse_ready():
-        return {"ok": False, "error": "Warehouse not built yet."}
+        return {"ok": False, "error": "Application not built yet."}
     con = connect()
     try:
         people = _people_match(con, player)
@@ -510,7 +510,7 @@ def wowy(*, team: str, player: str, comp: str | None = None, gender: str | None 
             "team": side,
             "people": people,
             "rows": rows,
-            "scope": f"{side} · {person['display_name']} · from {first[:10] if first else '—'} · in this warehouse",
+            "scope": f"{side} · {person['display_name']} · from {first[:10] if first else '—'} · in this application",
             "available_from": first,
             "caption": (
                 f"Only matches on or after {person['display_name']}'s first XI for {side}"
@@ -1305,7 +1305,7 @@ def list_performances(
     limit: int = 50,
 ) -> dict[str, Any]:
     if not warehouse_ready():
-        return {"rows": [], "scope": "Warehouse not built"}
+        return {"rows": [], "scope": "Application not built"}
     con = connect()
     try:
         if wtc:
@@ -1368,7 +1368,7 @@ def _scope(comp, gender, n, wtc=False) -> str:
         bits.append("Men" if gender == "male" else "Women")
     if wtc:
         bits.append("WTC sides")
-    bits.append("in this warehouse")
+    bits.append("in this application")
     return " · ".join(bits)
 
 
@@ -1562,7 +1562,7 @@ DISMISS_LABEL = {
 
 
 def player_almanac(con, person_id: str) -> dict[str, Any]:
-    """Counting cuts a fan expects on a player page — from lines already in the warehouse."""
+    """Counting cuts a fan expects on a player page — from lines already in the application."""
 
     def rows(sql: str, params: list[Any] | tuple[Any, ...] = ()) -> list[dict]:
         try:

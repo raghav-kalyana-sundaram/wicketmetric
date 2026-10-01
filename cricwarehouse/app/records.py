@@ -1,7 +1,7 @@
 """Record books, ground pages, and team records — the browse-first cuts a fan asks for.
 
-Everything here reads the same Parquet lines the rest of the warehouse uses. Records are
-"in this warehouse": men's Tests from 1877 and ODIs from 1971 come from Cricinfo
+Everything here reads the same Parquet lines the rest of the application uses. Records are
+"in this application": men's Tests from 1877 and ODIs from 1971 come from Cricinfo
 scorecards where Cricsheet has no file (no ball-by-ball on those matches), and
 Cricsheet covers the ball-by-ball era plus the listed T20 leagues. Fastest
 fifties/hundreds still need deliveries.
@@ -177,7 +177,7 @@ def _scope_line(comp: str | None, gender: str | None, wtc: bool, n: int) -> str:
         {"male": "Men", "female": "Women"}.get(gender or "", "All"),
         "WTC sides only" if wtc else "",
         f"{n} rows",
-        "in this warehouse",
+        "in this application",
     ]
     return " · ".join(b for b in bits if b)
 
@@ -493,7 +493,7 @@ def venue_list(q: str = "", limit: int = 40) -> dict[str, Any]:
 def venue(*, name: str, comp: str | None = None, gender: str | None = None) -> dict[str, Any]:
     """A ground page: does it favour the chase, and who has runs and wickets here."""
     if not warehouse_ready():
-        return {"ok": False, "error": "Warehouse not built yet."}
+        return {"ok": False, "error": "Application not built yet."}
     con = connect()
     try:
         resolved = con.execute(
@@ -648,7 +648,7 @@ def _result_line_local(r: dict) -> str:
 def team(*, name: str, comp: str | None = None, gender: str | None = None) -> dict[str, Any]:
     """A side's record, head-to-head ledger, and the players who did the work."""
     if not warehouse_ready():
-        return {"ok": False, "error": "Warehouse not built yet."}
+        return {"ok": False, "error": "Application not built yet."}
     con = connect()
     try:
         side = resolve_team(con, name)

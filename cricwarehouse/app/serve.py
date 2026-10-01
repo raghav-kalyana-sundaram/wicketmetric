@@ -203,7 +203,7 @@ def create_app() -> FastAPI:
     @app.get("/api/portrait/{key}")
     def api_portrait(key: str, warm: bool = False):
         if not warehouse_ready():
-            raise HTTPException(404, "No warehouse")
+            raise HTTPException(404, "Application not built")
         con = connect()
         try:
             person = _lookup_person(con, key)
@@ -324,7 +324,7 @@ def create_app() -> FastAPI:
     @app.get("/api/match/{match_id}")
     def api_match(match_id: str):
         if not warehouse_ready():
-            raise HTTPException(400, "Warehouse not built yet.")
+            raise HTTPException(400, "Application not built yet.")
         con = connect()
         try:
             m = con.execute("SELECT * FROM matches WHERE match_id = ?", [match_id]).fetchdf()
@@ -431,7 +431,7 @@ def create_app() -> FastAPI:
     @app.get("/api/player/{key}")
     def api_player(key: str):
         if not warehouse_ready():
-            raise HTTPException(400, "Warehouse not built yet.")
+            raise HTTPException(400, "Application not built yet.")
         con = connect()
         try:
             p = _lookup_person(con, key)
@@ -599,7 +599,7 @@ def create_app() -> FastAPI:
     @app.get("/api/player/{key}/value")
     def api_player_value(key: str, pool: str | None = None):
         if not warehouse_ready():
-            raise HTTPException(400, "Warehouse not built yet.")
+            raise HTTPException(400, "Application not built yet.")
         con = connect()
         try:
             person = _lookup_person(con, key)
@@ -612,7 +612,7 @@ def create_app() -> FastAPI:
     @app.get("/api/player/{key}/resource")
     def api_player_resource(key: str, comp: str | None = None):
         if not warehouse_ready():
-            raise HTTPException(400, "Warehouse not built yet.")
+            raise HTTPException(400, "Application not built yet.")
         con = connect()
         try:
             person = _lookup_person(con, key)
@@ -734,7 +734,7 @@ def create_app() -> FastAPI:
     @app.post("/api/sql")
     async def api_sql(request: Request):
         if not warehouse_ready():
-            raise HTTPException(400, "Warehouse not built yet.")
+            raise HTTPException(400, "Application not built yet.")
         data = await request.json()
         sql = str(data.get("sql") or "").strip().rstrip(";")
         if ";" in sql:
@@ -856,7 +856,7 @@ def create_app() -> FastAPI:
         return StreamingResponse(
             iter([buf.getvalue()]),
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=warehouse.csv"},
+            headers={"Content-Disposition": "attachment; filename=wicketmetric.csv"},
         )
 
     @app.get("/api/job/{kind}")
@@ -952,7 +952,7 @@ def _metrics_scope(comp, season, gender, qualifiers, n) -> str:
         season or "",
         GENDER_LABEL.get(gender, gender),
         "Qualifiers (≥60 balls)" if qualifiers else "All players — no qualifier floor",
-        "in this warehouse",
+        "in this application",
     ]
     return " · ".join(p for p in parts if p)
 
