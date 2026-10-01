@@ -16,7 +16,7 @@ from cricwarehouse.competitions import T20_METRICS
 from cricwarehouse.teams import POOL_LABELS, default_pool, parse_comps, wtc_match_sql
 
 # Cricsheet ball-by-ball begins here for the mixed formats. T20 competitions
-# in this warehouse are complete; men's Tests and ODIs are not.
+# in this application are complete; men's Tests and ODIs are not.
 TIER_WALL = {
     "test": "2001-12-19",
     "odi": "2002-06-27",

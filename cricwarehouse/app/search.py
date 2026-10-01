@@ -2,7 +2,7 @@
 
 The old path treated leftover words as the player name and scanned `xi` on every
 keystroke. “Sachin Tendulkar New Zealand 94” became a person called that, then a
-full warehouse scan. This module keeps a process-local people/team index and
+full application scan. This module keeps a process-local people/team index and
 lifts cricket English into the same tokens the query executor already understands.
 """
 

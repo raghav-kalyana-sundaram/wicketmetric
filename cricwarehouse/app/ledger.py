@@ -60,7 +60,7 @@ def attach_clocks(df: pd.DataFrame) -> pd.DataFrame:
         d_bat = df["d_bat"].fillna(0).to_numpy(dtype=np.int16)
         d_bowl = df["d_bowl"].fillna(0).to_numpy(dtype=np.int16)
     else:
-        # Warehouses built before the attribution columns existed.
+        # Copies built before the attribution columns existed.
         d_team = kind.isin(TEAM_WICKET).to_numpy(dtype=np.int16)
         d_bat = kind.isin(BATTER_CHARGED).to_numpy(dtype=np.int16)
         d_bowl = kind.isin(BOWLER_CREDITED).to_numpy(dtype=np.int16)

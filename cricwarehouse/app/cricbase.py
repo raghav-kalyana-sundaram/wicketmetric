@@ -182,7 +182,7 @@ def load_historical(
     existing_ids: set[str] | None = None,
     cache_dir: Path | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Map cricinfo-source cricbase rows onto warehouse table dicts."""
+    """Map cricinfo-source cricbase rows onto application table dicts."""
     path = db_path or CRICBASE_DB
     if not path.exists():
         return _empty_buckets()
@@ -590,7 +590,7 @@ def _replace_parquet_by_match(name: str, new_rows: list[dict], match_ids: set[st
 
 
 def stamp_sources(*, db_path: Path | None = None) -> int:
-    """Mark warehouse matches that came from cricbase so the UI can say so."""
+    """Mark application matches that came from cricbase so the UI can say so."""
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -646,7 +646,7 @@ def purge_dnb_batting(*, db_path: Path | None = None) -> int:
 
 
 def merge_historical(*, db_path: Path | None = None) -> dict[str, Any]:
-    """Append cricinfo scorecards onto an already-built warehouse.
+    """Append cricinfo scorecards onto an already-built application.
 
     Scorecard tables for every cricinfo match are replaced so a later mapping
     fix (DNB as wickets, FOW partnerships) lands without a full rebuild.
@@ -705,7 +705,7 @@ def ingest_into_build(
     *,
     db_path: Path | None = None,
 ) -> dict[str, int]:
-    """Used by a full warehouse build: extend in-memory buckets before write."""
+    """Used by a full application build: extend in-memory buckets before write."""
     existing = {m["match_id"] for m in buckets.get("matches", [])}
     hist = load_historical(db_path, existing_ids=existing)
     people_seen = {p["person_id"] for p in buckets.get("people", [])}

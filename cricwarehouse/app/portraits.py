@@ -10,7 +10,7 @@ import httpx
 
 from cricwarehouse.paths import PORTRAITS, ensure_dirs
 
-UA = "WicketMetric/1.1 (localhost cricket warehouse; portraits; https://cricsheet.org)"
+UA = "WicketMetric/1.1 (localhost cricket application; portraits; https://cricsheet.org)"
 SPARQL = "https://query.wikidata.org/sparql"
 _LOCK = threading.Lock()
 _GATE = threading.Semaphore(3)

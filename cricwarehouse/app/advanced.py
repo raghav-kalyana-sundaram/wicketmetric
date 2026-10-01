@@ -115,7 +115,7 @@ STRENGTH_EDGES = (1450.0, 1520.0, 1580.0, 1650.0, 1750.0)
 
 # Opposition strength is deliberately absent here. It looks like it belongs, but
 # a tier's scoring rate is set by its batting and its pitches as much as by its
-# bowling: in this warehouse men's T20I strike rate against the weakest attacks
+# bowling: in this application men's T20I strike rate against the weakest attacks
 # is 116 and against the strongest is 127. Conditioning on it would therefore
 # lower par in weak cricket and pay players there more, which is backwards.
 # Within a pool only relative quality is identified at all, so the tier is used
@@ -1717,7 +1717,7 @@ def run_audit(
     chase: dict[tuple, resource.ChaseTable],
     players: pd.DataFrame,
 ) -> list[dict]:
-    """The invariants of Section 17, evaluated on the built warehouse."""
+    """The invariants of Section 17, evaluated on the built application."""
     out: list[dict] = []
     scored = df[df["scored"]]
 
